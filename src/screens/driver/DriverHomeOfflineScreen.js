@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getAuthToken, removeAuthToken } from '../../utils/auth'; // Added removeAuthToken
 
 // Backend URL
-const baseUrl = 'http://172.20.10.9:8000';
+const baseUrl = 'https://wheels-backend.vercel.app';
 
 export default function DriverHomeOfflineScreen() {
   const navigation = useNavigation();

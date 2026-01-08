@@ -15,7 +15,7 @@ import axios from 'axios';
 import Constants from 'expo-constants';
 import { useNavigation, useRoute } from '@react-navigation/native';
 const { width, height } = Dimensions.get('window');
-const baseUrl = 'http://172.20.10.9:8000';
+const baseUrl = 'https://wheels-backend.vercel.app'
 export default function RideRequestScreen() {
 const navigation = useNavigation();
 const route = useRoute();

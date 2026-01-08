@@ -10,10 +10,14 @@ import {
   Platform,
   ScrollView,
   Image,
-  Alert,
+  Dimensions,
+  Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+
+const WHEELA_LOGO = require('../../../assets/logo3.png');
+const { width, height } = Dimensions.get('window');
 
 const BASE_URL = 'https://wheels-backend.vercel.app';
 
@@ -45,6 +49,11 @@ export default function LoginScreen({ navigation }) {
   const [identifier, setIdentifier] = useState('+234');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
+  const [errorModalVisible, setErrorModalVisible] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [welcomeName, setWelcomeName] = useState('');
+  const [userRole, setUserRole] = useState('passenger');
 
   const formatIdentifier = (text) => {
     if (!text) return '+234';
@@ -71,11 +80,13 @@ export default function LoginScreen({ navigation }) {
 
   const handleLogin = async () => {
     if (!identifier.trim() || identifier === '+234') {
-      Alert.alert('Error', 'Please enter your phone number or email');
+      setErrorMessage('Please enter your phone number or email');
+      setErrorModalVisible(true);
       return;
     }
     if (!password) {
-      Alert.alert('Error', 'Please enter your password');
+      setErrorMessage('Please enter your password');
+      setErrorModalVisible(true);
       return;
     }
 
@@ -88,7 +99,8 @@ export default function LoginScreen({ navigation }) {
 
       const { token, user } = response.data;
       if (!token || !user) {
-        Alert.alert('Error', 'Invalid response from server');
+        setErrorMessage('Invalid response from server');
+        setErrorModalVisible(true);
         return;
       }
 
@@ -100,19 +112,9 @@ export default function LoginScreen({ navigation }) {
         [ROLE_KEY, isDriver ? 'driver' : 'passenger'],
       ]);
 
-      Alert.alert('Success! 🎉', `Welcome back, ${user.name || 'Rider'}!`, [
-        {
-          text: 'OK',
-          onPress: () => {
-            if (isDriver) {
-              navigation.replace('DriverHomeOffline');
-            } else {
-              // THIS IS THE FIX
-              navigation.replace('PassengerMain'); // Matches App.js wrapper
-            }
-          },
-        },
-      ]);
+      setWelcomeName(user.name || 'Rider');
+      setUserRole(isDriver ? 'driver' : 'passenger');
+      setSuccessModalVisible(true);
     } catch (err) {
       let message = 'Invalid credentials. Please try again.';
       if (err.response?.data?.error?.message) {
@@ -122,135 +124,354 @@ export default function LoginScreen({ navigation }) {
       } else if (err.code === 'ECONNABORTED') {
         message = 'Request timeout. Try again.';
       }
-      Alert.alert('Login Failed', message);
+      setErrorMessage(message);
+      setErrorModalVisible(true);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleSuccessClose = () => {
+    setSuccessModalVisible(false);
+    if (userRole === 'driver') {
+      navigation.replace('DriverHomeOffline');
+    } else {
+      navigation.replace('PassengerMain');
+    }
+  };
+
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-    >
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        <View style={styles.logoContainer}>
-          <Image source={require('../../../assets/logo.jpg')} style={styles.logo} resizeMode="contain" />
-          <Text style={styles.logoText}>WHEELA</Text>
-        </View>
-
-        <Text style={styles.subtitle}>Log in to continue your journey</Text>
-
-        <TextInput
-          placeholder="Phone Number or Email"
-          placeholderTextColor="#AAAAAA"
-          value={identifier}
-          onChangeText={handleIdentifierChange}
-          style={styles.input}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-
-        <TextInput
-          placeholder="Password"
-          placeholderTextColor="#AAAAAA"
-          value={password}
-          onChangeText={setPassword}
-          style={styles.input}
-          secureTextEntry
-          autoCapitalize="none"
-        />
-
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleLogin}
-          disabled={loading}
-          activeOpacity={0.9}
+    <View style={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContainer}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+          keyboardShouldPersistTaps="handled"
         >
-          {loading ? (
-            <ActivityIndicator color="#010C44" size="small" />
-          ) : (
-            <Text style={styles.buttonText}>Log In</Text>
-          )}
-        </TouchableOpacity>
+          {/* Top Illustration */}
+          <View style={styles.illustrationContainer}>
+            <Image
+              source={{
+                uri: 'https://i.pinimg.com/736x/cb/1a/dc/cb1adcef16f08dec5eae14bf38b4b65e.jpg',
+              }}
+              style={styles.illustration}
+              resizeMode="cover"
+            />
+            <View style={styles.overlay} />
+          </View>
 
-        <TouchableOpacity onPress={() => navigation.navigate('Signup')} style={styles.signupLink}>
-          <Text style={styles.signupText}>
-            Don't have an account? <Text style={{ fontWeight: '800' }}>Sign Up</Text>
-          </Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </KeyboardAvoidingView>
+          {/* White Content Card */}
+          <View style={styles.contentCard}>
+            <Text style={styles.title}>Welcome Back</Text>
+            <Text style={styles.subtitle}>
+              Log in to continue your journey
+            </Text>
+
+            {/* Form Fields */}
+            <TextInput
+              placeholder="Phone Number or Email"
+              placeholderTextColor="#94A3B8"
+              value={identifier}
+              onChangeText={handleIdentifierChange}
+              style={styles.input}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            <TextInput
+              placeholder="Password"
+              placeholderTextColor="#94A3B8"
+              value={password}
+              onChangeText={setPassword}
+              style={styles.input}
+              secureTextEntry
+              autoCapitalize="none"
+            />
+
+            {/* Login Button */}
+            <TouchableOpacity
+              style={[styles.button, loading && styles.buttonDisabled]}
+              onPress={handleLogin}
+              disabled={loading}
+              activeOpacity={0.8}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.buttonText}>Log In</Text>
+              )}
+            </TouchableOpacity>
+
+            {/* Signup Link */}
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Signup')}
+              style={styles.signupContainer}
+            >
+              <Text style={styles.signupText}>
+                Don't have an account? <Text style={styles.signupLink}>Sign Up</Text>
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Logo - Overlapping between sections */}
+          <View style={styles.logoContainer}>
+            <Image
+              source={WHEELA_LOGO}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      {/* Success Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={successModalVisible}
+        onRequestClose={handleSuccessClose}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.successIconContainer}>
+              <Text style={styles.successIcon}>✓</Text>
+            </View>
+            <Text style={styles.modalTitle}>Welcome Back!</Text>
+            <Text style={styles.modalMessage}>
+              Hi {welcomeName}, great to see you again
+            </Text>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={handleSuccessClose}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modalButtonText}>Continue</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Error Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={errorModalVisible}
+        onRequestClose={() => setErrorModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.errorIconContainer}>
+              <Text style={styles.errorIcon}>✕</Text>
+            </View>
+            <Text style={styles.modalTitle}>Oops!</Text>
+            <Text style={styles.modalMessage}>{errorMessage}</Text>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => setErrorModalVisible(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modalButtonText}>Try Again</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  scrollContainer: {
     flexGrow: 1,
-    backgroundColor: '#010C44',
+    backgroundColor: '#FFFFFF',
+    paddingBottom: 20,
+  },
+  illustrationContainer: {
+    width: width,
+    height: height * 0.38,
+    overflow: 'hidden',
+  },
+  illustration: {
+    width: '100%',
+    height: '100%',
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 176, 243, 0.15)',
+  },
+  contentCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     paddingHorizontal: 32,
-    paddingTop: 60,
-    paddingBottom: 40,
-    justifyContent: 'center',
+    paddingTop: 70,
+    paddingBottom: 30,
+    marginTop: -30,
   },
   logoContainer: {
+    position: 'absolute',
+    top: height * 0.38 - 60,
+    alignSelf: 'center',
+    width: 100,
+    height: 100,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 50,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 40,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
   },
   logo: {
-    width: 120,
-    height: 120,
-    marginBottom: 16,
+    width: 65,
+    height: 65,
   },
-  logoText: {
-    color: '#FFFFFF',
-    fontSize: 40,
+  title: {
+    fontSize: 26,
     fontWeight: '800',
-    letterSpacing: 4,
+    color: '#0A2540',
+    textAlign: 'center',
+    marginBottom: 8,
   },
   subtitle: {
-    color: '#FFFFFFAA',
-    fontSize: 16,
+    fontSize: 15,
+    color: '#64748B',
     textAlign: 'center',
-    marginBottom: 48,
+    marginBottom: 32,
   },
   input: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
     paddingHorizontal: 20,
-    paddingVertical: 18,
-    borderRadius: 16,
-    fontSize: 17,
+    paddingVertical: 16,
+    borderRadius: 12,
+    fontSize: 16,
     marginBottom: 16,
-    color: '#010C44',
+    color: '#0A2540',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   button: {
     backgroundColor: '#00B0F3',
-    paddingVertical: 20,
-    borderRadius: 16,
+    paddingVertical: 18,
+    borderRadius: 12,
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 8,
     shadowColor: '#00B0F3',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 15,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
   },
   buttonDisabled: {
+    backgroundColor: '#64B5F6',
     opacity: 0.7,
   },
   buttonText: {
-    color: '#010C44',
+    color: '#FFFFFF',
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '700',
   },
-  signupLink: {
-    marginTop: 24,
+  signupContainer: {
+    alignItems: 'center',
+    marginTop: 20,
   },
   signupText: {
-    color: '#FFFFFFAA',
     fontSize: 15,
+    color: '#64748B',
+  },
+  signupLink: {
+    color: '#00B0F3',
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 32,
+    width: width * 0.85,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 15,
+  },
+  successIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#E8F8F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  successIcon: {
+    fontSize: 48,
+    color: '#00B0F3',
+    fontWeight: '700',
+  },
+  errorIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FEE',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  errorIcon: {
+    fontSize: 48,
+    color: '#EF4444',
+    fontWeight: '700',
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#0A2540',
+    marginBottom: 12,
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: '#64748B',
     textAlign: 'center',
+    marginBottom: 28,
+    lineHeight: 24,
+  },
+  modalButton: {
+    backgroundColor: '#00B0F3',
+    paddingVertical: 16,
+    paddingHorizontal: 40,
+    borderRadius: 12,
+    width: '100%',
+    alignItems: 'center',
+    shadowColor: '#00B0F3',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  modalButtonText: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
   },
 });

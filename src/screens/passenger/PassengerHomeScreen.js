@@ -47,31 +47,54 @@ export default function PassengerHomeScreen() {
   const [routeCoords, setRouteCoords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showRideModal, setShowRideModal] = useState(false);
-  const [routeDistance, setRouteDistance] = useState(0); // in km
-  const [routeDuration, setRouteDuration] = useState(0); // in seconds
+  const [routeDistance, setRouteDistance] = useState(0);
+  const [routeDuration, setRouteDuration] = useState(0);
 
   useEffect(() => {
+    let isMounted = true;
+
     (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Location access is required.');
-        return;
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'Location access is required.');
+          setLoading(false);
+          return;
+        }
+
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+
+        if (!isMounted) return;
+
+        const region = {
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          latitudeDelta: LATITUDE_DELTA,
+          longitudeDelta: LONGITUDE_DELTA,
+        };
+
+        setCurrentLocation(region);
+        setPickupLocation(region);
+        await reverseGeocode(region, true);
+        setLoading(false);
+
+        if (mapRef.current) {
+          mapRef.current.animateToRegion(region, 1000);
+        }
+      } catch (error) {
+        console.error('Location error:', error);
+        if (isMounted) {
+          Alert.alert('Error', 'Could not get your location. Please try again.');
+          setLoading(false);
+        }
       }
-
-      const loc = await Location.getCurrentPositionAsync({});
-      const region = {
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-        latitudeDelta: LATITUDE_DELTA,
-        longitudeDelta: LONGITUDE_DELTA,
-      };
-
-      setCurrentLocation(region);
-      setPickupLocation(region);
-      await reverseGeocode(region, true);
-      setLoading(false);
-      mapRef.current?.animateToRegion(region, 1000);
     })();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const reverseGeocode = async (coords, isPickup = false) => {
@@ -79,32 +102,29 @@ export default function PassengerHomeScreen() {
       const addresses = await Location.reverseGeocodeAsync(coords);
       if (addresses.length > 0) {
         const addr = addresses[0];
-        const fullAddress = [addr.street || addr.name, addr.city || addr.subregion, addr.region]
-          .filter(Boolean)
-          .join(', ') || 'Current Location';
+        const fullAddress =
+          [addr.street || addr.name, addr.city || addr.subregion, addr.region]
+            .filter(Boolean)
+            .join(', ') || 'Current Location';
         if (isPickup) setPickupAddress(fullAddress);
         else setDropoffAddress(fullAddress);
       }
     } catch (err) {
+      console.error('Reverse geocode error:', err);
       if (isPickup) setPickupAddress('Current Location');
     }
   };
 
-  // Fetch route from LocationIQ
   const fetchLocationIQRoute = async (origin, destination) => {
     try {
       const url = `https://us1.locationiq.com/v1/directions/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?key=${LOCATIONIQ_API_KEY}&steps=true&alternatives=false&geometries=polyline&overview=full`;
-
+      
       const response = await fetch(url);
       const data = await response.json();
 
       if (data.routes && data.routes.length > 0) {
         const route = data.routes[0];
-        
-        // Decode polyline
         const coordinates = decodePolyline(route.geometry);
-        
-        // Get distance (in meters) and duration (in seconds)
         const distanceInKm = route.distance / 1000;
         const durationInSec = route.duration;
 
@@ -123,7 +143,6 @@ export default function PassengerHomeScreen() {
     }
   };
 
-  // Decode polyline (Google's polyline encoding algorithm)
   const decodePolyline = (encoded) => {
     const points = [];
     let index = 0;
@@ -158,16 +177,13 @@ export default function PassengerHomeScreen() {
         longitude: lng / 1e5,
       });
     }
-
     return points;
   };
 
   const displayRoute = async (origin, destination) => {
     if (!origin || !destination) return;
 
-    // Show loading indicator
     setLoading(true);
-
     const routeData = await fetchLocationIQRoute(origin, destination);
 
     if (routeData) {
@@ -175,18 +191,17 @@ export default function PassengerHomeScreen() {
       setRouteDistance(routeData.distance);
       setRouteDuration(routeData.duration);
 
-      // Calculate fare based on actual road distance
       const ride = RIDE_TYPES.find((r) => r.id === selectedRideType);
       const fare = Math.round(500 + routeData.distance * 150 * ride.multiplier);
       setEstimatedFare(fare);
 
-      // Fit map to show entire route
-      mapRef.current?.fitToCoordinates(routeData.coordinates, {
-        edgePadding: { top: 100, right: 100, bottom: 400, left: 100 },
-        animated: true,
-      });
+      if (mapRef.current) {
+        mapRef.current.fitToCoordinates(routeData.coordinates, {
+          edgePadding: { top: 100, right: 100, bottom: 400, left: 100 },
+          animated: true,
+        });
+      }
     }
-
     setLoading(false);
   };
 
@@ -205,7 +220,6 @@ export default function PassengerHomeScreen() {
   const selectRide = (rideId) => {
     setSelectedRideType(rideId);
     setShowRideModal(false);
-
     if (routeDistance > 0) {
       const ride = RIDE_TYPES.find((r) => r.id === rideId);
       const fare = Math.round(500 + routeDistance * 150 * ride.multiplier);
@@ -213,7 +227,6 @@ export default function PassengerHomeScreen() {
     }
   };
 
-  // Format duration for display
   const formatDuration = (seconds) => {
     const minutes = Math.round(seconds / 60);
     return `${minutes} min`;
@@ -238,7 +251,6 @@ export default function PassengerHomeScreen() {
         showsUserLocation={true}
         showsMyLocationButton={false}
       >
-        {/* Pickup Marker */}
         {pickupLocation && (
           <Marker coordinate={pickupLocation}>
             <View style={styles.pickupMarker}>
@@ -247,7 +259,6 @@ export default function PassengerHomeScreen() {
           </Marker>
         )}
 
-        {/* Dropoff Marker */}
         {dropoffLocation && (
           <Marker coordinate={dropoffLocation}>
             <View style={styles.dropoffMarker}>
@@ -256,10 +267,8 @@ export default function PassengerHomeScreen() {
           </Marker>
         )}
 
-        {/* Road-Following Polyline from LocationIQ */}
         {routeCoords.length > 0 && (
           <>
-            {/* Subtle shadow underneath for depth */}
             <Polyline
               coordinates={routeCoords}
               strokeColor="rgba(0,0,0,0.2)"
@@ -267,7 +276,6 @@ export default function PassengerHomeScreen() {
               lineCap="round"
               lineJoin="round"
             />
-            {/* Main vibrant blue route on top */}
             <Polyline
               coordinates={routeCoords}
               strokeColor="#00B0F3"
@@ -279,7 +287,6 @@ export default function PassengerHomeScreen() {
         )}
       </MapView>
 
-      {/* Loading overlay when fetching route */}
       {loading && currentLocation && (
         <View style={styles.routeLoadingOverlay}>
           <ActivityIndicator size="large" color="#00B0F3" />
@@ -287,7 +294,6 @@ export default function PassengerHomeScreen() {
         </View>
       )}
 
-      {/* Top Bar */}
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.menuButton}
@@ -295,12 +301,16 @@ export default function PassengerHomeScreen() {
         >
           <Ionicons name="menu" size={32} color="#000" />
         </TouchableOpacity>
+
         <TouchableOpacity
           style={styles.currentLocationButton}
-          onPress={() => currentLocation && mapRef.current?.animateToRegion(currentLocation, 1000)}
+          onPress={() =>
+            currentLocation && mapRef.current?.animateToRegion(currentLocation, 1000)
+          }
         >
           <Ionicons name="locate" size={28} color="#00B0F3" />
         </TouchableOpacity>
+
         <TouchableOpacity
           style={styles.profileButton}
           onPress={() => navigation.navigate('Profile')}
@@ -309,7 +319,6 @@ export default function PassengerHomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Search Card */}
       <View style={styles.searchCard}>
         <View style={styles.locationRow}>
           <Ionicons name="location" size={22} color="#00B0F3" />
@@ -317,7 +326,9 @@ export default function PassengerHomeScreen() {
             {pickupAddress}
           </Text>
         </View>
+
         <View style={styles.divider} />
+
         <TouchableOpacity style={styles.locationRow} onPress={goToSearchDestination}>
           <Ionicons name="flag" size={22} color="#FF4444" />
           <Text style={[styles.addressText, !dropoffAddress && styles.placeholder]}>
@@ -340,34 +351,34 @@ export default function PassengerHomeScreen() {
           )}
         </TouchableOpacity>
 
-        {/* Route Info */}
         {routeDistance > 0 && (
           <View style={styles.routeInfo}>
             <View style={styles.routeInfoItem}>
               <Ionicons name="navigate" size={16} color="#666" />
-              <Text style={styles.routeInfoText}>
-                {routeDistance.toFixed(1)} km
-              </Text>
+              <Text style={styles.routeInfoText}>{routeDistance.toFixed(1)} km</Text>
             </View>
             <View style={styles.routeInfoItem}>
               <Ionicons name="time" size={16} color="#666" />
-              <Text style={styles.routeInfoText}>
-                {formatDuration(routeDuration)}
-              </Text>
+              <Text style={styles.routeInfoText}>{formatDuration(routeDuration)}</Text>
             </View>
           </View>
         )}
       </View>
 
-      {/* Bottom Panel - Only when destination selected */}
       {dropoffLocation && estimatedFare && (
         <View style={styles.bottomPanel}>
-          <TouchableOpacity style={styles.rideSelector} onPress={() => setShowRideModal(true)}>
+          <TouchableOpacity
+            style={styles.rideSelector}
+            onPress={() => setShowRideModal(true)}
+          >
             <View style={styles.rideLeft}>
               <View
                 style={[
                   styles.rideIcon,
-                  { backgroundColor: RIDE_TYPES.find((r) => r.id === selectedRideType)?.color },
+                  {
+                    backgroundColor: RIDE_TYPES.find((r) => r.id === selectedRideType)
+                      ?.color,
+                  },
                 ]}
               >
                 <Ionicons
@@ -414,7 +425,6 @@ export default function PassengerHomeScreen() {
         </View>
       )}
 
-      {/* Ride Type Modal */}
       <Modal visible={showRideModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -424,6 +434,7 @@ export default function PassengerHomeScreen() {
                 <Ionicons name="close" size={28} color="#000" />
               </TouchableOpacity>
             </View>
+
             <FlatList
               data={RIDE_TYPES}
               keyExtractor={(item) => item.id}
@@ -448,8 +459,7 @@ export default function PassengerHomeScreen() {
                     ₦
                     {estimatedFare
                       ? Math.round(
-                          estimatedFare *
-                            item.multiplier /
+                          (estimatedFare * item.multiplier) /
                             RIDE_TYPES.find((r) => r.id === selectedRideType)?.multiplier
                         ).toLocaleString()
                       : '---'}
@@ -461,7 +471,6 @@ export default function PassengerHomeScreen() {
         </View>
       </Modal>
 
-      {/* Instructions Tooltip */}
       {!dropoffLocation && (
         <View style={styles.instructionsTooltip}>
           <Ionicons name="information-circle" size={20} color="#00B0F3" />

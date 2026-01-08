@@ -16,6 +16,7 @@ import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { DrawerActions } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
 const ASPECT_RATIO = width / height;
@@ -28,7 +29,7 @@ const HAULAGE_TYPES = [
   { id: 'SMALL_VAN', name: 'Small Van', icon: 'car-outline', color: '#00B0F3', baseFare: 8000, perKm: 600 },
   { id: 'PICKUP', name: 'Pickup Truck', icon: 'car-sport-outline', color: '#4ADE80', baseFare: 12000, perKm: 800 },
   { id: '5TON', name: '5-Ton Truck', icon: 'bus-outline', color: '#F59E0B', baseFare: 25000, perKm: 1200 },
-  { id: '10TON', name: '10-Ton Truck', icon: 'trailers-outline', color: '#EF4444', baseFare: 40000, perKm: 1800 },
+  { id: '10TON', name: '10-Ton Truck', icon: 'construct-outline', color: '#EF4444', baseFare: 40000, perKm: 1800 },
 ];
 
 export default function HaulageLogisticsScreen() {
@@ -48,25 +49,50 @@ export default function HaulageLogisticsScreen() {
   const [routeDistance, setRouteDistance] = useState(0);
 
   useEffect(() => {
+    let isMounted = true;
+
     (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Location access is required.');
-        return;
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'Location access is required.');
+          setLoading(false);
+          return;
+        }
+
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+
+        if (!isMounted) return;
+
+        const region = {
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          latitudeDelta: LATITUDE_DELTA,
+          longitudeDelta: LONGITUDE_DELTA,
+        };
+
+        setCurrentLocation(region);
+        setPickupLocation(region);
+        await reverseGeocode(region, true);
+        setLoading(false);
+
+        if (mapRef.current) {
+          mapRef.current.animateToRegion(region, 1000);
+        }
+      } catch (error) {
+        console.error('Location error:', error);
+        if (isMounted) {
+          Alert.alert('Error', 'Could not get your location. Please try again.');
+          setLoading(false);
+        }
       }
-      const loc = await Location.getCurrentPositionAsync({});
-      const region = {
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-        latitudeDelta: LATITUDE_DELTA,
-        longitudeDelta: LONGITUDE_DELTA,
-      };
-      setCurrentLocation(region);
-      setPickupLocation(region);
-      await reverseGeocode(region, true);
-      setLoading(false);
-      mapRef.current?.animateToRegion(region, 1000);
     })();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const reverseGeocode = async (coords, isPickup = false) => {
@@ -74,23 +100,30 @@ export default function HaulageLogisticsScreen() {
       const addresses = await Location.reverseGeocodeAsync(coords);
       if (addresses.length > 0) {
         const addr = addresses[0];
-        const fullAddress = [addr.street || addr.name, addr.city || addr.subregion, addr.region]
-          .filter(Boolean)
-          .join(', ') || 'Current Location';
+        const fullAddress =
+          [addr.street || addr.name, addr.city || addr.subregion, addr.region]
+            .filter(Boolean)
+            .join(', ') || 'Current Location';
         if (isPickup) setPickupAddress(fullAddress);
         else setDropoffAddress(fullAddress);
       }
     } catch (err) {
+      console.error('Reverse geocode error:', err);
       if (isPickup) setPickupAddress('Current Location');
     }
   };
 
   const decodePolyline = (encoded) => {
     const points = [];
-    let index = 0, len = encoded.length;
-    let lat = 0, lng = 0;
+    let index = 0;
+    const len = encoded.length;
+    let lat = 0;
+    let lng = 0;
+
     while (index < len) {
-      let b, shift = 0, result = 0;
+      let b;
+      let shift = 0;
+      let result = 0;
       do {
         b = encoded.charCodeAt(index++) - 63;
         result |= (b & 0x1f) << shift;
@@ -98,6 +131,7 @@ export default function HaulageLogisticsScreen() {
       } while (b >= 0x20);
       const dlat = (result & 1) !== 0 ? ~(result >> 1) : result >> 1;
       lat += dlat;
+
       shift = 0;
       result = 0;
       do {
@@ -107,6 +141,7 @@ export default function HaulageLogisticsScreen() {
       } while (b >= 0x20);
       const dlng = (result & 1) !== 0 ? ~(result >> 1) : result >> 1;
       lng += dlng;
+
       points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
     }
     return points;
@@ -115,8 +150,10 @@ export default function HaulageLogisticsScreen() {
   const fetchLocationIQRoute = async (origin, destination) => {
     try {
       const url = `https://us1.locationiq.com/v1/directions/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?key=${LOCATIONIQ_API_KEY}&steps=true&alternatives=false&geometries=polyline&overview=full`;
+      
       const response = await fetch(url);
       const data = await response.json();
+
       if (data.routes && data.routes.length > 0) {
         const route = data.routes[0];
         const coordinates = decodePolyline(route.geometry);
@@ -133,20 +170,24 @@ export default function HaulageLogisticsScreen() {
 
   const displayRoute = async (origin, destination) => {
     if (!origin || !destination) return;
+
     setLoading(true);
     const routeData = await fetchLocationIQRoute(origin, destination);
+
     if (routeData) {
       setRouteCoords(routeData.coordinates);
       setRouteDistance(routeData.distance);
 
-      const service = HAULAGE_TYPES.find(s => s.id === selectedHaulageType);
+      const service = HAULAGE_TYPES.find((s) => s.id === selectedHaulageType);
       const fare = Math.round(service.baseFare + routeData.distance * service.perKm);
       setEstimatedFare(fare);
 
-      mapRef.current?.fitToCoordinates(routeData.coordinates, {
-        edgePadding: { top: 100, right: 100, bottom: 400, left: 100 },
-        animated: true,
-      });
+      if (mapRef.current) {
+        mapRef.current.fitToCoordinates(routeData.coordinates, {
+          edgePadding: { top: 100, right: 100, bottom: 400, left: 100 },
+          animated: true,
+        });
+      }
     }
     setLoading(false);
   };
@@ -165,7 +206,7 @@ export default function HaulageLogisticsScreen() {
     setSelectedHaulageType(typeId);
     setShowModal(false);
     if (routeDistance > 0) {
-      const service = HAULAGE_TYPES.find(s => s.id === typeId);
+      const service = HAULAGE_TYPES.find((s) => s.id === typeId);
       const fare = Math.round(service.baseFare + routeDistance * service.perKm);
       setEstimatedFare(fare);
     }
@@ -197,6 +238,7 @@ export default function HaulageLogisticsScreen() {
             </View>
           </Marker>
         )}
+
         {dropoffLocation && (
           <Marker coordinate={dropoffLocation}>
             <View style={styles.dropoffMarker}>
@@ -204,10 +246,23 @@ export default function HaulageLogisticsScreen() {
             </View>
           </Marker>
         )}
+
         {routeCoords.length > 0 && (
           <>
-            <Polyline coordinates={routeCoords} strokeColor="rgba(0,0,0,0.2)" strokeWidth={8} />
-            <Polyline coordinates={routeCoords} strokeColor="#00B0F3" strokeWidth={6} />
+            <Polyline
+              coordinates={routeCoords}
+              strokeColor="rgba(0,0,0,0.2)"
+              strokeWidth={8}
+              lineCap="round"
+              lineJoin="round"
+            />
+            <Polyline
+              coordinates={routeCoords}
+              strokeColor="#00B0F3"
+              strokeWidth={6}
+              lineCap="round"
+              lineJoin="round"
+            />
           </>
         )}
       </MapView>
@@ -219,29 +274,34 @@ export default function HaulageLogisticsScreen() {
         </View>
       )}
 
-      {/* Top Bar */}
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.menuButton}
-          onPress={() => navigation.openDrawer()}
+          onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
         >
           <Ionicons name="menu" size={32} color="#000" />
         </TouchableOpacity>
+
         <TouchableOpacity
           style={styles.currentLocationButton}
-          onPress={() => currentLocation && mapRef.current?.animateToRegion(currentLocation, 1000)}
+          onPress={() =>
+            currentLocation && mapRef.current?.animateToRegion(currentLocation, 1000)
+          }
         >
           <Ionicons name="locate" size={28} color="#00B0F3" />
         </TouchableOpacity>
       </View>
 
-      {/* Search Card */}
       <View style={styles.searchCard}>
         <View style={styles.locationRow}>
           <Ionicons name="location" size={22} color="#00B0F3" />
-          <Text style={styles.addressText} numberOfLines={1}>{pickupAddress}</Text>
+          <Text style={styles.addressText} numberOfLines={1}>
+            {pickupAddress}
+          </Text>
         </View>
+
         <View style={styles.divider} />
+
         <TouchableOpacity style={styles.locationRow} onPress={goToSearchDestination}>
           <Ionicons name="flag" size={22} color="#FF4444" />
           <Text style={[styles.addressText, !dropoffAddress && styles.placeholder]}>
@@ -262,6 +322,7 @@ export default function HaulageLogisticsScreen() {
             </TouchableOpacity>
           )}
         </TouchableOpacity>
+
         {routeDistance > 0 && (
           <View style={styles.routeInfo}>
             <Text style={styles.routeInfoText}>{routeDistance.toFixed(1)} km</Text>
@@ -269,16 +330,31 @@ export default function HaulageLogisticsScreen() {
         )}
       </View>
 
-      {/* Bottom Panel */}
       {dropoffLocation && estimatedFare && (
         <View style={styles.bottomPanel}>
-          <TouchableOpacity style={styles.rideSelector} onPress={() => setShowModal(true)}>
+          <TouchableOpacity
+            style={styles.rideSelector}
+            onPress={() => setShowModal(true)}
+          >
             <View style={styles.rideLeft}>
-              <View style={[styles.rideIcon, { backgroundColor: HAULAGE_TYPES.find(t => t.id === selectedHaulageType)?.color }]}>
-                <Ionicons name={HAULAGE_TYPES.find(t => t.id === selectedHaulageType)?.icon} size={28} color="white" />
+              <View
+                style={[
+                  styles.rideIcon,
+                  {
+                    backgroundColor: HAULAGE_TYPES.find(
+                      (t) => t.id === selectedHaulageType
+                    )?.color,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name={HAULAGE_TYPES.find((t) => t.id === selectedHaulageType)?.icon}
+                  size={28}
+                  color="white"
+                />
               </View>
               <Text style={styles.rideName}>
-                {HAULAGE_TYPES.find(t => t.id === selectedHaulageType)?.name}
+                {HAULAGE_TYPES.find((t) => t.id === selectedHaulageType)?.name}
               </Text>
             </View>
             <Ionicons name="chevron-down" size={24} color="#666" />
@@ -289,14 +365,18 @@ export default function HaulageLogisticsScreen() {
               <Text style={styles.fare}>₦{estimatedFare.toLocaleString()}</Text>
               <Text style={styles.distanceText}>Estimated cost</Text>
             </View>
-            <TouchableOpacity style={styles.requestBtn} onPress={() => Alert.alert('Request Sent', 'A driver will be matched soon.')}>
+            <TouchableOpacity
+              style={styles.requestBtn}
+              onPress={() =>
+                Alert.alert('Request Sent', 'A driver will be matched soon.')
+              }
+            >
               <Text style={styles.requestText}>Request Haulage</Text>
             </TouchableOpacity>
           </View>
         </View>
       )}
 
-      {/* Haulage Type Modal */}
       <Modal visible={showModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -306,16 +386,22 @@ export default function HaulageLogisticsScreen() {
                 <Ionicons name="close" size={28} color="#000" />
               </TouchableOpacity>
             </View>
+
             <FlatList
               data={HAULAGE_TYPES}
-              keyExtractor={item => item.id}
+              keyExtractor={(item) => item.id}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={[styles.rideOption, selectedHaulageType === item.id && styles.selectedOption]}
+                  style={[
+                    styles.rideOption,
+                    selectedHaulageType === item.id && styles.selectedOption,
+                  ]}
                   onPress={() => selectHaulage(item.id)}
                 >
                   <View style={styles.rideOptionLeft}>
-                    <View style={[styles.rideIconLarge, { backgroundColor: item.color }]}>
+                    <View
+                      style={[styles.rideIconLarge, { backgroundColor: item.color }]}
+                    >
                       <Ionicons name={item.icon} size={32} color="white" />
                     </View>
                     <View>
@@ -324,8 +410,11 @@ export default function HaulageLogisticsScreen() {
                     </View>
                   </View>
                   <Text style={styles.rideOptionPrice}>
-                    ₦{routeDistance > 0
-                      ? Math.round(item.baseFare + routeDistance * item.perKm).toLocaleString()
+                    ₦
+                    {routeDistance > 0
+                      ? Math.round(
+                          item.baseFare + routeDistance * item.perKm
+                        ).toLocaleString()
                       : '---'}
                   </Text>
                 </TouchableOpacity>
@@ -351,8 +440,15 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { marginTop: 16, fontSize: 16, color: '#666' },
   routeLoadingOverlay: {
-    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(255,255,255,0.8)', justifyContent: 'center', alignItems: 'center', zIndex: 999,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999,
   },
   routeLoadingText: { marginTop: 16, fontSize: 16, color: '#666', fontWeight: '600' },
   topBar: {
@@ -441,7 +537,11 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   rideName: { fontSize: 18, fontWeight: '700', marginLeft: 12, color: '#000' },
-  requestArea: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  requestArea: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   fare: { fontSize: 32, fontWeight: '800', color: '#000' },
   distanceText: { fontSize: 12, color: '#666', marginTop: 4 },
   requestBtn: {
@@ -477,14 +577,47 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     elevation: 5,
   },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: 'white', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: height * 0.7 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderColor: '#eee' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: height * 0.7,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderColor: '#eee',
+  },
   modalTitle: { fontSize: 20, fontWeight: '700', color: '#000' },
-  rideOption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  rideOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
   selectedOption: { backgroundColor: '#F0F9FF' },
   rideOptionLeft: { flexDirection: 'row', alignItems: 'center' },
-  rideIconLarge: { width: 64, height: 64, borderRadius: 32, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 3, elevation: 2 },
+  rideIconLarge: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
   rideOptionName: { fontSize: 18, fontWeight: '600', marginLeft: 16, color: '#000' },
   rideOptionEta: { fontSize: 14, color: '#666', marginLeft: 16 },
   rideOptionPrice: { fontSize: 18, fontWeight: '700', color: '#000' },

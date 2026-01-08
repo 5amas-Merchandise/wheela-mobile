@@ -21,7 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getAuthToken } from '../../utils/auth';
 
 // Backend URL
-const baseUrl = process.env.BASE_URL;
+const baseUrl = 'https://wheels-backend.vercel.app'
 
 // Cloudinary Config
 const CLOUDINARY_CLOUD = 'ddlee3b3s';

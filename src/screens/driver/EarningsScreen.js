@@ -12,7 +12,7 @@ import {
 import axios from 'axios';
 import Constants from 'expo-constants';
 
-const baseUrl = process.env.BASE_URL;
+const baseUrl ='https://wheels-backend.vercel.app'
 
 // Replace with your actual logo
 const WHEELA_LOGO = require('../../../assets/logo.jpg');

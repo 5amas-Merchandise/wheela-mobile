@@ -20,7 +20,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { getAuthToken } from '../../utils/auth'; // Uses WHEELA_TOKEN correctly
 
-const baseUrl = 'http://172.20.10.9:8000'; // Change to ngrok URL when testing outside local network
+const baseUrl = 'https://wheels-backend.vercel.app'
 const { width, height } = Dimensions.get('window');
 const LATITUDE_DELTA = 0.005;
 const LONGITUDE_DELTA = LATITUDE_DELTA * (width / height);
