@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "wheela-mobile",
-    "slug": "wheela-mobile",
+    "slug": "wheela",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -45,9 +45,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "958c3271-0245-4f9e-b3bd-99b10eae0113"
+        "projectId": "89ca3ed1-d2fb-429a-9fdb-614202a280e5"
       }
     },
-    "owner": "tezzer"
+    "owner": "wheela"
   }
 }
