@@ -16,7 +16,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import axios from 'axios';
 
 // UPDATE THIS TO YOUR BACKEND URL
-const BASE_URL = 'http://172.20.10.9:8000' || "https://wheels-backend.vercel.app";;
+const BASE_URL = "https://wheels-backend.vercel.app";;
 
 export default function SignupScreen() {
   const navigation = useNavigation();

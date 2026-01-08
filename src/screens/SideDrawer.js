@@ -16,7 +16,7 @@ import axios from 'axios';
 
 import { getAuthToken, logout } from '../utils/auth'; // Adjust path if needed
 
-const baseUrl = 'http://172.20.10.9:8000' || "https://wheels-backend.vercel.app";
+const baseUrl = "https://wheels-backend.vercel.app";
 
 const SideDrawer = ({ navigation }) => {
   const [user, setUser] = useState({

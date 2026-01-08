@@ -17,7 +17,8 @@
         "foregroundImage": "./assets/adaptive-icon.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.wheela.wheela"
     },
     "web": {
       "output": "static",
