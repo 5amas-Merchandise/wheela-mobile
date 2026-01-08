@@ -15,7 +15,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
-const BASE_URL = 'http://172.20.10.9:8000';
+const BASE_URL = 'https://wheels-backend.vercel.app';
 
 export const TOKEN_KEY = 'WHEELA_TOKEN';
 export const USER_KEY = 'WHEELA_USER';

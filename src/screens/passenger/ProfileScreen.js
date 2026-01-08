@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { getAuthToken, logout } from '../../utils/auth';
 
-const baseUrl = process.env.BASE_URL || 'http://172.20.10.9:8000'; // Use your env var
+const baseUrl = 'http://172.20.10.9:8000' || "https://wheels-backend.vercel.app";
 
 export default function ProfileScreen() {
   const navigation = useNavigation();

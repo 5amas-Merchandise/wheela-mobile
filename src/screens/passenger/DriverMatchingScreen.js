@@ -7,7 +7,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { getAuthToken } from '../../utils/auth';
 import { Ionicons } from '@expo/vector-icons';
 
-const baseUrl = 'http://172.20.10.9:8000';
+const baseUrl = 'http://172.20.10.9:8000' || "https://wheels-backend.vercel.app";
 
 export default function DriverMatchingScreen() {
   const navigation = useNavigation();
