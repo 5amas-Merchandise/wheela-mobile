@@ -15,7 +15,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 
-const LOCATIONIQ_KEY = 'pk.b84a833d23e60c83f10a0b59524191b6';
+// ✅ USING YOUR GOOGLE KEY
+const GOOGLE_API_KEY = 'AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo';
 
 export default function SearchDestinationScreen() {
   const navigation = useNavigation();
@@ -27,8 +28,9 @@ export default function SearchDestinationScreen() {
   const [loading, setLoading] = useState(false);
   const timeoutRef = useRef(null);
 
+  // 1. SEARCH PREDICTIONS (AUTOCOMPLETE)
   const search = async (text) => {
-    if (text.trim().length < 3) {
+    if (text.trim().length < 2) {
       setResults([]);
       return;
     }
@@ -38,29 +40,55 @@ export default function SearchDestinationScreen() {
 
     timeoutRef.current = setTimeout(async () => {
       try {
-        const url = `https://api.locationiq.com/v1/autocomplete?key=${LOCATIONIQ_KEY}&q=${encodeURIComponent(
+        const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(
           text
-        )}&countrycodes=ng&limit=10&format=json`;
+        )}&key=${GOOGLE_API_KEY}&components=country:ng`;
+        
         const res = await fetch(url);
         const data = await res.json();
-        setResults(Array.isArray(data) ? data : []);
+        
+        if (data.status === 'OK') {
+          setResults(data.predictions);
+        } else {
+          setResults([]);
+        }
       } catch (err) {
-        console.error(err);
+        console.error('Google Autocomplete Error:', err);
         setResults([]);
       } finally {
         setLoading(false);
       }
-    }, 600);
+    }, 500);
   };
 
-  const selectPlace = (item) => {
-    const coords = {
-      latitude: parseFloat(item.lat),
-      longitude: parseFloat(item.lon),
-    };
-    const address = item.display_name;
-    onSelect(coords, address);
-    navigation.goBack();
+  // 2. GET DETAILS (LAT/LNG) FOR SELECTED PREDICTION
+  const selectPlace = async (item) => {
+    try {
+      setLoading(true);
+      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${item.place_id}&fields=geometry,name,formatted_address&key=${GOOGLE_API_KEY}`;
+      
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (data.status === 'OK') {
+        const { lat, lng } = data.result.geometry.location;
+        const address = data.result.formatted_address || item.description;
+        
+        const coords = {
+          latitude: lat,
+          longitude: lng,
+        };
+
+        onSelect(coords, address);
+        navigation.goBack();
+      } else {
+        console.error('Place Details Error:', data.status);
+      }
+    } catch (err) {
+      console.error('Error fetching details:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -86,28 +114,22 @@ export default function SearchDestinationScreen() {
       {loading && (
         <View style={styles.loadingRow}>
           <ActivityIndicator size="small" color="#00B0F3" />
-          <Text style={styles.loadingText}>Searching...</Text>
+          <Text style={styles.loadingText}>Loading...</Text>
         </View>
       )}
 
       <FlatList
         data={results}
-        keyExtractor={(item) => item.place_id?.toString() || Math.random().toString()}
-        renderItem={({ item }) => {
-          const parts = item.display_name.split(',');
-          const main = parts[0].trim();
-          const sub = parts.slice(1).join(',').trim();
-
-          return (
-            <TouchableOpacity style={styles.item} onPress={() => selectPlace(item)}>
-              <Ionicons name="location-outline" size={22} color="#666" />
-              <View style={styles.itemTextContainer}>
-                <Text style={styles.itemMain} numberOfLines={1}>{main}</Text>
-                <Text style={styles.itemSub} numberOfLines={1}>{sub || item.display_name}</Text>
-              </View>
-            </TouchableOpacity>
-          );
-        }}
+        keyExtractor={(item) => item.place_id}
+        renderItem={({ item }) => (
+          <TouchableOpacity style={styles.item} onPress={() => selectPlace(item)}>
+            <Ionicons name="location-outline" size={22} color="#666" />
+            <View style={styles.itemTextContainer}>
+              <Text style={styles.itemMain} numberOfLines={1}>{item.structured_formatting?.main_text || item.description}</Text>
+              <Text style={styles.itemSub} numberOfLines={1}>{item.structured_formatting?.secondary_text || ''}</Text>
+            </View>
+          </TouchableOpacity>
+        )}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: 20 }}
       />
@@ -137,6 +159,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   itemTextContainer: { marginLeft: 12, flex: 1 },
-  itemMain: { fontSize: 16, fontWeight: '600' },
+  itemMain: { fontSize: 16, fontWeight: '600', color: '#000' },
   itemSub: { fontSize: 14, color: '#666', marginTop: 2 },
 });

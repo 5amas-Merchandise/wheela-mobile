@@ -23,8 +23,8 @@ const ASPECT_RATIO = width / height;
 const LATITUDE_DELTA = 0.015;
 const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
 
-// Replace with your LocationIQ API key
-const LOCATIONIQ_API_KEY = 'pk.b84a833d23e60c83f10a0b59524191b6';
+// ✅ USING YOUR GOOGLE KEY
+const GOOGLE_API_KEY = 'AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo';
 
 const RIDE_TYPES = [
   { id: 'CITY_RIDE', name: 'City Ride', icon: 'car-sport', color: '#00B0F3', multiplier: 1.0, eta: '~3 min' },
@@ -50,36 +50,13 @@ export default function PassengerHomeScreen() {
   const [routeDistance, setRouteDistance] = useState(0);
   const [routeDuration, setRouteDuration] = useState(0);
   
-  // FIX: Track map readiness to prevent crashes during animation
+  // ✅ Prevent crash by waiting for map to load
   const [isMapReady, setIsMapReady] = useState(false);
 
-  // Component lifecycle logging
-  useEffect(() => {
-    console.log('✅ PassengerHomeScreen mounted');
-    return () => {
-      console.log('❌ PassengerHomeScreen unmounted');
-    };
-  }, []);
-
-  // Initial Location Logic
   useEffect(() => {
     let isMounted = true;
-
     (async () => {
       try {
-        console.log('📍 Starting location request...');
-        
-        const locationEnabled = await Location.hasServicesEnabledAsync();
-        if (!locationEnabled) {
-          Alert.alert(
-            'Location Services Disabled',
-            'Please enable location services in your device settings to use this app.',
-            [{ text: 'OK' }]
-          );
-          setLoading(false);
-          return;
-        }
-
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
           Alert.alert('Permission Denied', 'Location access is required.');
@@ -100,103 +77,91 @@ export default function PassengerHomeScreen() {
           longitudeDelta: LONGITUDE_DELTA,
         };
 
-        // Set state but DO NOT animate map here (Map is not rendered yet)
         setCurrentLocation(region);
         setPickupLocation(region);
         
-        await reverseGeocode(region, true);
-        setLoading(false); // This triggers the re-render that shows the MapView
-
+        // Use Google Geocoding for consistent address text
+        await reverseGeocodeGoogle(region, true);
+        
+        setLoading(false);
       } catch (error) {
-        console.error('❌ CRITICAL LOCATION ERROR:', error);
-        if (isMounted) {
-          Alert.alert(
-            'Location Error', 
-            `Could not get your location: ${error.message}. Please ensure location services are enabled.`,
-            [{ text: 'OK' }]
-          );
-          setLoading(false);
-        }
+        console.error('Location error:', error);
+        if (isMounted) setLoading(false);
       }
     })();
-
     return () => { isMounted = false; };
   }, []);
 
-  // FIX: Separate effect to animate map ONLY when it is ready
+  // ✅ Animate only when Map is ready to avoid crash
   useEffect(() => {
     if (isMapReady && currentLocation && mapRef.current) {
-      console.log('🗺️ Map ready and location set. Animating...');
       mapRef.current.animateToRegion(currentLocation, 1000);
     }
   }, [isMapReady, currentLocation]);
 
-  const reverseGeocode = async (coords, isPickup = false) => {
+  const reverseGeocodeGoogle = async (coords, isPickup = false) => {
     try {
-      const addresses = await Location.reverseGeocodeAsync(coords);
-      if (addresses.length > 0) {
-        const addr = addresses[0];
-        const fullAddress =
-          [addr.street || addr.name, addr.city || addr.subregion, addr.region]
-            .filter(Boolean)
-            .join(', ') || 'Current Location';
-        
-        if (isPickup) setPickupAddress(fullAddress);
-        else setDropoffAddress(fullAddress);
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=${GOOGLE_API_KEY}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      
+      if (data.status === 'OK' && data.results.length > 0) {
+        const address = data.results[0].formatted_address;
+        if (isPickup) setPickupAddress(address);
+        else setDropoffAddress(address);
       }
     } catch (err) {
-      console.error('❌ Reverse geocode error:', err);
-      if (isPickup) setPickupAddress('Current Location');
+      console.error('Google Geocode Error:', err);
     }
   };
 
-  const fetchLocationIQRoute = async (origin, destination) => {
+  const fetchGoogleRoute = async (origin, destination) => {
     try {
-      const url = `https://us1.locationiq.com/v1/directions/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?key=${LOCATIONIQ_API_KEY}&steps=true&alternatives=false&geometries=polyline&overview=full`;
+      console.log('Fetching Google Route...');
+      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&key=${GOOGLE_API_KEY}&mode=driving`;
       
       const response = await fetch(url);
       const data = await response.json();
 
-      if (data.routes && data.routes.length > 0) {
+      if (data.status === 'OK' && data.routes.length > 0) {
         const route = data.routes[0];
-        const coordinates = decodePolyline(route.geometry);
-        const distanceInKm = route.distance / 1000;
-        const durationInSec = route.duration;
+        const leg = route.legs[0];
+        
+        // Decode Google's polyline
+        const points = decodePolyline(route.overview_polyline.points);
+        
+        // Google returns distance in meters, duration in seconds
+        const distanceInKm = leg.distance.value / 1000;
+        const durationInSec = leg.duration.value;
 
         return {
-          coordinates,
+          coordinates: points,
           distance: distanceInKm,
           duration: durationInSec,
         };
       } else {
-        throw new Error('No route found');
+        console.error('Google Directions Error:', data.status);
+        return null;
       }
     } catch (error) {
-      console.error('❌ LocationIQ API Error:', error);
-      Alert.alert('Route Error', 'Could not fetch route. Please try again.');
+      console.error('Route API Error:', error);
       return null;
     }
   };
 
   const decodePolyline = (encoded) => {
     const points = [];
-    let index = 0;
-    const len = encoded.length;
-    let lat = 0;
-    let lng = 0;
-
+    let index = 0, len = encoded.length;
+    let lat = 0, lng = 0;
     while (index < len) {
-      let b;
-      let shift = 0;
-      let result = 0;
+      let b, shift = 0, result = 0;
       do {
         b = encoded.charCodeAt(index++) - 63;
         result |= (b & 0x1f) << shift;
         shift += 5;
       } while (b >= 0x20);
-      const dlat = (result & 1) !== 0 ? ~(result >> 1) : result >> 1;
+      let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
       lat += dlat;
-
       shift = 0;
       result = 0;
       do {
@@ -204,22 +169,17 @@ export default function PassengerHomeScreen() {
         result |= (b & 0x1f) << shift;
         shift += 5;
       } while (b >= 0x20);
-      const dlng = (result & 1) !== 0 ? ~(result >> 1) : result >> 1;
+      let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
       lng += dlng;
-
-      points.push({
-        latitude: lat / 1e5,
-        longitude: lng / 1e5,
-      });
+      points.push({ latitude: (lat / 1E5), longitude: (lng / 1E5) });
     }
     return points;
   };
 
   const displayRoute = async (origin, destination) => {
     if (!origin || !destination) return;
-
     setLoading(true);
-    const routeData = await fetchLocationIQRoute(origin, destination);
+    const routeData = await fetchGoogleRoute(origin, destination);
 
     if (routeData) {
       setRouteCoords(routeData.coordinates);
@@ -267,26 +227,11 @@ export default function PassengerHomeScreen() {
     return `${minutes} min`;
   };
 
-  if (loading && !currentLocation) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#00B0F3" />
-        <Text style={styles.loadingText}>Getting your location...</Text>
-      </View>
-    );
-  }
-
   if (!currentLocation) {
     return (
       <View style={styles.loadingContainer}>
-        <Ionicons name="location-outline" size={64} color="#ccc" />
-        <Text style={styles.loadingText}>Unable to get location</Text>
-        <TouchableOpacity 
-          style={styles.retryButton}
-          onPress={() => navigation.replace('PassengerMain')}
-        >
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
+        <ActivityIndicator size="large" color="#00B0F3" />
+        <Text style={styles.loadingText}>Loading map...</Text>
       </View>
     );
   }
@@ -300,11 +245,7 @@ export default function PassengerHomeScreen() {
         initialRegion={currentLocation}
         showsUserLocation={true}
         showsMyLocationButton={false}
-        onMapReady={() => {
-          console.log('🗺️ Map is ready');
-          setIsMapReady(true);
-        }}
-        onError={(error) => console.error('❌ Map error:', error)}
+        onMapReady={() => setIsMapReady(true)}
       >
         {pickupLocation && (
           <Marker coordinate={pickupLocation}>
@@ -326,29 +267,19 @@ export default function PassengerHomeScreen() {
           <>
             <Polyline
               coordinates={routeCoords}
-              strokeColor="rgba(0,0,0,0.2)"
-              strokeWidth={8}
-              lineCap="round"
-              lineJoin="round"
+              strokeColor="#000"
+              strokeWidth={6}
             />
             <Polyline
               coordinates={routeCoords}
               strokeColor="#00B0F3"
-              strokeWidth={6}
-              lineCap="round"
-              lineJoin="round"
+              strokeWidth={4}
             />
           </>
         )}
       </MapView>
 
-      {loading && currentLocation && (
-        <View style={styles.routeLoadingOverlay}>
-          <ActivityIndicator size="large" color="#00B0F3" />
-          <Text style={styles.routeLoadingText}>Finding best route...</Text>
-        </View>
-      )}
-
+      {/* Top Bar */}
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.menuButton}
@@ -360,7 +291,7 @@ export default function PassengerHomeScreen() {
         <TouchableOpacity
           style={styles.currentLocationButton}
           onPress={() => {
-            if(isMapReady && currentLocation) {
+            if (isMapReady && currentLocation) {
               mapRef.current?.animateToRegion(currentLocation, 1000);
             }
           }}
@@ -376,12 +307,11 @@ export default function PassengerHomeScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Search Card */}
       <View style={styles.searchCard}>
         <View style={styles.locationRow}>
           <Ionicons name="location" size={22} color="#00B0F3" />
-          <Text style={styles.addressText} numberOfLines={1}>
-            {pickupAddress}
-          </Text>
+          <Text style={styles.addressText} numberOfLines={1}>{pickupAddress}</Text>
         </View>
 
         <View style={styles.divider} />
@@ -391,7 +321,7 @@ export default function PassengerHomeScreen() {
           <Text style={[styles.addressText, !dropoffAddress && styles.placeholder]}>
             {dropoffAddress || 'Where to?'}
           </Text>
-          {dropoffAddress && (
+          {dropoffAddress ? (
             <TouchableOpacity
               style={styles.clearButton}
               onPress={() => {
@@ -399,61 +329,71 @@ export default function PassengerHomeScreen() {
                 setDropoffAddress('');
                 setRouteCoords([]);
                 setEstimatedFare(null);
-                setRouteDistance(0);
-                setRouteDuration(0);
               }}
             >
               <Ionicons name="close-circle" size={18} color="#FF4444" />
             </TouchableOpacity>
-          )}
+          ) : null}
         </TouchableOpacity>
-
+        
         {routeDistance > 0 && (
           <View style={styles.routeInfo}>
-            <View style={styles.routeInfoItem}>
-              <Ionicons name="navigate" size={16} color="#666" />
-              <Text style={styles.routeInfoText}>{routeDistance.toFixed(1)} km</Text>
-            </View>
-            <View style={styles.routeInfoItem}>
-              <Ionicons name="time" size={16} color="#666" />
-              <Text style={styles.routeInfoText}>{formatDuration(routeDuration)}</Text>
-            </View>
+             <Text style={styles.routeInfoText}>{routeDistance.toFixed(1)} km • {formatDuration(routeDuration)}</Text>
           </View>
         )}
       </View>
 
+      {/* Ride Selector Modal */}
+      <Modal visible={showRideModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Choose a ride</Text>
+              <TouchableOpacity onPress={() => setShowRideModal(false)}>
+                <Ionicons name="close" size={28} color="#000" />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={RIDE_TYPES}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.rideOption, selectedRideType === item.id && styles.selectedOption]}
+                  onPress={() => selectRide(item.id)}
+                >
+                  <View style={styles.rideOptionLeft}>
+                     <View style={[styles.rideIconLarge, { backgroundColor: item.color }]}>
+                        <Ionicons name={item.icon} size={32} color="white" />
+                     </View>
+                     <View>
+                        <Text style={styles.rideOptionName}>{item.name}</Text>
+                        <Text style={styles.rideOptionEta}>{item.eta}</Text>
+                     </View>
+                  </View>
+                  <Text style={styles.rideOptionPrice}>
+                    ₦{estimatedFare ? Math.round((estimatedFare * item.multiplier) / RIDE_TYPES.find(r => r.id === selectedRideType).multiplier).toLocaleString() : '--'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Bottom Panel */}
       {dropoffLocation && estimatedFare && (
         <View style={styles.bottomPanel}>
-          <TouchableOpacity
-            style={styles.rideSelector}
-            onPress={() => setShowRideModal(true)}
-          >
-            <View style={styles.rideLeft}>
-              <View
-                style={[
-                  styles.rideIcon,
-                  {
-                    backgroundColor: RIDE_TYPES.find((r) => r.id === selectedRideType)
-                      ?.color,
-                  },
-                ]}
-              >
-                <Ionicons
-                  name={RIDE_TYPES.find((r) => r.id === selectedRideType)?.icon}
-                  size={28}
-                  color="white"
-                />
-              </View>
-              <View>
-                <Text style={styles.rideName}>
-                  {RIDE_TYPES.find((r) => r.id === selectedRideType)?.name}
-                </Text>
-                <Text style={styles.rideEta}>
-                  {RIDE_TYPES.find((r) => r.id === selectedRideType)?.eta}
-                </Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-down" size={24} color="#666" />
+          <TouchableOpacity style={styles.rideSelector} onPress={() => setShowRideModal(true)}>
+             <View style={styles.rideLeft}>
+                <View style={[styles.rideIcon, { backgroundColor: RIDE_TYPES.find(r => r.id === selectedRideType)?.color }]}>
+                   <Ionicons name={RIDE_TYPES.find(r => r.id === selectedRideType)?.icon} size={28} color="white" />
+                </View>
+                <View>
+                   <Text style={styles.rideName}>{RIDE_TYPES.find(r => r.id === selectedRideType)?.name}</Text>
+                   <Text style={styles.rideEta}>{RIDE_TYPES.find(r => r.id === selectedRideType)?.eta}</Text>
+                </View>
+             </View>
+             <Ionicons name="chevron-down" size={24} color="#666" />
           </TouchableOpacity>
 
           <View style={styles.requestArea}>
@@ -481,61 +421,6 @@ export default function PassengerHomeScreen() {
           </View>
         </View>
       )}
-
-      <Modal visible={showRideModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Choose a ride</Text>
-              <TouchableOpacity onPress={() => setShowRideModal(false)}>
-                <Ionicons name="close" size={28} color="#000" />
-              </TouchableOpacity>
-            </View>
-
-            <FlatList
-              data={RIDE_TYPES}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.rideOption,
-                    selectedRideType === item.id && styles.selectedOption,
-                  ]}
-                  onPress={() => selectRide(item.id)}
-                >
-                  <View style={styles.rideOptionLeft}>
-                    <View style={[styles.rideIconLarge, { backgroundColor: item.color }]}>
-                      <Ionicons name={item.icon} size={32} color="white" />
-                    </View>
-                    <View>
-                      <Text style={styles.rideOptionName}>{item.name}</Text>
-                      <Text style={styles.rideOptionEta}>{item.eta}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.rideOptionPrice}>
-                    ₦
-                    {estimatedFare
-                      ? Math.round(
-                          (estimatedFare * item.multiplier) /
-                            RIDE_TYPES.find((r) => r.id === selectedRideType)?.multiplier
-                        ).toLocaleString()
-                      : '---'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </View>
-      </Modal>
-
-      {!dropoffLocation && (
-        <View style={styles.instructionsTooltip}>
-          <Ionicons name="information-circle" size={20} color="#00B0F3" />
-          <Text style={styles.instructionsText}>
-            Tap "Where to?" to set destination
-          </Text>
-        </View>
-      )}
     </View>
   );
 }
@@ -543,51 +428,11 @@ export default function PassengerHomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
-  loadingContainer: { 
-    flex: 1, 
-    justifyContent: 'center', 
-    alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-    padding: 20,
-  },
-  loadingText: { 
-    marginTop: 16, 
-    fontSize: 16, 
-    color: '#666',
-    textAlign: 'center',
-  },
-  retryButton: {
-    marginTop: 20,
-    backgroundColor: '#00B0F3',
-    paddingHorizontal: 32,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  retryText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  routeLoadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 999,
-  },
-  routeLoadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#666',
-    fontWeight: '600',
-  },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F9FA' },
+  loadingText: { marginTop: 16, fontSize: 16, color: '#666' },
   topBar: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 50 : 30,
+    top: Platform.OS === 'ios' ? 50 : 40,
     left: 16,
     right: 16,
     flexDirection: 'row',
@@ -595,88 +440,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 10,
   },
-  menuButton: {
-    backgroundColor: 'white',
-    borderRadius: 30,
-    padding: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 3,
-  },
-  currentLocationButton: {
-    backgroundColor: 'white',
-    borderRadius: 30,
-    padding: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 3,
-  },
-  profileButton: {
-    backgroundColor: 'white',
-    borderRadius: 30,
-    padding: 4,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 3,
-  },
+  menuButton: { backgroundColor: 'white', borderRadius: 30, padding: 8, elevation: 5 },
+  currentLocationButton: { backgroundColor: 'white', borderRadius: 30, padding: 8, elevation: 5 },
+  profileButton: { backgroundColor: 'white', borderRadius: 30, padding: 4, elevation: 5 },
   searchCard: {
     position: 'absolute',
-    top: 100,
+    top: 110,
     left: 16,
     right: 16,
     backgroundColor: 'white',
     borderRadius: 16,
     padding: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
     elevation: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
   },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  addressText: {
-    marginLeft: 12,
-    fontSize: 17,
-    color: '#000',
-    flex: 1,
-  },
-  placeholder: {
-    color: '#999',
-    fontStyle: 'italic',
-  },
-  clearButton: {
-    marginLeft: 8,
-    padding: 4,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#eee',
-    marginVertical: 8,
-  },
-  routeInfo: {
-    flexDirection: 'row',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-    gap: 20,
-  },
-  routeInfoItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  routeInfoText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
+  locationRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
+  addressText: { marginLeft: 12, fontSize: 16, color: '#000', flex: 1 },
+  placeholder: { color: '#999', fontStyle: 'italic' },
+  clearButton: { marginLeft: 8, padding: 4 },
+  divider: { height: 1, backgroundColor: '#eee', marginVertical: 8 },
+  routeInfo: { borderTopWidth: 1, borderColor: '#eee', marginTop: 8, paddingTop: 8 },
+  routeInfoText: { fontSize: 14, color: '#666', fontWeight: '500' },
   bottomPanel: {
     position: 'absolute',
     bottom: 20,
@@ -685,9 +471,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 20,
     padding: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 15,
     elevation: 12,
   },
   rideSelector: {
@@ -695,176 +478,37 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    padding: 12,
     backgroundColor: '#F8F9FA',
-    borderRadius: 15,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E9ECEF',
   },
-  rideLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  rideIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  rideName: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginLeft: 12,
-    color: '#000',
-  },
-  rideEta: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 12,
-  },
-  requestArea: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  fare: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#000',
-  },
-  distanceText: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 4,
-  },
+  rideLeft: { flexDirection: 'row', alignItems: 'center' },
+  rideIcon: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center' },
+  rideName: { fontSize: 16, fontWeight: '700', marginLeft: 12 },
+  rideEta: { fontSize: 12, color: '#666', marginLeft: 12 },
+  requestArea: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  fare: { fontSize: 24, fontWeight: '800' },
+  distanceText: { fontSize: 12, color: '#666' },
   requestBtn: {
     backgroundColor: '#00B0F3',
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 16,
-    shadowColor: '#00B0F3',
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  requestText: {
-    color: 'white',
-    fontWeight: '700',
-    fontSize: 18,
-  },
-  pickupMarker: {
-    backgroundColor: '#00B0F3',
-    padding: 12,
-    borderRadius: 30,
-    borderWidth: 4,
-    borderColor: 'white',
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 5,
-  },
-  dropoffMarker: {
-    backgroundColor: '#FF4444',
-    padding: 12,
-    borderRadius: 30,
-    borderWidth: 4,
-    borderColor: 'white',
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 5,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: 'white',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: height * 0.7,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderColor: '#eee',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#000',
-  },
-  rideOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  selectedOption: {
-    backgroundColor: '#F0F9FF',
-  },
-  rideOptionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  rideIconLarge: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  rideOptionName: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginLeft: 16,
-    color: '#000',
-  },
-  rideOptionEta: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 16,
-  },
-  rideOptionPrice: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#000',
-  },
-  instructionsTooltip: {
-    position: 'absolute',
-    bottom: 100,
-    left: 16,
-    right: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: 24,
+    paddingVertical: 14,
     borderRadius: 12,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 3,
   },
-  instructionsText: {
-    marginLeft: 8,
-    fontSize: 13,
-    color: '#666',
-    flex: 1,
-  },
+  requestText: { color: 'white', fontWeight: '700', fontSize: 16 },
+  pickupMarker: { backgroundColor: '#00B0F3', padding: 8, borderRadius: 30, borderWidth: 3, borderColor: 'white' },
+  dropoffMarker: { backgroundColor: '#FF4444', padding: 8, borderRadius: 30, borderWidth: 3, borderColor: 'white' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: 'white', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: height * 0.7 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, borderBottomWidth: 1, borderColor: '#eee' },
+  modalTitle: { fontSize: 18, fontWeight: '700' },
+  rideOption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderColor: '#f0f0f0' },
+  selectedOption: { backgroundColor: '#F0F9FF' },
+  rideOptionLeft: { flexDirection: 'row', alignItems: 'center' },
+  rideIconLarge: { width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center' },
+  rideOptionName: { fontSize: 16, fontWeight: '600', marginLeft: 12 },
+  rideOptionEta: { fontSize: 12, color: '#666', marginLeft: 12 },
+  rideOptionPrice: { fontSize: 16, fontWeight: '700' },
 });
