@@ -49,8 +49,11 @@ export default function PassengerHomeScreen() {
   const [showRideModal, setShowRideModal] = useState(false);
   const [routeDistance, setRouteDistance] = useState(0);
   const [routeDuration, setRouteDuration] = useState(0);
+  
+  // FIX: Track map readiness to prevent crashes during animation
+  const [isMapReady, setIsMapReady] = useState(false);
 
-  // ✅ Component lifecycle logging
+  // Component lifecycle logging
   useEffect(() => {
     console.log('✅ PassengerHomeScreen mounted');
     return () => {
@@ -58,6 +61,7 @@ export default function PassengerHomeScreen() {
     };
   }, []);
 
+  // Initial Location Logic
   useEffect(() => {
     let isMounted = true;
 
@@ -65,12 +69,8 @@ export default function PassengerHomeScreen() {
       try {
         console.log('📍 Starting location request...');
         
-        // ✅ CRITICAL FIX: Check if location services are enabled first
         const locationEnabled = await Location.hasServicesEnabledAsync();
-        console.log('📍 Location services enabled:', locationEnabled);
-        
         if (!locationEnabled) {
-          console.error('❌ Location services are disabled');
           Alert.alert(
             'Location Services Disabled',
             'Please enable location services in your device settings to use this app.',
@@ -80,27 +80,18 @@ export default function PassengerHomeScreen() {
           return;
         }
 
-        console.log('📍 Requesting location permissions...');
         const { status } = await Location.requestForegroundPermissionsAsync();
-        console.log('📍 Permission status:', status);
-        
         if (status !== 'granted') {
-          console.error('❌ Location permission denied');
           Alert.alert('Permission Denied', 'Location access is required.');
           setLoading(false);
           return;
         }
 
-        console.log('📍 Getting current position...');
         const loc = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-        console.log('📍 Location received:', loc.coords.latitude, loc.coords.longitude);
 
-        if (!isMounted) {
-          console.log('⚠️ Component unmounted, skipping state update');
-          return;
-        }
+        if (!isMounted) return;
 
         const region = {
           latitude: loc.coords.latitude,
@@ -109,30 +100,19 @@ export default function PassengerHomeScreen() {
           longitudeDelta: LONGITUDE_DELTA,
         };
 
-        console.log('📍 Setting current location state...');
+        // Set state but DO NOT animate map here (Map is not rendered yet)
         setCurrentLocation(region);
         setPickupLocation(region);
         
-        console.log('📍 Starting reverse geocode...');
         await reverseGeocode(region, true);
-        
-        console.log('✅ Location setup complete');
-        setLoading(false);
+        setLoading(false); // This triggers the re-render that shows the MapView
 
-        if (mapRef.current) {
-          console.log('🗺️ Animating map to region...');
-          mapRef.current.animateToRegion(region, 1000);
-        }
       } catch (error) {
         console.error('❌ CRITICAL LOCATION ERROR:', error);
-        console.error('Error name:', error.name);
-        console.error('Error message:', error.message);
-        console.error('Error stack:', error.stack);
-        
         if (isMounted) {
           Alert.alert(
             'Location Error', 
-            `Could not get your location: ${error.message}. Please ensure location services are enabled and try again.`,
+            `Could not get your location: ${error.message}. Please ensure location services are enabled.`,
             [{ text: 'OK' }]
           );
           setLoading(false);
@@ -140,18 +120,20 @@ export default function PassengerHomeScreen() {
       }
     })();
 
-    return () => {
-      console.log('🧹 Cleaning up location effect');
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, []);
+
+  // FIX: Separate effect to animate map ONLY when it is ready
+  useEffect(() => {
+    if (isMapReady && currentLocation && mapRef.current) {
+      console.log('🗺️ Map ready and location set. Animating...');
+      mapRef.current.animateToRegion(currentLocation, 1000);
+    }
+  }, [isMapReady, currentLocation]);
 
   const reverseGeocode = async (coords, isPickup = false) => {
     try {
-      console.log('🔍 Reverse geocoding:', coords);
       const addresses = await Location.reverseGeocodeAsync(coords);
-      console.log('🔍 Addresses received:', addresses.length);
-      
       if (addresses.length > 0) {
         const addr = addresses[0];
         const fullAddress =
@@ -159,7 +141,6 @@ export default function PassengerHomeScreen() {
             .filter(Boolean)
             .join(', ') || 'Current Location';
         
-        console.log('🔍 Full address:', fullAddress);
         if (isPickup) setPickupAddress(fullAddress);
         else setDropoffAddress(fullAddress);
       }
@@ -171,14 +152,12 @@ export default function PassengerHomeScreen() {
 
   const fetchLocationIQRoute = async (origin, destination) => {
     try {
-      console.log('🛣️ Fetching route from LocationIQ...');
       const url = `https://us1.locationiq.com/v1/directions/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?key=${LOCATIONIQ_API_KEY}&steps=true&alternatives=false&geometries=polyline&overview=full`;
       
       const response = await fetch(url);
       const data = await response.json();
 
       if (data.routes && data.routes.length > 0) {
-        console.log('✅ Route fetched successfully');
         const route = data.routes[0];
         const coordinates = decodePolyline(route.geometry);
         const distanceInKm = route.distance / 1000;
@@ -239,7 +218,6 @@ export default function PassengerHomeScreen() {
   const displayRoute = async (origin, destination) => {
     if (!origin || !destination) return;
 
-    console.log('🛣️ Displaying route...');
     setLoading(true);
     const routeData = await fetchLocationIQRoute(origin, destination);
 
@@ -252,7 +230,7 @@ export default function PassengerHomeScreen() {
       const fare = Math.round(500 + routeData.distance * 150 * ride.multiplier);
       setEstimatedFare(fare);
 
-      if (mapRef.current) {
+      if (mapRef.current && isMapReady) {
         mapRef.current.fitToCoordinates(routeData.coordinates, {
           edgePadding: { top: 100, right: 100, bottom: 400, left: 100 },
           animated: true,
@@ -263,10 +241,8 @@ export default function PassengerHomeScreen() {
   };
 
   const goToSearchDestination = () => {
-    console.log('🔍 Navigating to SearchDestination...');
     navigation.navigate('SearchDestination', {
       onSelect: (coords, address) => {
-        console.log('📍 Destination selected:', address);
         setDropoffLocation(coords);
         setDropoffAddress(address);
         if (pickupLocation) {
@@ -277,7 +253,6 @@ export default function PassengerHomeScreen() {
   };
 
   const selectRide = (rideId) => {
-    console.log('🚗 Ride selected:', rideId);
     setSelectedRideType(rideId);
     setShowRideModal(false);
     if (routeDistance > 0) {
@@ -301,7 +276,6 @@ export default function PassengerHomeScreen() {
     );
   }
 
-  // ✅ CRITICAL FIX: Safety check before rendering map
   if (!currentLocation) {
     return (
       <View style={styles.loadingContainer}>
@@ -309,11 +283,7 @@ export default function PassengerHomeScreen() {
         <Text style={styles.loadingText}>Unable to get location</Text>
         <TouchableOpacity 
           style={styles.retryButton}
-          onPress={() => {
-            setLoading(true);
-            // Trigger re-mount to retry location
-            navigation.replace('PassengerMain');
-          }}
+          onPress={() => navigation.replace('PassengerMain')}
         >
           <Text style={styles.retryText}>Retry</Text>
         </TouchableOpacity>
@@ -330,7 +300,10 @@ export default function PassengerHomeScreen() {
         initialRegion={currentLocation}
         showsUserLocation={true}
         showsMyLocationButton={false}
-        onMapReady={() => console.log('🗺️ Map is ready')}
+        onMapReady={() => {
+          console.log('🗺️ Map is ready');
+          setIsMapReady(true);
+        }}
         onError={(error) => console.error('❌ Map error:', error)}
       >
         {pickupLocation && (
@@ -379,10 +352,7 @@ export default function PassengerHomeScreen() {
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.menuButton}
-          onPress={() => {
-            console.log('📂 Opening drawer...');
-            navigation.dispatch(DrawerActions.openDrawer());
-          }}
+          onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
         >
           <Ionicons name="menu" size={32} color="#000" />
         </TouchableOpacity>
@@ -390,8 +360,9 @@ export default function PassengerHomeScreen() {
         <TouchableOpacity
           style={styles.currentLocationButton}
           onPress={() => {
-            console.log('📍 Centering on current location...');
-            currentLocation && mapRef.current?.animateToRegion(currentLocation, 1000);
+            if(isMapReady && currentLocation) {
+              mapRef.current?.animateToRegion(currentLocation, 1000);
+            }
           }}
         >
           <Ionicons name="locate" size={28} color="#00B0F3" />
@@ -399,10 +370,7 @@ export default function PassengerHomeScreen() {
 
         <TouchableOpacity
           style={styles.profileButton}
-          onPress={() => {
-            console.log('👤 Navigating to Profile...');
-            navigation.navigate('Profile');
-          }}
+          onPress={() => navigation.navigate('Profile')}
         >
           <Ionicons name="person-circle" size={36} color="#000" />
         </TouchableOpacity>
@@ -427,7 +395,6 @@ export default function PassengerHomeScreen() {
             <TouchableOpacity
               style={styles.clearButton}
               onPress={() => {
-                console.log('🗑️ Clearing destination...');
                 setDropoffLocation(null);
                 setDropoffAddress('');
                 setRouteCoords([]);
@@ -497,7 +464,6 @@ export default function PassengerHomeScreen() {
             <TouchableOpacity
               style={styles.requestBtn}
               onPress={() => {
-                console.log('🚗 Requesting ride...');
                 navigation.navigate('DriverMatching', {
                   pickup: pickupLocation,
                   dropoff: dropoffLocation,
