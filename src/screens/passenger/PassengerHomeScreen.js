@@ -12,7 +12,7 @@ import {
   Modal,
   FlatList,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps'; // Removed PROVIDER_GOOGLE
 import * as Location from 'expo-location';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,7 +23,7 @@ const ASPECT_RATIO = width / height;
 const LATITUDE_DELTA = 0.015;
 const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
 
-// Replace with your LocationIQ API key
+// LocationIQ API key for routing only
 const LOCATIONIQ_API_KEY = 'pk.b84a833d23e60c83f10a0b59524191b6';
 
 const RIDE_TYPES = [
@@ -55,18 +55,40 @@ export default function PassengerHomeScreen() {
 
     (async () => {
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert('Permission Denied', 'Location access is required.');
+        console.log('Requesting location permission...');
+        
+        // Check if location services are enabled
+        const serviceEnabled = await Location.hasServicesEnabledAsync();
+        if (!serviceEnabled) {
+          Alert.alert(
+            'Location Services Disabled',
+            'Please enable location services to use this app.',
+            [{ text: 'OK' }]
+          );
           setLoading(false);
           return;
         }
 
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            'Permission Denied',
+            'Location access is required for this app.',
+            [{ text: 'OK' }]
+          );
+          setLoading(false);
+          return;
+        }
+
+        console.log('Getting current position...');
         const loc = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
+          timeout: 10000, // 10 second timeout
         });
 
         if (!isMounted) return;
+
+        console.log('Location obtained:', loc.coords);
 
         const region = {
           latitude: loc.coords.latitude,
@@ -86,7 +108,23 @@ export default function PassengerHomeScreen() {
       } catch (error) {
         console.error('Location error:', error);
         if (isMounted) {
-          Alert.alert('Error', 'Could not get your location. Please try again.');
+          // Show a more user-friendly error
+          Alert.alert(
+            'Location Error',
+            'Could not get your location. Please check your GPS and try again.',
+            [{ text: 'OK' }]
+          );
+          
+          // Set a default location if real location fails
+          const defaultRegion = {
+            latitude: 6.5244, // Default to Lagos, Nigeria
+            longitude: 3.3792,
+            latitudeDelta: LATITUDE_DELTA,
+            longitudeDelta: LONGITUDE_DELTA,
+          };
+          setCurrentLocation(defaultRegion);
+          setPickupLocation(defaultRegion);
+          setPickupAddress('Lagos, Nigeria');
           setLoading(false);
         }
       }
@@ -99,6 +137,7 @@ export default function PassengerHomeScreen() {
 
   const reverseGeocode = async (coords, isPickup = false) => {
     try {
+      console.log('Reverse geocoding for coords:', coords);
       const addresses = await Location.reverseGeocodeAsync(coords);
       if (addresses.length > 0) {
         const addr = addresses[0];
@@ -106,6 +145,7 @@ export default function PassengerHomeScreen() {
           [addr.street || addr.name, addr.city || addr.subregion, addr.region]
             .filter(Boolean)
             .join(', ') || 'Current Location';
+        console.log('Geocoded address:', fullAddress);
         if (isPickup) setPickupAddress(fullAddress);
         else setDropoffAddress(fullAddress);
       }
@@ -117,16 +157,26 @@ export default function PassengerHomeScreen() {
 
   const fetchLocationIQRoute = async (origin, destination) => {
     try {
+      console.log('Fetching route from LocationIQ...');
       const url = `https://us1.locationiq.com/v1/directions/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?key=${LOCATIONIQ_API_KEY}&steps=true&alternatives=false&geometries=polyline&overview=full`;
+      
+      console.log('API URL:', url);
       
       const response = await fetch(url);
       const data = await response.json();
 
       if (data.routes && data.routes.length > 0) {
+        console.log('Route found, decoding polyline...');
         const route = data.routes[0];
         const coordinates = decodePolyline(route.geometry);
         const distanceInKm = route.distance / 1000;
         const durationInSec = route.duration;
+
+        console.log('Route details:', {
+          distance: distanceInKm,
+          duration: durationInSec,
+          coordinatesCount: coordinates.length
+        });
 
         return {
           coordinates,
@@ -134,16 +184,22 @@ export default function PassengerHomeScreen() {
           duration: durationInSec,
         };
       } else {
+        console.error('No route in response:', data);
         throw new Error('No route found');
       }
     } catch (error) {
       console.error('LocationIQ API Error:', error);
-      Alert.alert('Route Error', 'Could not fetch route. Please try again.');
+      Alert.alert(
+        'Route Error',
+        'Could not fetch route. Please check your internet connection and try again.'
+      );
       return null;
     }
   };
 
   const decodePolyline = (encoded) => {
+    if (!encoded) return [];
+    
     const points = [];
     let index = 0;
     const len = encoded.length;
@@ -181,33 +237,45 @@ export default function PassengerHomeScreen() {
   };
 
   const displayRoute = async (origin, destination) => {
-    if (!origin || !destination) return;
-
-    setLoading(true);
-    const routeData = await fetchLocationIQRoute(origin, destination);
-
-    if (routeData) {
-      setRouteCoords(routeData.coordinates);
-      setRouteDistance(routeData.distance);
-      setRouteDuration(routeData.duration);
-
-      const ride = RIDE_TYPES.find((r) => r.id === selectedRideType);
-      const fare = Math.round(500 + routeData.distance * 150 * ride.multiplier);
-      setEstimatedFare(fare);
-
-      if (mapRef.current) {
-        mapRef.current.fitToCoordinates(routeData.coordinates, {
-          edgePadding: { top: 100, right: 100, bottom: 400, left: 100 },
-          animated: true,
-        });
-      }
+    if (!origin || !destination) {
+      console.log('Missing origin or destination');
+      return;
     }
-    setLoading(false);
+
+    console.log('Displaying route from:', origin, 'to:', destination);
+    setLoading(true);
+    
+    try {
+      const routeData = await fetchLocationIQRoute(origin, destination);
+
+      if (routeData) {
+        setRouteCoords(routeData.coordinates);
+        setRouteDistance(routeData.distance);
+        setRouteDuration(routeData.duration);
+
+        const ride = RIDE_TYPES.find((r) => r.id === selectedRideType);
+        const fare = Math.round(500 + routeData.distance * 150 * ride.multiplier);
+        setEstimatedFare(fare);
+
+        if (mapRef.current && routeData.coordinates.length > 0) {
+          mapRef.current.fitToCoordinates(routeData.coordinates, {
+            edgePadding: { top: 100, right: 100, bottom: 400, left: 100 },
+            animated: true,
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error displaying route:', error);
+      Alert.alert('Error', 'Failed to display route. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const goToSearchDestination = () => {
     navigation.navigate('SearchDestination', {
       onSelect: (coords, address) => {
+        console.log('Destination selected:', coords, address);
         setDropoffLocation(coords);
         setDropoffAddress(address);
         if (pickupLocation) {
@@ -218,6 +286,7 @@ export default function PassengerHomeScreen() {
   };
 
   const selectRide = (rideId) => {
+    console.log('Ride selected:', rideId);
     setSelectedRideType(rideId);
     setShowRideModal(false);
     if (routeDistance > 0) {
@@ -232,6 +301,33 @@ export default function PassengerHomeScreen() {
     return `${minutes} min`;
   };
 
+  const handleRequestRide = () => {
+    if (!dropoffLocation || !pickupLocation) {
+      Alert.alert('Missing Information', 'Please select a destination first.');
+      return;
+    }
+
+    console.log('Requesting ride with:', {
+      pickup: pickupLocation,
+      dropoff: dropoffLocation,
+      serviceType: selectedRideType,
+      estimatedFare,
+      distance: routeDistance,
+      duration: routeDuration,
+    });
+
+    navigation.navigate('DriverMatching', {
+      pickup: pickupLocation,
+      dropoff: dropoffLocation,
+      pickupAddress,
+      dropoffAddress,
+      serviceType: selectedRideType,
+      estimatedFare,
+      distance: routeDistance,
+      duration: routeDuration,
+    });
+  };
+
   if (loading && !currentLocation) {
     return (
       <View style={styles.loadingContainer}>
@@ -243,49 +339,64 @@ export default function PassengerHomeScreen() {
 
   return (
     <View style={styles.container}>
-      <MapView
-        ref={mapRef}
-        provider={PROVIDER_GOOGLE}
-        style={styles.map}
-        initialRegion={currentLocation}
-        showsUserLocation={true}
-        showsMyLocationButton={false}
-      >
-        {pickupLocation && (
-          <Marker coordinate={pickupLocation}>
-            <View style={styles.pickupMarker}>
-              <Ionicons name="location" size={30} color="white" />
-            </View>
-          </Marker>
-        )}
+      {currentLocation ? (
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          initialRegion={currentLocation}
+          showsUserLocation={true}
+          showsMyLocationButton={false}
+          showsCompass={true}
+          showsPointsOfInterest={false}
+          showsBuildings={true}
+          // Removed provider={PROVIDER_GOOGLE} to use default provider
+        >
+          {pickupLocation && (
+            <Marker
+              coordinate={pickupLocation}
+              identifier="pickup"
+            >
+              <View style={styles.pickupMarker}>
+                <Ionicons name="location" size={30} color="white" />
+              </View>
+            </Marker>
+          )}
 
-        {dropoffLocation && (
-          <Marker coordinate={dropoffLocation}>
-            <View style={styles.dropoffMarker}>
-              <Ionicons name="flag" size={30} color="white" />
-            </View>
-          </Marker>
-        )}
+          {dropoffLocation && (
+            <Marker
+              coordinate={dropoffLocation}
+              identifier="dropoff"
+            >
+              <View style={styles.dropoffMarker}>
+                <Ionicons name="flag" size={30} color="white" />
+              </View>
+            </Marker>
+          )}
 
-        {routeCoords.length > 0 && (
-          <>
-            <Polyline
-              coordinates={routeCoords}
-              strokeColor="rgba(0,0,0,0.2)"
-              strokeWidth={8}
-              lineCap="round"
-              lineJoin="round"
-            />
-            <Polyline
-              coordinates={routeCoords}
-              strokeColor="#00B0F3"
-              strokeWidth={6}
-              lineCap="round"
-              lineJoin="round"
-            />
-          </>
-        )}
-      </MapView>
+          {routeCoords.length > 0 && (
+            <>
+              <Polyline
+                coordinates={routeCoords}
+                strokeColor="rgba(0,0,0,0.2)"
+                strokeWidth={8}
+                lineCap="round"
+                lineJoin="round"
+              />
+              <Polyline
+                coordinates={routeCoords}
+                strokeColor="#00B0F3"
+                strokeWidth={6}
+                lineCap="round"
+                lineJoin="round"
+              />
+            </>
+          )}
+        </MapView>
+      ) : (
+        <View style={styles.mapPlaceholder}>
+          <Text style={styles.mapPlaceholderText}>Map loading...</Text>
+        </View>
+      )}
 
       {loading && currentLocation && (
         <View style={styles.routeLoadingOverlay}>
@@ -304,9 +415,11 @@ export default function PassengerHomeScreen() {
 
         <TouchableOpacity
           style={styles.currentLocationButton}
-          onPress={() =>
-            currentLocation && mapRef.current?.animateToRegion(currentLocation, 1000)
-          }
+          onPress={() => {
+            if (currentLocation && mapRef.current) {
+              mapRef.current.animateToRegion(currentLocation, 1000);
+            }
+          }}
         >
           <Ionicons name="locate" size={28} color="#00B0F3" />
         </TouchableOpacity>
@@ -338,6 +451,7 @@ export default function PassengerHomeScreen() {
             <TouchableOpacity
               style={styles.clearButton}
               onPress={() => {
+                console.log('Clearing destination');
                 setDropoffLocation(null);
                 setDropoffAddress('');
                 setRouteCoords([]);
@@ -369,7 +483,10 @@ export default function PassengerHomeScreen() {
         <View style={styles.bottomPanel}>
           <TouchableOpacity
             style={styles.rideSelector}
-            onPress={() => setShowRideModal(true)}
+            onPress={() => {
+              console.log('Opening ride modal');
+              setShowRideModal(true);
+            }}
           >
             <View style={styles.rideLeft}>
               <View
@@ -377,22 +494,22 @@ export default function PassengerHomeScreen() {
                   styles.rideIcon,
                   {
                     backgroundColor: RIDE_TYPES.find((r) => r.id === selectedRideType)
-                      ?.color,
+                      ?.color || '#00B0F3',
                   },
                 ]}
               >
                 <Ionicons
-                  name={RIDE_TYPES.find((r) => r.id === selectedRideType)?.icon}
+                  name={RIDE_TYPES.find((r) => r.id === selectedRideType)?.icon || 'car-sport'}
                   size={28}
                   color="white"
                 />
               </View>
               <View>
                 <Text style={styles.rideName}>
-                  {RIDE_TYPES.find((r) => r.id === selectedRideType)?.name}
+                  {RIDE_TYPES.find((r) => r.id === selectedRideType)?.name || 'City Ride'}
                 </Text>
                 <Text style={styles.rideEta}>
-                  {RIDE_TYPES.find((r) => r.id === selectedRideType)?.eta}
+                  {RIDE_TYPES.find((r) => r.id === selectedRideType)?.eta || '~3 min'}
                 </Text>
               </View>
             </View>
@@ -406,18 +523,8 @@ export default function PassengerHomeScreen() {
             </View>
             <TouchableOpacity
               style={styles.requestBtn}
-              onPress={() =>
-                navigation.navigate('DriverMatching', {
-                  pickup: pickupLocation,
-                  dropoff: dropoffLocation,
-                  pickupAddress,
-                  dropoffAddress,
-                  serviceType: selectedRideType,
-                  estimatedFare,
-                  distance: routeDistance,
-                  duration: routeDuration,
-                })
-              }
+              onPress={handleRequestRide}
+              activeOpacity={0.8}
             >
               <Text style={styles.requestText}>Request Ride</Text>
             </TouchableOpacity>
@@ -425,8 +532,18 @@ export default function PassengerHomeScreen() {
         </View>
       )}
 
-      <Modal visible={showRideModal} transparent animationType="slide">
+      <Modal
+        visible={showRideModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowRideModal(false)}
+      >
         <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={styles.modalOverlayTouchable}
+            activeOpacity={1}
+            onPress={() => setShowRideModal(false)}
+          />
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Choose a ride</Text>
@@ -445,6 +562,7 @@ export default function PassengerHomeScreen() {
                     selectedRideType === item.id && styles.selectedOption,
                   ]}
                   onPress={() => selectRide(item.id)}
+                  activeOpacity={0.7}
                 >
                   <View style={styles.rideOptionLeft}>
                     <View style={[styles.rideIconLarge, { backgroundColor: item.color }]}>
@@ -460,12 +578,13 @@ export default function PassengerHomeScreen() {
                     {estimatedFare
                       ? Math.round(
                           (estimatedFare * item.multiplier) /
-                            RIDE_TYPES.find((r) => r.id === selectedRideType)?.multiplier
+                            (RIDE_TYPES.find((r) => r.id === selectedRideType)?.multiplier || 1)
                         ).toLocaleString()
                       : '---'}
                   </Text>
                 </TouchableOpacity>
               )}
+              contentContainerStyle={styles.modalListContent}
             />
           </View>
         </View>
@@ -484,9 +603,19 @@ export default function PassengerHomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: '#f5f5f5' },
   map: { flex: 1 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  mapPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#e0e0e0',
+  },
+  mapPlaceholderText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
   loadingText: { marginTop: 16, fontSize: 16, color: '#666' },
   routeLoadingOverlay: {
     position: 'absolute',
@@ -494,7 +623,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 999,
@@ -520,6 +649,7 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     padding: 8,
     shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
@@ -529,6 +659,7 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     padding: 8,
     shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
@@ -538,6 +669,7 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     padding: 4,
     shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
@@ -551,6 +683,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
     shadowRadius: 12,
     elevation: 10,
@@ -565,10 +698,12 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: '#000',
     flex: 1,
+    fontWeight: '500',
   },
   placeholder: {
     color: '#999',
     fontStyle: 'italic',
+    fontWeight: 'normal',
   },
   clearButton: {
     marginLeft: 8,
@@ -606,6 +741,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 15,
     elevation: 12,
@@ -633,6 +769,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
@@ -669,6 +806,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 16,
     shadowColor: '#00B0F3',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 5,
@@ -685,6 +823,7 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     borderColor: 'white',
     shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
     elevation: 5,
@@ -696,6 +835,7 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     borderColor: 'white',
     shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
     elevation: 5,
@@ -704,6 +844,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
+  },
+  modalOverlayTouchable: {
+    flex: 1,
   },
   modalContent: {
     backgroundColor: 'white',
@@ -723,6 +866,9 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#000',
+  },
+  modalListContent: {
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
   },
   rideOption: {
     flexDirection: 'row',
@@ -746,6 +892,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
@@ -777,6 +924,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
@@ -786,5 +934,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
     flex: 1,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FF4444',
+    marginBottom: 10,
+  },
+  errorDetails: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  retryButton: {
+    fontSize: 16,
+    color: '#00B0F3',
+    fontWeight: '600',
   },
 });
