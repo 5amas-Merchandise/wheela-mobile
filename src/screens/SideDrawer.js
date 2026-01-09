@@ -1,4 +1,4 @@
-// src/screens/passenger/SideDrawer.js
+// src/screens/SideDrawer.js
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -14,7 +14,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 
-import { getAuthToken, logout } from '../utils/auth'; // Adjust path if needed
+// ✅ FIXED: Correct import path (go up TWO levels)
+import { getAuthToken, logout } from '../utils/auth';
 
 const baseUrl = "https://wheels-backend.vercel.app";
 
@@ -52,8 +53,9 @@ const SideDrawer = ({ navigation }) => {
       }
     } catch (err) {
       console.error('SideDrawer profile error:', err);
+      // ✅ FIXED: Use logout instead of removeAuthToken
       if (err.response?.status === 401) {
-        await removeAuthToken();
+        await logout();
         navigation.replace('Welcome');
       }
     } finally {
@@ -82,36 +84,36 @@ const SideDrawer = ({ navigation }) => {
   };
 
   const handleLogout = () => {
-  Alert.alert('Logout', 'Are you sure you want to log out?', [
-    { text: 'Cancel', style: 'cancel' },
-    {
-      text: 'Logout',
-      style: 'destructive',
-      onPress: async () => {
-        await logout(); // ← Now uses the correct function
-        navigation.replace('Welcome');
-      },
-    },
-  ]);
-};
-
-const handleBecomeDriver = () => {
-  Alert.alert(
-    'Become a Driver',
-    'You will be logged out and redirected to the registration flow to become a Wheela driver. Continue?',
-    [
+    Alert.alert('Logout', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Continue',
-        style: 'default',
+        text: 'Logout',
+        style: 'destructive',
         onPress: async () => {
-          await logout(); // ← Also use logout here
+          await logout();
           navigation.replace('Welcome');
         },
       },
-    ]
-  );
-};
+    ]);
+  };
+
+  const handleBecomeDriver = () => {
+    Alert.alert(
+      'Become a Driver',
+      'You will be logged out and redirected to the registration flow to become a Wheela driver. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          style: 'default',
+          onPress: async () => {
+            await logout();
+            navigation.replace('Welcome');
+          },
+        },
+      ]
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>

@@ -12,7 +12,7 @@ import {
   Modal,
   FlatList,
 } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps'; // Removed PROVIDER_GOOGLE
+import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,7 +23,7 @@ const ASPECT_RATIO = width / height;
 const LATITUDE_DELTA = 0.015;
 const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
 
-// LocationIQ API key for routing only
+// Replace with your LocationIQ API key
 const LOCATIONIQ_API_KEY = 'pk.b84a833d23e60c83f10a0b59524191b6';
 
 const RIDE_TYPES = [
@@ -50,45 +50,57 @@ export default function PassengerHomeScreen() {
   const [routeDistance, setRouteDistance] = useState(0);
   const [routeDuration, setRouteDuration] = useState(0);
 
+  // ✅ Component lifecycle logging
+  useEffect(() => {
+    console.log('✅ PassengerHomeScreen mounted');
+    return () => {
+      console.log('❌ PassengerHomeScreen unmounted');
+    };
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
     (async () => {
       try {
-        console.log('Requesting location permission...');
+        console.log('📍 Starting location request...');
         
-        // Check if location services are enabled
-        const serviceEnabled = await Location.hasServicesEnabledAsync();
-        if (!serviceEnabled) {
+        // ✅ CRITICAL FIX: Check if location services are enabled first
+        const locationEnabled = await Location.hasServicesEnabledAsync();
+        console.log('📍 Location services enabled:', locationEnabled);
+        
+        if (!locationEnabled) {
+          console.error('❌ Location services are disabled');
           Alert.alert(
             'Location Services Disabled',
-            'Please enable location services to use this app.',
+            'Please enable location services in your device settings to use this app.',
             [{ text: 'OK' }]
           );
           setLoading(false);
           return;
         }
 
+        console.log('📍 Requesting location permissions...');
         const { status } = await Location.requestForegroundPermissionsAsync();
+        console.log('📍 Permission status:', status);
+        
         if (status !== 'granted') {
-          Alert.alert(
-            'Permission Denied',
-            'Location access is required for this app.',
-            [{ text: 'OK' }]
-          );
+          console.error('❌ Location permission denied');
+          Alert.alert('Permission Denied', 'Location access is required.');
           setLoading(false);
           return;
         }
 
-        console.log('Getting current position...');
+        console.log('📍 Getting current position...');
         const loc = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
-          timeout: 10000, // 10 second timeout
         });
+        console.log('📍 Location received:', loc.coords.latitude, loc.coords.longitude);
 
-        if (!isMounted) return;
-
-        console.log('Location obtained:', loc.coords);
+        if (!isMounted) {
+          console.log('⚠️ Component unmounted, skipping state update');
+          return;
+        }
 
         const region = {
           latitude: loc.coords.latitude,
@@ -97,86 +109,80 @@ export default function PassengerHomeScreen() {
           longitudeDelta: LONGITUDE_DELTA,
         };
 
+        console.log('📍 Setting current location state...');
         setCurrentLocation(region);
         setPickupLocation(region);
+        
+        console.log('📍 Starting reverse geocode...');
         await reverseGeocode(region, true);
+        
+        console.log('✅ Location setup complete');
         setLoading(false);
 
         if (mapRef.current) {
+          console.log('🗺️ Animating map to region...');
           mapRef.current.animateToRegion(region, 1000);
         }
       } catch (error) {
-        console.error('Location error:', error);
+        console.error('❌ CRITICAL LOCATION ERROR:', error);
+        console.error('Error name:', error.name);
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+        
         if (isMounted) {
-          // Show a more user-friendly error
           Alert.alert(
-            'Location Error',
-            'Could not get your location. Please check your GPS and try again.',
+            'Location Error', 
+            `Could not get your location: ${error.message}. Please ensure location services are enabled and try again.`,
             [{ text: 'OK' }]
           );
-          
-          // Set a default location if real location fails
-          const defaultRegion = {
-            latitude: 6.5244, // Default to Lagos, Nigeria
-            longitude: 3.3792,
-            latitudeDelta: LATITUDE_DELTA,
-            longitudeDelta: LONGITUDE_DELTA,
-          };
-          setCurrentLocation(defaultRegion);
-          setPickupLocation(defaultRegion);
-          setPickupAddress('Lagos, Nigeria');
           setLoading(false);
         }
       }
     })();
 
     return () => {
+      console.log('🧹 Cleaning up location effect');
       isMounted = false;
     };
   }, []);
 
   const reverseGeocode = async (coords, isPickup = false) => {
     try {
-      console.log('Reverse geocoding for coords:', coords);
+      console.log('🔍 Reverse geocoding:', coords);
       const addresses = await Location.reverseGeocodeAsync(coords);
+      console.log('🔍 Addresses received:', addresses.length);
+      
       if (addresses.length > 0) {
         const addr = addresses[0];
         const fullAddress =
           [addr.street || addr.name, addr.city || addr.subregion, addr.region]
             .filter(Boolean)
             .join(', ') || 'Current Location';
-        console.log('Geocoded address:', fullAddress);
+        
+        console.log('🔍 Full address:', fullAddress);
         if (isPickup) setPickupAddress(fullAddress);
         else setDropoffAddress(fullAddress);
       }
     } catch (err) {
-      console.error('Reverse geocode error:', err);
+      console.error('❌ Reverse geocode error:', err);
       if (isPickup) setPickupAddress('Current Location');
     }
   };
 
   const fetchLocationIQRoute = async (origin, destination) => {
     try {
-      console.log('Fetching route from LocationIQ...');
+      console.log('🛣️ Fetching route from LocationIQ...');
       const url = `https://us1.locationiq.com/v1/directions/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?key=${LOCATIONIQ_API_KEY}&steps=true&alternatives=false&geometries=polyline&overview=full`;
-      
-      console.log('API URL:', url);
       
       const response = await fetch(url);
       const data = await response.json();
 
       if (data.routes && data.routes.length > 0) {
-        console.log('Route found, decoding polyline...');
+        console.log('✅ Route fetched successfully');
         const route = data.routes[0];
         const coordinates = decodePolyline(route.geometry);
         const distanceInKm = route.distance / 1000;
         const durationInSec = route.duration;
-
-        console.log('Route details:', {
-          distance: distanceInKm,
-          duration: durationInSec,
-          coordinatesCount: coordinates.length
-        });
 
         return {
           coordinates,
@@ -184,22 +190,16 @@ export default function PassengerHomeScreen() {
           duration: durationInSec,
         };
       } else {
-        console.error('No route in response:', data);
         throw new Error('No route found');
       }
     } catch (error) {
-      console.error('LocationIQ API Error:', error);
-      Alert.alert(
-        'Route Error',
-        'Could not fetch route. Please check your internet connection and try again.'
-      );
+      console.error('❌ LocationIQ API Error:', error);
+      Alert.alert('Route Error', 'Could not fetch route. Please try again.');
       return null;
     }
   };
 
   const decodePolyline = (encoded) => {
-    if (!encoded) return [];
-    
     const points = [];
     let index = 0;
     const len = encoded.length;
@@ -237,45 +237,36 @@ export default function PassengerHomeScreen() {
   };
 
   const displayRoute = async (origin, destination) => {
-    if (!origin || !destination) {
-      console.log('Missing origin or destination');
-      return;
-    }
+    if (!origin || !destination) return;
 
-    console.log('Displaying route from:', origin, 'to:', destination);
+    console.log('🛣️ Displaying route...');
     setLoading(true);
-    
-    try {
-      const routeData = await fetchLocationIQRoute(origin, destination);
+    const routeData = await fetchLocationIQRoute(origin, destination);
 
-      if (routeData) {
-        setRouteCoords(routeData.coordinates);
-        setRouteDistance(routeData.distance);
-        setRouteDuration(routeData.duration);
+    if (routeData) {
+      setRouteCoords(routeData.coordinates);
+      setRouteDistance(routeData.distance);
+      setRouteDuration(routeData.duration);
 
-        const ride = RIDE_TYPES.find((r) => r.id === selectedRideType);
-        const fare = Math.round(500 + routeData.distance * 150 * ride.multiplier);
-        setEstimatedFare(fare);
+      const ride = RIDE_TYPES.find((r) => r.id === selectedRideType);
+      const fare = Math.round(500 + routeData.distance * 150 * ride.multiplier);
+      setEstimatedFare(fare);
 
-        if (mapRef.current && routeData.coordinates.length > 0) {
-          mapRef.current.fitToCoordinates(routeData.coordinates, {
-            edgePadding: { top: 100, right: 100, bottom: 400, left: 100 },
-            animated: true,
-          });
-        }
+      if (mapRef.current) {
+        mapRef.current.fitToCoordinates(routeData.coordinates, {
+          edgePadding: { top: 100, right: 100, bottom: 400, left: 100 },
+          animated: true,
+        });
       }
-    } catch (error) {
-      console.error('Error displaying route:', error);
-      Alert.alert('Error', 'Failed to display route. Please try again.');
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   };
 
   const goToSearchDestination = () => {
+    console.log('🔍 Navigating to SearchDestination...');
     navigation.navigate('SearchDestination', {
       onSelect: (coords, address) => {
-        console.log('Destination selected:', coords, address);
+        console.log('📍 Destination selected:', address);
         setDropoffLocation(coords);
         setDropoffAddress(address);
         if (pickupLocation) {
@@ -286,7 +277,7 @@ export default function PassengerHomeScreen() {
   };
 
   const selectRide = (rideId) => {
-    console.log('Ride selected:', rideId);
+    console.log('🚗 Ride selected:', rideId);
     setSelectedRideType(rideId);
     setShowRideModal(false);
     if (routeDistance > 0) {
@@ -301,33 +292,6 @@ export default function PassengerHomeScreen() {
     return `${minutes} min`;
   };
 
-  const handleRequestRide = () => {
-    if (!dropoffLocation || !pickupLocation) {
-      Alert.alert('Missing Information', 'Please select a destination first.');
-      return;
-    }
-
-    console.log('Requesting ride with:', {
-      pickup: pickupLocation,
-      dropoff: dropoffLocation,
-      serviceType: selectedRideType,
-      estimatedFare,
-      distance: routeDistance,
-      duration: routeDuration,
-    });
-
-    navigation.navigate('DriverMatching', {
-      pickup: pickupLocation,
-      dropoff: dropoffLocation,
-      pickupAddress,
-      dropoffAddress,
-      serviceType: selectedRideType,
-      estimatedFare,
-      distance: routeDistance,
-      duration: routeDuration,
-    });
-  };
-
   if (loading && !currentLocation) {
     return (
       <View style={styles.loadingContainer}>
@@ -337,66 +301,73 @@ export default function PassengerHomeScreen() {
     );
   }
 
+  // ✅ CRITICAL FIX: Safety check before rendering map
+  if (!currentLocation) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Ionicons name="location-outline" size={64} color="#ccc" />
+        <Text style={styles.loadingText}>Unable to get location</Text>
+        <TouchableOpacity 
+          style={styles.retryButton}
+          onPress={() => {
+            setLoading(true);
+            // Trigger re-mount to retry location
+            navigation.replace('PassengerMain');
+          }}
+        >
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      {currentLocation ? (
-        <MapView
-          ref={mapRef}
-          style={styles.map}
-          initialRegion={currentLocation}
-          showsUserLocation={true}
-          showsMyLocationButton={false}
-          showsCompass={true}
-          showsPointsOfInterest={false}
-          showsBuildings={true}
-          // Removed provider={PROVIDER_GOOGLE} to use default provider
-        >
-          {pickupLocation && (
-            <Marker
-              coordinate={pickupLocation}
-              identifier="pickup"
-            >
-              <View style={styles.pickupMarker}>
-                <Ionicons name="location" size={30} color="white" />
-              </View>
-            </Marker>
-          )}
+      <MapView
+        ref={mapRef}
+        provider={PROVIDER_GOOGLE}
+        style={styles.map}
+        initialRegion={currentLocation}
+        showsUserLocation={true}
+        showsMyLocationButton={false}
+        onMapReady={() => console.log('🗺️ Map is ready')}
+        onError={(error) => console.error('❌ Map error:', error)}
+      >
+        {pickupLocation && (
+          <Marker coordinate={pickupLocation}>
+            <View style={styles.pickupMarker}>
+              <Ionicons name="location" size={30} color="white" />
+            </View>
+          </Marker>
+        )}
 
-          {dropoffLocation && (
-            <Marker
-              coordinate={dropoffLocation}
-              identifier="dropoff"
-            >
-              <View style={styles.dropoffMarker}>
-                <Ionicons name="flag" size={30} color="white" />
-              </View>
-            </Marker>
-          )}
+        {dropoffLocation && (
+          <Marker coordinate={dropoffLocation}>
+            <View style={styles.dropoffMarker}>
+              <Ionicons name="flag" size={30} color="white" />
+            </View>
+          </Marker>
+        )}
 
-          {routeCoords.length > 0 && (
-            <>
-              <Polyline
-                coordinates={routeCoords}
-                strokeColor="rgba(0,0,0,0.2)"
-                strokeWidth={8}
-                lineCap="round"
-                lineJoin="round"
-              />
-              <Polyline
-                coordinates={routeCoords}
-                strokeColor="#00B0F3"
-                strokeWidth={6}
-                lineCap="round"
-                lineJoin="round"
-              />
-            </>
-          )}
-        </MapView>
-      ) : (
-        <View style={styles.mapPlaceholder}>
-          <Text style={styles.mapPlaceholderText}>Map loading...</Text>
-        </View>
-      )}
+        {routeCoords.length > 0 && (
+          <>
+            <Polyline
+              coordinates={routeCoords}
+              strokeColor="rgba(0,0,0,0.2)"
+              strokeWidth={8}
+              lineCap="round"
+              lineJoin="round"
+            />
+            <Polyline
+              coordinates={routeCoords}
+              strokeColor="#00B0F3"
+              strokeWidth={6}
+              lineCap="round"
+              lineJoin="round"
+            />
+          </>
+        )}
+      </MapView>
 
       {loading && currentLocation && (
         <View style={styles.routeLoadingOverlay}>
@@ -408,7 +379,10 @@ export default function PassengerHomeScreen() {
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.menuButton}
-          onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+          onPress={() => {
+            console.log('📂 Opening drawer...');
+            navigation.dispatch(DrawerActions.openDrawer());
+          }}
         >
           <Ionicons name="menu" size={32} color="#000" />
         </TouchableOpacity>
@@ -416,9 +390,8 @@ export default function PassengerHomeScreen() {
         <TouchableOpacity
           style={styles.currentLocationButton}
           onPress={() => {
-            if (currentLocation && mapRef.current) {
-              mapRef.current.animateToRegion(currentLocation, 1000);
-            }
+            console.log('📍 Centering on current location...');
+            currentLocation && mapRef.current?.animateToRegion(currentLocation, 1000);
           }}
         >
           <Ionicons name="locate" size={28} color="#00B0F3" />
@@ -426,7 +399,10 @@ export default function PassengerHomeScreen() {
 
         <TouchableOpacity
           style={styles.profileButton}
-          onPress={() => navigation.navigate('Profile')}
+          onPress={() => {
+            console.log('👤 Navigating to Profile...');
+            navigation.navigate('Profile');
+          }}
         >
           <Ionicons name="person-circle" size={36} color="#000" />
         </TouchableOpacity>
@@ -451,7 +427,7 @@ export default function PassengerHomeScreen() {
             <TouchableOpacity
               style={styles.clearButton}
               onPress={() => {
-                console.log('Clearing destination');
+                console.log('🗑️ Clearing destination...');
                 setDropoffLocation(null);
                 setDropoffAddress('');
                 setRouteCoords([]);
@@ -483,10 +459,7 @@ export default function PassengerHomeScreen() {
         <View style={styles.bottomPanel}>
           <TouchableOpacity
             style={styles.rideSelector}
-            onPress={() => {
-              console.log('Opening ride modal');
-              setShowRideModal(true);
-            }}
+            onPress={() => setShowRideModal(true)}
           >
             <View style={styles.rideLeft}>
               <View
@@ -494,22 +467,22 @@ export default function PassengerHomeScreen() {
                   styles.rideIcon,
                   {
                     backgroundColor: RIDE_TYPES.find((r) => r.id === selectedRideType)
-                      ?.color || '#00B0F3',
+                      ?.color,
                   },
                 ]}
               >
                 <Ionicons
-                  name={RIDE_TYPES.find((r) => r.id === selectedRideType)?.icon || 'car-sport'}
+                  name={RIDE_TYPES.find((r) => r.id === selectedRideType)?.icon}
                   size={28}
                   color="white"
                 />
               </View>
               <View>
                 <Text style={styles.rideName}>
-                  {RIDE_TYPES.find((r) => r.id === selectedRideType)?.name || 'City Ride'}
+                  {RIDE_TYPES.find((r) => r.id === selectedRideType)?.name}
                 </Text>
                 <Text style={styles.rideEta}>
-                  {RIDE_TYPES.find((r) => r.id === selectedRideType)?.eta || '~3 min'}
+                  {RIDE_TYPES.find((r) => r.id === selectedRideType)?.eta}
                 </Text>
               </View>
             </View>
@@ -523,8 +496,19 @@ export default function PassengerHomeScreen() {
             </View>
             <TouchableOpacity
               style={styles.requestBtn}
-              onPress={handleRequestRide}
-              activeOpacity={0.8}
+              onPress={() => {
+                console.log('🚗 Requesting ride...');
+                navigation.navigate('DriverMatching', {
+                  pickup: pickupLocation,
+                  dropoff: dropoffLocation,
+                  pickupAddress,
+                  dropoffAddress,
+                  serviceType: selectedRideType,
+                  estimatedFare,
+                  distance: routeDistance,
+                  duration: routeDuration,
+                });
+              }}
             >
               <Text style={styles.requestText}>Request Ride</Text>
             </TouchableOpacity>
@@ -532,18 +516,8 @@ export default function PassengerHomeScreen() {
         </View>
       )}
 
-      <Modal
-        visible={showRideModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowRideModal(false)}
-      >
+      <Modal visible={showRideModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <TouchableOpacity
-            style={styles.modalOverlayTouchable}
-            activeOpacity={1}
-            onPress={() => setShowRideModal(false)}
-          />
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Choose a ride</Text>
@@ -562,7 +536,6 @@ export default function PassengerHomeScreen() {
                     selectedRideType === item.id && styles.selectedOption,
                   ]}
                   onPress={() => selectRide(item.id)}
-                  activeOpacity={0.7}
                 >
                   <View style={styles.rideOptionLeft}>
                     <View style={[styles.rideIconLarge, { backgroundColor: item.color }]}>
@@ -578,13 +551,12 @@ export default function PassengerHomeScreen() {
                     {estimatedFare
                       ? Math.round(
                           (estimatedFare * item.multiplier) /
-                            (RIDE_TYPES.find((r) => r.id === selectedRideType)?.multiplier || 1)
+                            RIDE_TYPES.find((r) => r.id === selectedRideType)?.multiplier
                         ).toLocaleString()
                       : '---'}
                   </Text>
                 </TouchableOpacity>
               )}
-              contentContainerStyle={styles.modalListContent}
             />
           </View>
         </View>
@@ -603,27 +575,40 @@ export default function PassengerHomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1 },
   map: { flex: 1 },
-  mapPlaceholder: {
-    flex: 1,
-    justifyContent: 'center',
+  loadingContainer: { 
+    flex: 1, 
+    justifyContent: 'center', 
     alignItems: 'center',
-    backgroundColor: '#e0e0e0',
+    backgroundColor: '#F8F9FA',
+    padding: 20,
   },
-  mapPlaceholderText: {
-    fontSize: 16,
+  loadingText: { 
+    marginTop: 16, 
+    fontSize: 16, 
     color: '#666',
+    textAlign: 'center',
   },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
-  loadingText: { marginTop: 16, fontSize: 16, color: '#666' },
+  retryButton: {
+    marginTop: 20,
+    backgroundColor: '#00B0F3',
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
   routeLoadingOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 999,
@@ -649,7 +634,6 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     padding: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
@@ -659,7 +643,6 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     padding: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
@@ -669,7 +652,6 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     padding: 4,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
@@ -683,7 +665,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
     shadowRadius: 12,
     elevation: 10,
@@ -698,12 +679,10 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: '#000',
     flex: 1,
-    fontWeight: '500',
   },
   placeholder: {
     color: '#999',
     fontStyle: 'italic',
-    fontWeight: 'normal',
   },
   clearButton: {
     marginLeft: 8,
@@ -741,7 +720,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 15,
     elevation: 12,
@@ -769,7 +747,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
@@ -806,7 +783,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 16,
     shadowColor: '#00B0F3',
-    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 5,
@@ -823,7 +799,6 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     borderColor: 'white',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
     elevation: 5,
@@ -835,7 +810,6 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     borderColor: 'white',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
     elevation: 5,
@@ -844,9 +818,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
-  },
-  modalOverlayTouchable: {
-    flex: 1,
   },
   modalContent: {
     backgroundColor: 'white',
@@ -866,9 +837,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#000',
-  },
-  modalListContent: {
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
   },
   rideOption: {
     flexDirection: 'row',
@@ -892,7 +860,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
@@ -924,7 +891,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
@@ -934,28 +900,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
     flex: 1,
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  errorText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FF4444',
-    marginBottom: 10,
-  },
-  errorDetails: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  retryButton: {
-    fontSize: 16,
-    color: '#00B0F3',
-    fontWeight: '600',
   },
 });
