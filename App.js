@@ -22,6 +22,7 @@ import DriverMatchingScreen from './src/screens/passenger/DriverMatchingScreen';
 import TripInProgressScreen from './src/screens/passenger/TripInProgressScreen';
 import TripCompletedScreen from './src/screens/passenger/TripCompletedScreen';
 import NotificationScreen from './src/screens/passenger/NotificationScreen';
+import TripTrackingScreen from './src/screens/passenger/TripTrackingScreen';
 
 // Driver Screens
 import DriverHomeOfflineScreen from './src/screens/driver/DriverHomeOfflineScreen';
@@ -94,6 +95,7 @@ export default function App() {
         <Stack.Screen name="DriverMatching" component={DriverMatchingScreen} />
         <Stack.Screen name="TripInProgress" component={TripInProgressScreen} />
         <Stack.Screen name="TripCompleted" component={TripCompletedScreen} />
+        <Stack.Screen name="TripTracking" component={TripTrackingScreen} />
 
         {/* Driver Screens */}
         <Stack.Screen name="DriverHomeOffline" component={DriverHomeOfflineScreen} />
@@ -101,7 +103,7 @@ export default function App() {
         <Stack.Screen name="DriverOnboarding" component={DriverOnboardingScreen} />
         <Stack.Screen name="DriverProfileVerification" component={DriverProfileVerificationScreen} />
         <Stack.Screen name="DriverNotification" component={DriverNotificationScreen} />
-        <Stack.Screen name="RideRequestCard" component={RideRequestScreen} />
+        <Stack.Screen name="RideRequest" component={RideRequestScreen} />
         <Stack.Screen name="TripFlow" component={TripFlowScreen} />
         <Stack.Screen name="Earnings" component={EarningsScreen} />
         <Stack.Screen name="LuxuryEarnings" component={LuxuryEarningsScreen} />

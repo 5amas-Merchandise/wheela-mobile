@@ -1,70 +1,130 @@
+// src/screens/driver/TripFlowScreen.js
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Alert,
-  ActivityIndicator,
-  Linking,
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Linking } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
-import axios from 'axios';
-import Constants from 'expo-constants';
+import * as Location from 'expo-location';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { getAuthToken } from '../../utils/auth';
 
-const baseUrl = (Constants.manifest && Constants.manifest.extra && Constants.manifest.extra.baseUrl) || process.env.BASE_URL || '';
+const baseUrl = 'https://wheels-backend.vercel.app';
+const GOOGLE_API_KEY = 'YOUR_GOOGLE_API_KEY'; // Replace with your Google Maps API key
+
+function decodePolyline(encoded) {
+  let index = 0, lat = 0, lng = 0;
+  const polyline = [];
+  while (index < encoded.length) {
+    let shift = 0, result = 0;
+    let byte;
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    const dlat = ((result & 1) !== 0 ? ~(result >> 1) : (result >> 1));
+    lat += dlat;
+    shift = 0;
+    result = 0;
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    const dlng = ((result & 1) !== 0 ? ~(result >> 1) : (result >> 1));
+    lng += dlng;
+    polyline.push({ latitude: lat * 1e-5, longitude: lng * 1e-5 });
+  }
+  return polyline;
+}
 
 export default function TripFlowScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  const { tripId } = route.params || {};
+  const { tripId, passengerName, passengerPhone, destination, destinationAddress, fare } = route.params;
 
   const [trip, setTrip] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [token, setToken] = useState('');
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const [routeCoordinates, setRouteCoordinates] = useState([]);
+  const [tripDistance, setTripDistance] = useState('Calculating...');
+  const [tripDuration, setTripDuration] = useState('Calculating...');
 
   useEffect(() => {
-    if (!tripId) {
-      Alert.alert('Error', 'No trip ID');
-      setLoading(false);
-      return;
-    }
+    const initialize = async () => {
+      const authToken = await getAuthToken();
+      setToken(authToken);
 
-    const fetchTrip = async () => {
-      try {
-        const res = await axios.get(`${baseUrl}/trips/${tripId}`);
-        setTrip(res.data.trip);
-      } catch (err) {
-        Alert.alert('Error', 'Could not load trip');
-      } finally {
-        setLoading(false);
-      }
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      setCurrentLocation(position.coords);
+
+      fetchTrip(authToken);
     };
+    initialize();
+  }, []);
 
-    fetchTrip();
+  useEffect(() => {
+    if (currentLocation && trip?.dropoffLocation?.coordinates) {
+      const destLng = trip.dropoffLocation.coordinates[0];
+      const destLat = trip.dropoffLocation.coordinates[1];
+      fetchRoute(currentLocation.latitude, currentLocation.longitude, destLat, destLng);
+    }
+  }, [currentLocation, trip]);
 
-    // Optional: poll for updates
-    const interval = setInterval(fetchTrip, 10000);
-    return () => clearInterval(interval);
-  }, [tripId]);
+  const fetchRoute = async (originLat, originLng, destLat, destLng) => {
+    try {
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLng}&destination=${destLat},${destLng}&key=${GOOGLE_API_KEY}`
+      );
+      const data = await response.json();
+      if (data.routes.length > 0) {
+        const points = data.routes[0].overview_polyline.points;
+        const coords = decodePolyline(points);
+        setRouteCoordinates(coords);
+        setTripDistance(data.routes[0].legs[0].distance.text);
+        setTripDuration(data.routes[0].legs[0].duration.text);
+      }
+    } catch (err) {
+      console.error('Failed to fetch route:', err);
+    }
+  };
 
-  const updateStatus = async (newStatus) => {
+  const fetchTrip = async (authToken) => {
+    try {
+      const res = await fetch(`${baseUrl}/trips/${tripId}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTrip(data.trip);
+      } else {
+        Alert.alert('Error', 'Could not load trip');
+      }
+    } catch (err) {
+      Alert.alert('Error', 'Could not load trip');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const completeTrip = async () => {
     setActionLoading(true);
     try {
-      let endpoint = '';
-      if (newStatus === 'arrived') endpoint = '/start';
-      else if (newStatus === 'picked_up') endpoint = '/pickup';
-      else if (newStatus === 'completed') endpoint = '/complete';
-
-      await axios.post(`${baseUrl}/trips/${tripId}${endpoint}`);
-      const res = await axios.get(`${baseUrl}/trips/${tripId}`);
-      setTrip(res.data.trip);
-
-      if (newStatus === 'completed') {
-        Alert.alert('Trip Completed ✓', `You earned ₦${(res.data.trip.fare / 100).toFixed(2)}`, [
+      const res = await fetch(`${baseUrl}/trips/${tripId}/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        Alert.alert('Trip Completed ✓', `You earned ₦${data.trip.finalFare.toLocaleString()}`, [
           { text: 'OK', onPress: () => navigation.replace('DriverOnlineMap') },
         ]);
+      } else {
+        Alert.alert('Error', 'Status update failed');
       }
     } catch (err) {
       Alert.alert('Error', 'Status update failed');
@@ -74,14 +134,24 @@ export default function TripFlowScreen() {
   };
 
   const openNavigation = () => {
-    if (!trip?.destination?.lat || !trip?.destination?.lng) return;
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${trip.destination.lat},${trip.destination.lng}&travelmode=driving`;
-    Linking.openURL(url);
+    if (destination?.coordinates) {
+      const destLat = destination.coordinates[1];
+      const destLng = destination.coordinates[0];
+      const url = `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}&travelmode=driving`;
+      Linking.openURL(url);
+    }
   };
 
   const callPassenger = () => {
-    if (!trip?.passengerPhone) return;
-    Linking.openURL(`tel:${trip.passengerPhone}`);
+    if (passengerPhone) {
+      Linking.openURL(`tel:${passengerPhone}`);
+    }
+  };
+
+  const whatsappPassenger = () => {
+    if (passengerPhone) {
+      Linking.openURL(`whatsapp://send?phone=${passengerPhone.replace('+', '')}`);
+    }
   };
 
   if (loading) {
@@ -101,199 +171,90 @@ export default function TripFlowScreen() {
     );
   }
 
-  const currentRegion = {
-    latitude: trip.currentLocation?.lat || trip.pickup.lat,
-    longitude: trip.currentLocation?.lng || trip.pickup.lng,
-    latitudeDelta: 0.02,
-    longitudeDelta: 0.02,
-  };
+  const destLat = trip.dropoffLocation?.coordinates?.[1] || 0;
+  const destLng = trip.dropoffLocation?.coordinates?.[0] || 0;
 
   return (
     <View style={styles.container}>
-      {/* Full Screen Map */}
       <MapView
         provider={PROVIDER_GOOGLE}
         style={styles.map}
-        region={currentRegion}
+        initialRegion={{
+          latitude: currentLocation?.latitude || destLat,
+          longitude: currentLocation?.longitude || destLng,
+          latitudeDelta: 0.02,
+          longitudeDelta: 0.02,
+        }}
         showsUserLocation={true}
         followsUserLocation={true}
       >
-        <Marker coordinate={trip.pickup} title="Pickup" pinColor="#00B0F3" />
-        <Marker coordinate={trip.destination} title="Drop-off" pinColor="#FFFFFF" />
-
-        {/* Route Polyline (simplified - use Directions API in production) */}
-        <Polyline
-          coordinates={[trip.pickup, trip.destination]}
-          strokeColor="#00B0F3"
-          strokeWidth={6}
-        />
+        <Marker coordinate={{ latitude: destLat, longitude: destLng }} title="Drop-off" pinColor="#FF3B30" />
+        <Polyline coordinates={routeCoordinates} strokeColor="#00B0F3" strokeWidth={6} />
       </MapView>
 
-      {/* Bottom Action Card */}
       <View style={styles.bottomCard}>
-        <Text style={styles.tripStatus}>{trip.status.replace('_', ' ').toUpperCase()}</Text>
+        <Text style={styles.tripStatus}>In Progress</Text>
 
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Passenger</Text>
-          <Text style={styles.infoValue}>{trip.passengerName || 'N/A'}</Text>
+          <Text style={styles.infoValue}>{passengerName || 'N/A'}</Text>
         </View>
 
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Destination</Text>
-          <Text style={styles.infoValue}>{trip.destination.address}</Text>
+          <Text style={styles.infoValue}>{destinationAddress}</Text>
+        </View>
+
+        <View style={styles.infoRow}>
+          <Text style={styles.infoLabel}>Distance Remaining</Text>
+          <Text style={styles.infoValue}>{tripDistance}</Text>
+        </View>
+
+        <View style={styles.infoRow}>
+          <Text style={styles.infoLabel}>Estimated Time</Text>
+          <Text style={styles.infoValue}>{tripDuration}</Text>
         </View>
 
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Fare</Text>
-          <Text style={styles.fare}>₦{(trip.fare / 100).toFixed(2)}</Text>
+          <Text style={styles.fare}>₦{fare.toLocaleString()}</Text>
         </View>
 
-        {/* Action Buttons */}
         <View style={styles.actions}>
           <TouchableOpacity style={styles.secondaryBtn} onPress={callPassenger}>
-            <Text style={styles.secondaryText}>Call Passenger</Text>
+            <Ionicons name="call-outline" size={24} color="#010C44" />
           </TouchableOpacity>
-
+          <TouchableOpacity style={styles.secondaryBtn} onPress={whatsappPassenger}>
+            <Ionicons name="logo-whatsapp" size={24} color="#010C44" />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryBtn} onPress={openNavigation}>
             <Text style={styles.secondaryText}>Navigate</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Main Action Button */}
-        {trip.status === 'accepted' && (
-          <TouchableOpacity
-            style={styles.mainBtn}
-            onPress={() => updateStatus('arrived')}
-            disabled={actionLoading}
-          >
-            <Text style={styles.mainText}>Arrived at Pickup</Text>
-          </TouchableOpacity>
-        )}
-
-        {trip.status === 'arrived' && (
-          <TouchableOpacity
-            style={styles.mainBtn}
-            onPress={() => updateStatus('picked_up')}
-            disabled={actionLoading}
-          >
-            <Text style={styles.mainText}>Passenger Picked Up</Text>
-          </TouchableOpacity>
-        )}
-
-        {trip.status === 'in_progress' && (
-          <TouchableOpacity
-            style={styles.mainBtn}
-            onPress={() => updateStatus('completed')}
-            disabled={actionLoading}
-          >
-            <Text style={styles.mainText}>Complete Trip</Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity style={styles.mainBtn} onPress={completeTrip} disabled={actionLoading}>
+          {actionLoading ? <ActivityIndicator color="#010C44" /> : <Text style={styles.mainText}>Complete Trip</Text>}
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#010C44',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#010C44',
-  },
-  loadingText: {
-    color: '#FFFFFF',
-    marginTop: 16,
-    fontSize: 18,
-  },
-  map: {
-    flex: 1,
-  },
-  bottomCard: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 32,
-    paddingTop: 24,
-    paddingBottom: 40,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 20,
-  },
-  tripStatus: {
-    color: '#00B0F3',
-    fontSize: 24,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  infoLabel: {
-    color: '#516880',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  infoValue: {
-    color: '#010C44',
-    fontSize: 16,
-    fontWeight: '700',
-    textAlign: 'right',
-    flex: 1,
-    marginLeft: 16,
-  },
-  fare: {
-    color: '#00B0F3',
-    fontSize: 28,
-    fontWeight: '800',
-  },
-  actions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginVertical: 20,
-  },
-  secondaryBtn: {
-    backgroundColor: '#010C4420',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-    flex: 0.45,
-    alignItems: 'center',
-  },
-  secondaryText: {
-    color: '#010C44',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  mainBtn: {
-    backgroundColor: '#00B0F3',
-    paddingVertical: 20,
-    borderRadius: 16,
-    alignItems: 'center',
-    shadowColor: '#00B0F3',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 15,
-  },
-  mainText: {
-    color: '#010C44',
-    fontSize: 20,
-    fontWeight: '800',
-  },
-  errorText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    textAlign: 'center',
-    marginTop: 50,
-  },
+  container: { flex: 1, backgroundColor: '#010C44' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#010C44' },
+  loadingText: { color: '#FFFFFF', marginTop: 16, fontSize: 18 },
+  map: { flex: 1 },
+  bottomCard: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 32, paddingTop: 24, paddingBottom: 40, shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 20 },
+  tripStatus: { color: '#00B0F3', fontSize: 24, fontWeight: '800', textAlign: 'center', marginBottom: 16 },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  infoLabel: { color: '#516880', fontSize: 16, fontWeight: '600' },
+  infoValue: { color: '#010C44', fontSize: 16, fontWeight: '700', textAlign: 'right', flex: 1, marginLeft: 16 },
+  fare: { color: '#00B0F3', fontSize: 28, fontWeight: '800' },
+  actions: { flexDirection: 'row', justifyContent: 'space-around', marginVertical: 20 },
+  secondaryBtn: { backgroundColor: '#010C4420', paddingVertical: 14, paddingHorizontal: 24, borderRadius: 16, alignItems: 'center' },
+  secondaryText: { color: '#010C44', fontSize: 16, fontWeight: '700' },
+  mainBtn: { backgroundColor: '#00B0F3', paddingVertical: 20, borderRadius: 16, alignItems: 'center', shadowColor: '#00B0F3', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.4, shadowRadius: 20, elevation: 15 },
+  mainText: { color: '#010C44', fontSize: 20, fontWeight: '800' },
+  errorText: { color: '#FFFFFF', fontSize: 18, textAlign: 'center', marginTop: 50 },
 });

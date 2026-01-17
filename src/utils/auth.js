@@ -24,7 +24,39 @@ export const getStoredUser = async () => {
   }
 };
 
-// This is the correct logout function
+export const getUserRole = async () => {
+  try {
+    return await AsyncStorage.getItem(ROLE_KEY);
+  } catch (e) {
+    console.error('Error getting role:', e);
+    return null;
+  }
+};
+
+export const setAuthToken = async (token) => {
+  try {
+    await AsyncStorage.setItem(TOKEN_KEY, token);
+  } catch (e) {
+    console.error('Error setting token:', e);
+  }
+};
+
+export const setStoredUser = async (user) => {
+  try {
+    await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+  } catch (e) {
+    console.error('Error setting user:', e);
+  }
+};
+
+export const setUserRole = async (role) => {
+  try {
+    await AsyncStorage.setItem(ROLE_KEY, role);
+  } catch (e) {
+    console.error('Error setting role:', e);
+  }
+};
+
 export const logout = async () => {
   try {
     await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY, ROLE_KEY]);
@@ -32,4 +64,9 @@ export const logout = async () => {
   } catch (e) {
     console.error('Error during logout:', e);
   }
+};
+
+export const isAuthenticated = async () => {
+  const token = await getAuthToken();
+  return !!token;
 };
