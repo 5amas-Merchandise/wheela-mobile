@@ -411,7 +411,7 @@ export default function DriverMatchingScreen() {
           coordinates: [dropoff.longitude, dropoff.latitude],
         } : undefined,
         serviceType,
-        paymentMethod: 'wallet',
+        paymentMethod: 'cash',
         estimatedFare: estimatedFare || 0,
         distance: distance || 0,
         duration: duration || 0,

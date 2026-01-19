@@ -1,4 +1,4 @@
-// src/screens/driver/RideRequestScreen.js
+// src/screens/driver/RideRequestScreen.js (SIMPLIFIED CASH-ONLY VERSION)
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -15,6 +15,7 @@ import {
   Modal,
   TextInput,
   ScrollView,
+  BackHandler,
 } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -24,7 +25,6 @@ import * as Location from 'expo-location';
 
 const { width, height } = Dimensions.get('window');
 const baseUrl = 'https://wheels-backend.vercel.app';
-const GOOGLE_MAPS_API_KEY = 'AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo';
 
 export default function RideRequestScreen() {
   const navigation = useNavigation();
@@ -41,14 +41,11 @@ export default function RideRequestScreen() {
     destination,
     pickupAddress = 'Pickup location',
     destinationAddress = 'Destination',
-    paymentMethod = 'wallet',
   } = route.params || {};
 
-  // Trip phase states
-  const [tripPhase, setTripPhase] = useState('pickup'); // 'pickup' or 'in_progress'
+  const [tripPhase, setTripPhase] = useState('pickup');
   const [tripStatus, setTripStatus] = useState('assigned');
-  
-  // Location states
+  const [tripValid, setTripValid] = useState(true);
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [driverLocation, setDriverLocation] = useState(null);
@@ -56,29 +53,31 @@ export default function RideRequestScreen() {
   const [dropoffCoord, setDropoffCoord] = useState(null);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
   const [region, setRegion] = useState(null);
-  
-  // Trip metrics
   const [distanceToTarget, setDistanceToTarget] = useState(null);
   const [timeToTarget, setTimeToTarget] = useState(null);
-  const [tripValid, setTripValid] = useState(true);
-  
-  // Payment modal
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [cashAmount, setCashAmount] = useState('');
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [completingTrip, setCompletingTrip] = useState(false);
 
-  // Guard against missing tripId
-  if (!tripId) {
-    console.error('❌ Missing tripId:', route.params);
-    Alert.alert(
-      'Invalid Trip Data',
-      'Unable to load trip information.',
-      [{ text: 'OK', onPress: () => navigation.goBack() }]
-    );
-    return null;
-  }
+  useEffect(() => {
+    if (!tripId) {
+      Alert.alert(
+        'Invalid Trip Data',
+        'Unable to load trip information.',
+        [{ text: 'OK', onPress: () => navigation.goBack() }]
+      );
+    }
+  }, [tripId]);
 
-  // Poll trip status
+  useEffect(() => {
+    const backAction = () => {
+      handleBackPress();
+      return true;
+    };
+
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => backHandler.remove();
+  }, []);
+
   useEffect(() => {
     if (!tripId || !tripValid) return;
 
@@ -97,38 +96,44 @@ export default function RideRequestScreen() {
             const status = data.trip.status;
             setTripStatus(status);
 
-            // Update trip phase based on status
             if (status === 'started' || status === 'in_progress') {
               setTripPhase('in_progress');
             }
 
-            // Handle trip end states
             if (status === 'cancelled' || status === 'completed') {
-              console.log(`Trip ${tripId} ${status}, returning to map`);
               Alert.alert(
                 'Trip Ended',
-                status === 'cancelled' 
-                  ? 'This trip has been cancelled.' 
-                  : 'Trip completed successfully!',
+                status === 'cancelled' ? 'This trip has been cancelled.' : 'Trip completed successfully!',
                 [{ 
                   text: 'OK', 
-                  onPress: () => navigation.navigate('DriverOnlineMap')
+                  onPress: () => {
+                    setTripValid(false);
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'DriverOnlineMap' }],
+                    });
+                  }
                 }]
               );
               setTripValid(false);
             }
           }
         } else if (response.status === 404) {
-          console.log(`Trip ${tripId} not found`);
           Alert.alert(
             'Trip Not Found',
             'This trip is no longer available.',
-            [{ text: 'OK', onPress: () => navigation.navigate('DriverOnlineMap') }]
+            [{ 
+              text: 'OK', 
+              onPress: () => {
+                setTripValid(false);
+                navigation.navigate('DriverOnlineMap');
+              }
+            }]
           );
           setTripValid(false);
         }
       } catch (error) {
-        console.warn('Trip status polling error:', error);
+        console.warn('Trip status polling error:', error.message);
       }
     };
 
@@ -137,12 +142,10 @@ export default function RideRequestScreen() {
     return () => clearInterval(intervalId);
   }, [tripId, tripValid]);
 
-  // Initialize screen
   useEffect(() => {
     initializeScreen();
   }, []);
 
-  // Update route when trip phase changes
   useEffect(() => {
     if (driverLocation && tripPhase === 'in_progress' && dropoffCoord) {
       fetchRoute(driverLocation, dropoffCoord);
@@ -155,14 +158,10 @@ export default function RideRequestScreen() {
 
   const initializeScreen = async () => {
     try {
-      console.log('📍 Initializing trip:', tripId, 'Phase:', tripPhase);
-
-      // Validate pickup
-      if (!pickup?.coordinates || !Array.isArray(pickup.coordinates)) {
+      if (!pickup?.coordinates) {
         throw new Error('Invalid pickup location data');
       }
 
-      // Request location permission
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert(
@@ -173,9 +172,9 @@ export default function RideRequestScreen() {
         return;
       }
 
-      // Get driver's current location
       const position = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.BestForNavigation,
+        timeout: 10000,
       });
 
       const driverLoc = {
@@ -184,49 +183,35 @@ export default function RideRequestScreen() {
       };
       setDriverLocation(driverLoc);
 
-      // Set pickup coordinates
       const [pickupLng, pickupLat] = pickup.coordinates;
       const pickupCoordinate = { latitude: pickupLat, longitude: pickupLng };
       setPickupCoord(pickupCoordinate);
 
-      // Set destination coordinates
-      let dropoffCoordinate = null;
       if (destination?.coordinates?.length === 2) {
         const [dropoffLng, dropoffLat] = destination.coordinates;
-        dropoffCoordinate = { latitude: dropoffLat, longitude: dropoffLng };
+        const dropoffCoordinate = { latitude: dropoffLat, longitude: dropoffLng };
         setDropoffCoord(dropoffCoordinate);
       }
 
-      // Determine target based on trip phase
-      const targetCoord = tripPhase === 'pickup' ? pickupCoordinate : dropoffCoordinate;
-      
+      const targetCoord = tripPhase === 'pickup' ? pickupCoordinate : dropoffCoord;
       if (targetCoord) {
-        // Calculate distance and time to target
         const distance = calculateDistance(driverLoc, targetCoord);
         const time = calculateTime(driverLoc, targetCoord);
         setDistanceToTarget(distance);
         setTimeToTarget(time);
-
-        // Fetch and display route
         await fetchRoute(driverLoc, targetCoord);
-        
-        // Set map region
         updateMapRegion(driverLoc, targetCoord);
       } else {
-        // No destination yet, just show pickup
         updateMapRegion(driverLoc, pickupCoordinate);
       }
 
-      // Start location tracking
       startLocationTracking();
-
       setInitializing(false);
-      console.log('✅ Screen initialized successfully');
     } catch (error) {
       console.error('❌ Initialize error:', error);
       Alert.alert(
         'Initialization Error',
-        'Failed to initialize navigation. Please try again.',
+        error.message || 'Failed to initialize navigation.',
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
       setInitializing(false);
@@ -234,23 +219,25 @@ export default function RideRequestScreen() {
   };
 
   const updateMapRegion = (from, to) => {
-    const centerLat = (from.latitude + to.latitude) / 2;
-    const centerLng = (from.longitude + to.longitude) / 2;
-    const latDelta = Math.abs(from.latitude - to.latitude) * 1.8 + 0.01;
-    const lngDelta = Math.abs(from.longitude - to.longitude) * 1.8 + 0.01;
-    
-    const newRegion = {
-      latitude: centerLat,
-      longitude: centerLng,
-      latitudeDelta: Math.max(latDelta, 0.05),
-      longitudeDelta: Math.max(lngDelta, 0.05 * (width / height)),
-    };
-    
-    setRegion(newRegion);
-    
-    // Animate map to new region
-    if (mapRef.current) {
-      mapRef.current.animateToRegion(newRegion, 1000);
+    try {
+      const centerLat = (from.latitude + to.latitude) / 2;
+      const centerLng = (from.longitude + to.longitude) / 2;
+      const latDelta = Math.abs(from.latitude - to.latitude) * 1.8 + 0.01;
+      const lngDelta = Math.abs(from.longitude - to.longitude) * 1.8 + 0.01;
+      
+      const newRegion = {
+        latitude: centerLat,
+        longitude: centerLng,
+        latitudeDelta: Math.max(latDelta, 0.05),
+        longitudeDelta: Math.max(lngDelta, 0.05 * (width / height)),
+      };
+      
+      setRegion(newRegion);
+      if (mapRef.current) {
+        mapRef.current.animateToRegion(newRegion, 1000);
+      }
+    } catch (error) {
+      console.error('Map region update error:', error);
     }
   };
 
@@ -258,8 +245,7 @@ export default function RideRequestScreen() {
     if (!from || !to) return;
 
     try {
-      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${from.latitude},${from.longitude}&destination=${to.latitude},${to.longitude}&key=${GOOGLE_MAPS_API_KEY}&mode=driving`;
-      
+      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${from.latitude},${from.longitude}&destination=${to.latitude},${to.longitude}&mode=driving`;
       const response = await fetch(url);
       const data = await response.json();
 
@@ -268,7 +254,6 @@ export default function RideRequestScreen() {
         const decoded = decodePolyline(points);
         setRouteCoordinates(decoded);
       } else {
-        console.warn('No routes found, using straight line');
         setRouteCoordinates([from, to]);
       }
     } catch (error) {
@@ -278,33 +263,38 @@ export default function RideRequestScreen() {
   };
 
   const decodePolyline = (encoded) => {
-    let points = [];
-    let index = 0, len = encoded.length;
-    let lat = 0, lng = 0;
+    try {
+      let points = [];
+      let index = 0, len = encoded.length;
+      let lat = 0, lng = 0;
 
-    while (index < len) {
-      let b, shift = 0, result = 0;
-      do {
-        b = encoded.charCodeAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
-      lat += dlat;
+      while (index < len) {
+        let b, shift = 0, result = 0;
+        do {
+          b = encoded.charCodeAt(index++) - 63;
+          result |= (b & 0x1f) << shift;
+          shift += 5;
+        } while (b >= 0x20);
+        let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lat += dlat;
 
-      shift = 0;
-      result = 0;
-      do {
-        b = encoded.charCodeAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
-      lng += dlng;
+        shift = 0;
+        result = 0;
+        do {
+          b = encoded.charCodeAt(index++) - 63;
+          result |= (b & 0x1f) << shift;
+          shift += 5;
+        } while (b >= 0x20);
+        let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lng += dlng;
 
-      points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+        points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+      }
+      return points;
+    } catch (error) {
+      console.error('Polyline decode error:', error);
+      return [];
     }
-    return points;
   };
 
   const startLocationTracking = async () => {
@@ -325,19 +315,12 @@ export default function RideRequestScreen() {
           
           setDriverLocation(newLocation);
           
-          // Update distance and time to current target
           const targetCoord = tripPhase === 'pickup' ? pickupCoord : dropoffCoord;
-          
           if (targetCoord) {
             const distance = calculateDistance(newLocation, targetCoord);
             const time = calculateTime(newLocation, targetCoord);
             setDistanceToTarget(distance);
             setTimeToTarget(time);
-            
-            // Update route if driver moved significantly
-            if (distance > 0.5) {
-              fetchRoute(newLocation, targetCoord);
-            }
           }
         }
       );
@@ -393,9 +376,7 @@ export default function RideRequestScreen() {
 
     try {
       const token = await getAuthToken();
-      if (!token) {
-        throw new Error('Authentication token not available');
-      }
+      if (!token) throw new Error('Authentication token not available');
 
       const response = await fetch(`${baseUrl}/trips/${tripId}/start`, {
         method: 'POST',
@@ -406,36 +387,22 @@ export default function RideRequestScreen() {
       });
 
       if (response.ok) {
-        console.log('✅ Trip started successfully');
-        
-        // Switch to in-progress phase
         setTripPhase('in_progress');
         setTripStatus('started');
         
-        // Update route to destination
         if (dropoffCoord && driverLocation) {
           await fetchRoute(driverLocation, dropoffCoord);
           updateMapRegion(driverLocation, dropoffCoord);
         }
         
-        Alert.alert(
-          'Trip Started',
-          'You have started the trip. Navigate to the destination.',
-          [{ text: 'OK' }]
-        );
+        Alert.alert('Trip Started', 'You have started the trip. Navigate to the destination.', [{ text: 'OK' }]);
       } else {
         const errorText = await response.text();
-        console.error('❌ Start trip failed:', errorText);
-        let errorMsg = 'Failed to start trip';
-        try {
-          const errorData = JSON.parse(errorText);
-          errorMsg = errorData?.error?.message || errorMsg;
-        } catch {}
-        Alert.alert('Error', errorMsg);
+        Alert.alert('Start Failed', 'Failed to start trip. Please try again.');
       }
     } catch (error) {
       console.error('❌ Start trip error:', error);
-      Alert.alert('Error', 'Failed to start trip. Please check your connection.');
+      Alert.alert('Network Error', 'Failed to start trip. Please check your connection.');
     } finally {
       setLoading(false);
     }
@@ -447,159 +414,126 @@ export default function RideRequestScreen() {
       return;
     }
 
-    // Show payment modal
-    setShowPaymentModal(true);
-    setCashAmount(fare.toString());
+    setShowCompleteModal(true);
   };
 
-  // FIXED: Complete trip function with driver state cleanup
   const completeTrip = async () => {
+    if (completingTrip) return;
+    
     if (!tripId || !tripValid) {
       Alert.alert('Error', 'This trip is no longer available.');
       return;
-    }
-
-    // Validate cash amount if payment method is cash
-    if (paymentMethod === 'cash') {
-      const amount = parseFloat(cashAmount);
-      if (isNaN(amount) || amount <= 0) {
-        Alert.alert('Error', 'Please enter a valid cash amount');
-        return;
-      }
     }
 
     setCompletingTrip(true);
 
     try {
       const token = await getAuthToken();
-      if (!token) {
-        throw new Error('Authentication token not available');
-      }
+      if (!token) throw new Error('Authentication token not available');
 
-      // Send complete trip request
+      // SIMPLIFIED: Send only trip ID, no pricing data
       const response = await fetch(`${baseUrl}/trips/${tripId}/complete`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          actualDistanceKm: parseFloat(distanceToTarget) || 0,
-          actualDurationMinutes: parseInt(timeToTarget) || 0,
-        }),
+        body: JSON.stringify({ cashReceived: true })
       });
 
-      if (response.ok) {
-        console.log('✅ Trip completed successfully');
-        setShowPaymentModal(false);
+      const responseText = await response.text();
+      let responseData;
+      
+      try {
+        responseData = JSON.parse(responseText);
+      } catch {
+        throw new Error('Invalid server response');
+      }
+
+      if (response.ok && responseData.success !== false) {
+        setShowCompleteModal(false);
         setTripValid(false);
         
-        // First, show success alert
         Alert.alert(
-          'Trip Completed',
-          'Trip has been completed successfully!',
-          [{ 
-            text: 'OK', 
-            onPress: async () => {
-              try {
-                // Clean up driver state locally
-                console.log('🧹 Cleaning up local driver state...');
-                
-                // Navigate back to online map
-                navigation.navigate('DriverOnlineMap');
-                
-                // Optional: Force refresh driver status
-                setTimeout(() => {
-                  // This could trigger a refresh in DriverOnlineMap
-                }, 1000);
-                
-              } catch (cleanupError) {
-                console.error('Local cleanup error:', cleanupError);
-                // Still navigate even if cleanup fails
-                navigation.navigate('DriverOnlineMap');
+          '✅ Trip Completed Successfully!',
+          `Trip has been completed. Cash received: ₦${Number(fare).toLocaleString()}`,
+          [
+            { 
+              text: 'Return to Map', 
+              onPress: () => {
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'DriverOnlineMap' }],
+                });
               }
             }
-          }]
+          ],
+          { cancelable: false }
         );
+        
       } else {
-        const errorText = await response.text();
-        console.error('❌ Complete trip failed:', errorText);
+        console.error('❌ Trip completion failed:', responseData);
         
-        let errorMsg = 'Failed to complete trip';
-        try {
-          const errorData = JSON.parse(errorText);
-          errorMsg = errorData?.error?.message || errorMsg;
-        } catch {}
-        
-        // If the trip is already completed, just navigate back
-        if (errorMsg.includes('already completed') || errorMsg.includes('not found')) {
+        if (response.status === 400 && responseData.error?.code === 'TRIP_ALREADY_ENDED') {
           Alert.alert(
-            'Trip Already Ended',
+            'Trip Already Completed',
             'This trip has already been completed or cancelled.',
             [{ 
               text: 'OK', 
               onPress: () => {
                 setTripValid(false);
+                setShowCompleteModal(false);
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'DriverOnlineMap' }],
+                });
+              }
+            }]
+          );
+        } else if (response.status === 404) {
+          Alert.alert(
+            'Trip Not Found',
+            'This trip no longer exists in the system.',
+            [{ 
+              text: 'OK', 
+              onPress: () => {
+                setTripValid(false);
+                setShowCompleteModal(false);
                 navigation.navigate('DriverOnlineMap');
               }
             }]
           );
         } else {
-          Alert.alert('Error', errorMsg);
+          Alert.alert(
+            'Completion Failed',
+            responseData.error?.message || 'Failed to complete trip. Please try again.',
+            [{ text: 'OK' }]
+          );
         }
       }
     } catch (error) {
       console.error('❌ Complete trip error:', error);
       
-      // If network error, try to force cleanup
       if (error.message.includes('Network') || error.message.includes('Failed to fetch')) {
         Alert.alert(
           'Network Error',
-          'Unable to complete trip. Please check your connection and try again.',
+          'Unable to connect to the server. Please check your internet connection.',
           [
-            { 
-              text: 'Try Again', 
-              onPress: () => completeTrip() 
-            },
-            { 
-              text: 'Cancel Trip', 
-              style: 'destructive',
-              onPress: async () => {
-                try {
-                  // Try to cancel the trip as fallback
-                  const token = await getAuthToken();
-                  if (token) {
-                    await fetch(`${baseUrl}/trips/${tripId}/cancel`, {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${token}`,
-                      },
-                      body: JSON.stringify({ 
-                        reason: 'network_error_cleanup',
-                        cancelledBy: 'driver'
-                      }),
-                    });
-                  }
-                } catch (cancelError) {
-                  console.error('Cancel fallback error:', cancelError);
-                } finally {
-                  setTripValid(false);
-                  navigation.navigate('DriverOnlineMap');
-                }
-              }
-            }
+            { text: 'Cancel', style: 'cancel', onPress: () => setShowCompleteModal(false) },
+            { text: 'Retry', onPress: () => {
+              setCompletingTrip(false);
+              setTimeout(() => completeTrip(), 1000);
+            }}
           ]
         );
       } else {
-        Alert.alert('Error', 'Failed to complete trip. Please try again.');
+        Alert.alert('Error', error.message || 'Failed to complete trip');
       }
     } finally {
       setCompletingTrip(false);
     }
   };
 
-  // FIXED: Cancel trip function with proper cleanup
   const cancelTrip = async () => {
     if (!tripId || !tripValid) {
       Alert.alert('Error', 'This trip is no longer available.');
@@ -608,7 +542,7 @@ export default function RideRequestScreen() {
 
     Alert.alert(
       'Cancel Trip',
-      'Are you sure you want to cancel this trip? This may affect your driver rating.',
+      'Are you sure you want to cancel this trip?',
       [
         { text: 'No, Keep Trip', style: 'cancel' },
         {
@@ -618,7 +552,7 @@ export default function RideRequestScreen() {
             try {
               const token = await getAuthToken();
               if (!token) {
-                Alert.alert('Error', 'Authentication error. Please try again.');
+                Alert.alert('Error', 'Authentication error.');
                 return;
               }
 
@@ -628,10 +562,7 @@ export default function RideRequestScreen() {
                   'Content-Type': 'application/json',
                   Authorization: `Bearer ${token}`,
                 },
-                body: JSON.stringify({ 
-                  reason: 'driver_cancelled',
-                  cancelledBy: 'driver'
-                }),
+                body: JSON.stringify({ reason: 'driver_cancelled' }),
               });
 
               if (response.ok) {
@@ -642,34 +573,19 @@ export default function RideRequestScreen() {
                     text: 'OK', 
                     onPress: () => {
                       setTripValid(false);
-                      navigation.navigate('DriverOnlineMap');
+                      navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'DriverOnlineMap' }],
+                      });
                     }
                   }]
                 );
               } else {
-                const errorText = await response.text();
-                console.error('Cancel trip failed:', errorText);
-                
-                // If already cancelled, just navigate back
-                if (errorText.includes('already cancelled') || errorText.includes('not found')) {
-                  Alert.alert(
-                    'Trip Already Ended',
-                    'This trip has already been cancelled or completed.',
-                    [{ 
-                      text: 'OK', 
-                      onPress: () => {
-                        setTripValid(false);
-                        navigation.navigate('DriverOnlineMap');
-                      }
-                    }]
-                  );
-                } else {
-                  Alert.alert('Error', 'Failed to cancel trip. Please try again.');
-                }
+                Alert.alert('Error', 'Failed to cancel trip.');
               }
             } catch (error) {
               console.error('Cancel trip error:', error);
-              Alert.alert('Error', 'Failed to cancel trip. Please check your connection.');
+              Alert.alert('Network Error', 'Failed to cancel trip.');
             }
           },
         },
@@ -677,7 +593,63 @@ export default function RideRequestScreen() {
     );
   };
 
-  // Show loading screen
+  const handleBackPress = () => {
+    Alert.alert(
+      'Leave Trip Screen',
+      'What would you like to do?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'End Trip', 
+          style: 'destructive',
+          onPress: () => {
+            if (tripPhase === 'in_progress') {
+              finishTrip();
+            } else {
+              cancelTrip();
+            }
+          }
+        },
+        { 
+          text: 'Just Leave', 
+          onPress: () => navigation.navigate('DriverOnlineMap')
+        }
+      ]
+    );
+    return true;
+  };
+
+  const calculateDistance = (coord1, coord2) => {
+    try {
+      const R = 6371;
+      const dLat = (coord2.latitude - coord1.latitude) * Math.PI / 180;
+      const dLon = (coord2.longitude - coord1.longitude) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(coord1.latitude * Math.PI / 180) * 
+                Math.cos(coord2.latitude * Math.PI / 180) * 
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      const distance = R * c;
+      return distance.toFixed(1);
+    } catch (error) {
+      console.error('Distance calculation error:', error);
+      return '0.0';
+    }
+  };
+
+  const calculateTime = (coord1, coord2) => {
+    try {
+      const distance = parseFloat(calculateDistance(coord1, coord2));
+      const averageSpeed = 40;
+      const timeInHours = distance / averageSpeed;
+      const timeInMinutes = timeInHours * 60;
+      return Math.max(Math.ceil(timeInMinutes), 1);
+    } catch (error) {
+      console.error('Time calculation error:', error);
+      return 1;
+    }
+  };
+
   if (initializing || !region || !driverLocation) {
     return (
       <SafeAreaView style={styles.container}>
@@ -685,11 +657,6 @@ export default function RideRequestScreen() {
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#007AFF" />
           <Text style={styles.loadingText}>Loading navigation...</Text>
-          <Text style={styles.loadingSubText}>
-            {tripPhase === 'pickup' 
-              ? 'Preparing route to pickup' 
-              : 'Preparing route to destination'}
-          </Text>
         </View>
       </SafeAreaView>
     );
@@ -699,45 +666,24 @@ export default function RideRequestScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       
-      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={() => {
-            Alert.alert(
-              'Leave Screen',
-              'Are you sure you want to go back? The trip is still active.',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Yes', onPress: () => navigation.goBack() }
-              ]
-            );
-          }}
-          style={styles.backButton}
-          activeOpacity={0.7}
-        >
+        <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         
         <Text style={styles.headerTitle}>
-          {tripPhase === 'pickup' ? 'Pickup Passenger' : 'Destination'}
+          {tripPhase === 'pickup' ? 'Pickup Passenger' : 'Trip in Progress'}
         </Text>
         
         <View style={styles.headerRight}>
-          <View style={[
-            styles.statusBadge,
-            tripPhase === 'in_progress' && styles.statusBadgeActive
-          ]}>
-            <Text style={[
-              styles.statusBadgeText,
-              tripPhase === 'in_progress' && styles.statusBadgeTextActive
-            ]}>
+          <View style={[styles.statusBadge, tripPhase === 'in_progress' && styles.statusBadgeActive]}>
+            <Text style={[styles.statusBadgeText, tripPhase === 'in_progress' && styles.statusBadgeTextActive]}>
               {tripPhase === 'pickup' ? 'To Pickup' : 'In Progress'}
             </Text>
           </View>
         </View>
       </View>
 
-      {/* Map */}
       <View style={styles.mapContainer}>
         <MapView
           ref={mapRef}
@@ -746,90 +692,63 @@ export default function RideRequestScreen() {
           region={region}
           showsUserLocation={true}
           showsTraffic={true}
-          showsCompass={true}
-          showsScale={true}
-          showsMyLocationButton={false}
-          zoomEnabled={true}
-          scrollEnabled={true}
-          rotateEnabled={true}
         >
-          {/* Driver marker */}
           {driverLocation && (
-            <Marker coordinate={driverLocation} title="Your Location">
+            <Marker coordinate={driverLocation} title="Your Location" description="Driver">
               <View style={styles.driverMarker}>
                 <Ionicons name="car-sport" size={24} color="#007AFF" />
               </View>
             </Marker>
           )}
 
-          {/* Pickup marker (only show in pickup phase) */}
           {pickupCoord && tripPhase === 'pickup' && (
-            <Marker coordinate={pickupCoord} title="Pickup Location">
+            <Marker coordinate={pickupCoord} title="Pickup Location" description={pickupAddress}>
               <View style={styles.pickupMarker}>
                 <View style={styles.pickupPin}>
                   <Ionicons name="person" size={14} color="#FFFFFF" />
                 </View>
-                <View style={styles.pickupTriangle} />
               </View>
             </Marker>
           )}
 
-          {/* Destination marker (show in in_progress phase) */}
           {dropoffCoord && tripPhase === 'in_progress' && (
-            <Marker coordinate={dropoffCoord} title="Destination">
+            <Marker coordinate={dropoffCoord} title="Destination" description={destinationAddress}>
               <View style={styles.destinationMarker}>
                 <View style={styles.destinationPin}>
                   <Ionicons name="flag" size={14} color="#FFFFFF" />
                 </View>
-                <View style={styles.destinationTriangle} />
               </View>
             </Marker>
           )}
 
-          {/* Route polyline */}
           {routeCoordinates.length > 0 && (
             <Polyline
               coordinates={routeCoordinates}
               strokeColor={tripPhase === 'pickup' ? '#007AFF' : '#34C759'}
               strokeWidth={5}
-              lineDashPattern={[0]}
             />
           )}
         </MapView>
       </View>
 
-      {/* Bottom Card */}
       <View style={styles.bottomCard}>
-        <ScrollView showsVerticalScrollIndicator={false}>
-          {/* Passenger Info */}
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
           <View style={styles.passengerSection}>
             <View style={styles.passengerAvatar}>
-              <Text style={styles.avatarText}>
-                {passengerName.charAt(0).toUpperCase()}
-              </Text>
+              <Text style={styles.avatarText}>{passengerName.charAt(0).toUpperCase()}</Text>
             </View>
             <View style={styles.passengerInfo}>
-              <Text style={styles.passengerName}>{passengerName}</Text>
-              <Text style={styles.serviceType}>
-                {serviceType.replace('_', ' ').toUpperCase()}
-              </Text>
+              <Text style={styles.passengerName} numberOfLines={1}>{passengerName}</Text>
+              <Text style={styles.serviceType}>{serviceType.replace(/_/g, ' ').toUpperCase()}</Text>
             </View>
-            <TouchableOpacity 
-              style={styles.callButton} 
-              onPress={makePhoneCall}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity style={styles.callButton} onPress={makePhoneCall} disabled={!passengerPhone}>
               <Ionicons name="call" size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
 
-          {/* Current Target Location */}
           <View style={styles.locationSection}>
             <View style={styles.locationRow}>
-              <View style={[
-                styles.locationDot, 
-                { backgroundColor: tripPhase === 'pickup' ? '#007AFF' : '#34C759' }
-              ]} />
+              <View style={[styles.locationDot, { backgroundColor: tripPhase === 'pickup' ? '#007AFF' : '#34C759' }]} />
               <View style={styles.locationDetails}>
                 <Text style={styles.locationLabel}>
                   {tripPhase === 'pickup' ? 'PICKUP LOCATION' : 'DESTINATION'}
@@ -841,7 +760,6 @@ export default function RideRequestScreen() {
             </View>
           </View>
 
-          {/* Trip Details */}
           <View style={styles.tripDetails}>
             <View style={styles.fareRow}>
               <Text style={styles.fareLabel}>TRIP FARE</Text>
@@ -852,40 +770,32 @@ export default function RideRequestScreen() {
               <View style={styles.distanceRow}>
                 <View style={styles.distanceItem}>
                   <Ionicons name="time-outline" size={18} color="#666" />
-                  <Text style={styles.distanceText}>
-                    {timeToTarget} min
-                  </Text>
+                  <Text style={styles.distanceText}>{timeToTarget} min</Text>
                 </View>
                 <View style={styles.distanceItem}>
                   <Ionicons name="location-outline" size={18} color="#666" />
-                  <Text style={styles.distanceText}>
-                    {distanceToTarget} km {tripPhase === 'pickup' ? 'away' : 'to go'}
-                  </Text>
+                  <Text style={styles.distanceText}>{distanceToTarget} km {tripPhase === 'pickup' ? 'away' : 'to go'}</Text>
                 </View>
               </View>
             )}
+            
+            <View style={styles.paymentMethodRow}>
+              <Ionicons name="cash-outline" size={16} color="#666" />
+              <Text style={styles.paymentMethodText}>Payment: Cash</Text>
+            </View>
           </View>
 
-          {/* Action Buttons */}
           <View style={styles.actionButtons}>
-            <TouchableOpacity 
-              style={styles.navigateButton} 
-              onPress={openNavigation}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity style={styles.navigateButton} onPress={openNavigation}>
               <Ionicons name="navigate" size={22} color="#007AFF" />
               <Text style={styles.navigateText}>Navigate</Text>
             </TouchableOpacity>
             
             {tripPhase === 'pickup' ? (
               <TouchableOpacity 
-                style={[
-                  styles.primaryButton,
-                  (!tripValid || tripStatus !== 'assigned') && styles.disabledButton
-                ]} 
+                style={[styles.primaryButton, (!tripValid || tripStatus !== 'assigned') && styles.disabledButton]} 
                 onPress={startTrip}
                 disabled={loading || !tripValid || tripStatus !== 'assigned'}
-                activeOpacity={0.7}
               >
                 {loading ? (
                   <ActivityIndicator color="#FFFFFF" size="small" />
@@ -898,14 +808,9 @@ export default function RideRequestScreen() {
               </TouchableOpacity>
             ) : (
               <TouchableOpacity 
-                style={[
-                  styles.primaryButton,
-                  styles.finishButton,
-                  !tripValid && styles.disabledButton
-                ]} 
+                style={[styles.primaryButton, styles.finishButton, !tripValid && styles.disabledButton]} 
                 onPress={finishTrip}
                 disabled={!tripValid}
-                activeOpacity={0.7}
               >
                 <Ionicons name="checkmark-circle-outline" size={22} color="#FFFFFF" />
                 <Text style={styles.primaryButtonText}>Finish Trip</Text>
@@ -913,30 +818,25 @@ export default function RideRequestScreen() {
             )}
           </View>
 
-          {/* Cancel Button */}
           {tripValid && (
-            <TouchableOpacity 
-              style={styles.cancelButton} 
-              onPress={cancelTrip}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity style={styles.cancelButton} onPress={cancelTrip}>
+              <Ionicons name="close-circle-outline" size={18} color="#FF3B30" />
               <Text style={styles.cancelText}>Cancel Trip</Text>
             </TouchableOpacity>
           )}
         </ScrollView>
       </View>
 
-      {/* Payment Confirmation Modal */}
-      <Modal
-        visible={showPaymentModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowPaymentModal(false)}
-      >
+      <Modal visible={showCompleteModal} transparent={true} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.modalTitle}>Complete Trip</Text>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScrollContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Complete Trip</Text>
+                <TouchableOpacity onPress={() => !completingTrip && setShowCompleteModal(false)} disabled={completingTrip}>
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
               
               <View style={styles.modalSection}>
                 <Text style={styles.modalLabel}>Trip Summary</Text>
@@ -946,76 +846,46 @@ export default function RideRequestScreen() {
                 </View>
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>Service:</Text>
-                  <Text style={styles.summaryValue}>
-                    {serviceType.replace('_', ' ').toUpperCase()}
-                  </Text>
+                  <Text style={styles.summaryValue}>{serviceType.replace(/_/g, ' ').toUpperCase()}</Text>
                 </View>
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>Payment Method:</Text>
-                  <Text style={styles.summaryValue}>
-                    {paymentMethod === 'cash' ? 'Cash' : 'Wallet'}
-                  </Text>
+                  <Text style={styles.summaryValue}>Cash</Text>
                 </View>
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>Fare:</Text>
-                  <Text style={styles.summaryValueHighlight}>
-                    ₦{Number(fare).toLocaleString()}
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Distance:</Text>
-                  <Text style={styles.summaryValue}>
-                    {distanceToTarget} km
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Time:</Text>
-                  <Text style={styles.summaryValue}>
-                    {timeToTarget} minutes
-                  </Text>
+                  <Text style={styles.summaryValueHighlight}>₦{Number(fare).toLocaleString()}</Text>
                 </View>
               </View>
 
-              {paymentMethod === 'cash' && (
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalLabel}>Cash Payment</Text>
-                  <TextInput
-                    style={styles.cashInput}
-                    placeholder="Enter cash amount received"
-                    keyboardType="numeric"
-                    value={cashAmount}
-                    onChangeText={setCashAmount}
-                    editable={!completingTrip}
-                  />
-                  <Text style={styles.cashHint}>
-                    Confirm you received ₦{Number(fare).toLocaleString()} from the passenger
-                  </Text>
-                </View>
-              )}
+              <View style={styles.modalSection}>
+                <Text style={styles.modalLabel}>Confirmation</Text>
+                <Text style={styles.confirmationText}>
+                  Confirm you received ₦{Number(fare).toLocaleString()} cash from the passenger.
+                </Text>
+              </View>
 
               <View style={styles.modalButtons}>
                 <TouchableOpacity 
                   style={styles.modalButtonSecondary} 
-                  onPress={() => setShowPaymentModal(false)}
+                  onPress={() => !completingTrip && setShowCompleteModal(false)}
                   disabled={completingTrip}
-                  activeOpacity={0.7}
                 >
                   <Text style={styles.modalButtonSecondaryText}>Cancel</Text>
                 </TouchableOpacity>
                 
                 <TouchableOpacity 
-                  style={[
-                    styles.modalButtonPrimary,
-                    completingTrip && styles.disabledButton
-                  ]} 
+                  style={[styles.modalButtonPrimary, completingTrip && styles.disabledButton]} 
                   onPress={completeTrip}
                   disabled={completingTrip}
-                  activeOpacity={0.7}
                 >
                   {completingTrip ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
+                    <View style={styles.loadingButtonContent}>
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                      <Text style={styles.modalButtonPrimaryText}>Completing...</Text>
+                    </View>
                   ) : (
-                    <Text style={styles.modalButtonPrimaryText}>Complete Trip</Text>
+                    <Text style={styles.modalButtonPrimaryText}>Confirm Cash Received</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -1027,468 +897,74 @@ export default function RideRequestScreen() {
   );
 }
 
-// Helper functions
-const calculateDistance = (coord1, coord2) => {
-  const R = 6371; // Earth's radius in km
-  const dLat = (coord2.latitude - coord1.latitude) * Math.PI / 180;
-  const dLon = (coord2.longitude - coord1.longitude) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(coord1.latitude * Math.PI / 180) * 
-    Math.cos(coord2.latitude * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  const distance = R * c;
-  return distance.toFixed(1);
-};
-
-const calculateTime = (coord1, coord2) => {
-  const distance = parseFloat(calculateDistance(coord1, coord2));
-  const averageSpeed = 40; // km/h
-  const timeInHours = distance / averageSpeed;
-  const timeInMinutes = timeInHours * 60;
-  return Math.max(Math.ceil(timeInMinutes), 1);
-};
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 20,
-  },
-  loadingText: {
-    color: '#000',
-    marginTop: 20,
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  loadingSubText: {
-    color: '#666',
-    marginTop: 8,
-    fontSize: 14,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 10 : 20,
-    paddingBottom: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5EA',
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 20,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#000',
-  },
-  headerRight: {
-    width: 100,
-    alignItems: 'flex-end',
-  },
-  statusBadge: {
-    backgroundColor: '#E3F2FD',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  statusBadgeActive: {
-    backgroundColor: '#E8F5E9',
-  },
-  statusBadgeText: {
-    color: '#007AFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  statusBadgeTextActive: {
-    color: '#34C759',
-  },
-  mapContainer: {
-    flex: 1,
-  },
-  map: {
-    flex: 1,
-  },
-  driverMarker: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#007AFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  pickupMarker: {
-    alignItems: 'center',
-  },
-  pickupPin: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  pickupTriangle: {
-    width: 0,
-    height: 0,
-    backgroundColor: 'transparent',
-    borderStyle: 'solid',
-    borderLeftWidth: 8,
-    borderRightWidth: 8,
-    borderTopWidth: 12,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderTopColor: '#007AFF',
-    marginTop: -2,
-  },
-  destinationMarker: {
-    alignItems: 'center',
-  },
-  destinationPin: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#34C759',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  destinationTriangle: {
-    width: 0,
-    height: 0,
-    backgroundColor: 'transparent',
-    borderStyle: 'solid',
-    borderLeftWidth: 8,
-    borderRightWidth: 8,
-    borderTopWidth: 12,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderTopColor: '#34C759',
-    marginTop: -2,
-  },
-  bottomCard: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: Platform.OS === 'ios' ? 30 : 20,
-    maxHeight: height * 0.5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 10,
-  },
-  passengerSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  passengerAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  avatarText: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  passengerInfo: {
-    flex: 1,
-  },
-  passengerName: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 2,
-  },
-  serviceType: {
-    fontSize: 13,
-    color: '#666',
-    fontWeight: '600',
-  },
-  callButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#34C759',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  locationSection: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 20,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  locationDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 12,
-    marginTop: 4,
-  },
-  locationDetails: {
-    flex: 1,
-  },
-  locationLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
-  locationAddress: {
-    fontSize: 16,
-    color: '#000',
-    lineHeight: 22,
-    fontWeight: '500',
-  },
-  tripDetails: {
-    marginBottom: 20,
-  },
-  fareRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  fareLabel: {
-    fontSize: 13,
-    color: '#666',
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
-  fareAmount: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#007AFF',
-  },
-  distanceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    paddingVertical: 12,
-  },
-  distanceItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  distanceText: {
-    fontSize: 15,
-    color: '#666',
-    fontWeight: '600',
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
-  },
-  navigateButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F0F8FF',
-    paddingVertical: 16,
-    borderRadius: 12,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: '#007AFF20',
-  },
-  navigateText: {
-    color: '#007AFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  primaryButton: {
-    flex: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#007AFF',
-    paddingVertical: 16,
-    borderRadius: 12,
-    gap: 8,
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  finishButton: {
-    backgroundColor: '#34C759',
-    shadowColor: '#34C759',
-  },
-  disabledButton: {
-    backgroundColor: '#CCCCCC',
-    shadowOpacity: 0,
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  cancelButton: {
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  cancelText: {
-    color: '#FF3B30',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
-    maxHeight: height * 0.8,
-  },
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  modalSection: {
-    marginBottom: 24,
-  },
-  modalLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 12,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  summaryLabel: {
-    fontSize: 15,
-    color: '#666',
-    fontWeight: '500',
-  },
-  summaryValue: {
-    fontSize: 15,
-    color: '#000',
-    fontWeight: '600',
-  },
-  summaryValueHighlight: {
-    fontSize: 18,
-    color: '#34C759',
-    fontWeight: '700',
-  },
-  cashInput: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-  },
-  cashHint: {
-    fontSize: 13,
-    color: '#666',
-    fontStyle: 'italic',
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 16,
-  },
-  modalButtonSecondary: {
-    flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
-    backgroundColor: '#F0F0F0',
-    alignItems: 'center',
-  },
-  modalButtonSecondaryText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#666',
-  },
-  modalButtonPrimary: {
-    flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
-    backgroundColor: '#34C759',
-    alignItems: 'center',
-    shadowColor: '#34C759',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  modalButtonPrimaryText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' },
+  loadingText: { color: '#000', marginTop: 20, fontSize: 18, fontWeight: '600' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 10 : 20, paddingBottom: 16, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E5EA', zIndex: 10 },
+  backButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', borderRadius: 20 },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: '#000', textAlign: 'center', flex: 1 },
+  headerRight: { width: 100, alignItems: 'flex-end' },
+  statusBadge: { backgroundColor: '#E3F2FD', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
+  statusBadgeActive: { backgroundColor: '#E8F5E9' },
+  statusBadgeText: { color: '#007AFF', fontSize: 12, fontWeight: '600' },
+  statusBadgeTextActive: { color: '#34C759' },
+  mapContainer: { flex: 1 },
+  map: { flex: 1, width: '100%', height: '100%' },
+  driverMarker: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#007AFF', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 5 },
+  pickupMarker: { alignItems: 'center' },
+  pickupPin: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#007AFF', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#FFFFFF', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 5 },
+  destinationMarker: { alignItems: 'center' },
+  destinationPin: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#34C759', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#FFFFFF', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 5 },
+  bottomCard: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 20, paddingBottom: Platform.OS === 'ios' ? 34 : 24, maxHeight: height * 0.55, shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 10 },
+  scrollContent: { paddingBottom: 10 },
+  passengerSection: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  passengerAvatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#007AFF', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  avatarText: { color: '#FFFFFF', fontSize: 20, fontWeight: 'bold' },
+  passengerInfo: { flex: 1 },
+  passengerName: { fontSize: 18, fontWeight: '700', color: '#000', marginBottom: 2 },
+  serviceType: { fontSize: 13, color: '#666', fontWeight: '600' },
+  callButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#34C759', justifyContent: 'center', alignItems: 'center' },
+  locationSection: { backgroundColor: '#F8F9FA', borderRadius: 16, padding: 16, marginBottom: 20 },
+  locationRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  locationDot: { width: 12, height: 12, borderRadius: 6, marginRight: 12, marginTop: 4 },
+  locationDetails: { flex: 1 },
+  locationLabel: { fontSize: 12, color: '#666', marginBottom: 4, fontWeight: '600', letterSpacing: 0.5 },
+  locationAddress: { fontSize: 16, color: '#000', lineHeight: 22, fontWeight: '500' },
+  tripDetails: { marginBottom: 20 },
+  fareRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  fareLabel: { fontSize: 13, color: '#666', fontWeight: '600', letterSpacing: 0.5 },
+  fareAmount: { fontSize: 28, fontWeight: '800', color: '#007AFF' },
+  distanceRow: { flexDirection: 'row', justifyContent: 'space-around', backgroundColor: '#F8F9FA', borderRadius: 12, paddingVertical: 12, marginBottom: 12 },
+  distanceItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  distanceText: { fontSize: 15, color: '#666', fontWeight: '600' },
+  paymentMethodRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#F8F9FA', borderRadius: 8, alignSelf: 'flex-start' },
+  paymentMethodText: { fontSize: 14, color: '#666', fontWeight: '500' },
+  actionButtons: { flexDirection: 'row', gap: 12, marginBottom: 16 },
+  navigateButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F0F8FF', paddingVertical: 16, borderRadius: 12, gap: 8 },
+  navigateText: { color: '#007AFF', fontSize: 16, fontWeight: '600' },
+  primaryButton: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#007AFF', paddingVertical: 16, borderRadius: 12, gap: 8 },
+  finishButton: { backgroundColor: '#34C759' },
+  disabledButton: { backgroundColor: '#CCCCCC' },
+  primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+  cancelButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, gap: 8 },
+  cancelText: { color: '#FF3B30', fontSize: 16, fontWeight: '600' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: height * 0.85 },
+  modalScrollContent: { paddingBottom: 20 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalTitle: { fontSize: 24, fontWeight: '700', color: '#000' },
+  modalSection: { marginBottom: 24 },
+  modalLabel: { fontSize: 16, fontWeight: '600', color: '#000', marginBottom: 12 },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  summaryLabel: { fontSize: 15, color: '#666', fontWeight: '500' },
+  summaryValue: { fontSize: 15, color: '#000', fontWeight: '600' },
+  summaryValueHighlight: { fontSize: 18, color: '#34C759', fontWeight: '700' },
+  confirmationText: { fontSize: 16, color: '#666', lineHeight: 22 },
+  modalButtons: { flexDirection: 'row', gap: 12, marginTop: 16 },
+  modalButtonSecondary: { flex: 1, paddingVertical: 16, borderRadius: 12, backgroundColor: '#F0F0F0', alignItems: 'center' },
+  modalButtonSecondaryText: { fontSize: 16, fontWeight: '600', color: '#666' },
+  modalButtonPrimary: { flex: 1, paddingVertical: 16, borderRadius: 12, backgroundColor: '#34C759', alignItems: 'center' },
+  loadingButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  modalButtonPrimaryText: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
 });

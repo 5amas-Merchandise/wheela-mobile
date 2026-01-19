@@ -12,9 +12,8 @@ import {
   Platform,
   SafeAreaView,
   StatusBar,
-  Modal,
   ScrollView,
-  TextInput
+  Image,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -24,7 +23,7 @@ import * as Location from 'expo-location';
 
 const { width, height } = Dimensions.get('window');
 const baseUrl = 'https://wheels-backend.vercel.app';
-const GOOGLE_MAPS_API_KEY = 'AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo'; // Replace with your API key
+const GOOGLE_MAPS_API_KEY = 'AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo';
 
 export default function TripTrackingScreen() {
   const navigation = useNavigation();
@@ -33,6 +32,7 @@ export default function TripTrackingScreen() {
 
   const {
     tripId,
+    driverId,
     passengerName = 'Passenger',
     passengerPhone = '',
     serviceType = 'CITY_RIDE',
@@ -61,7 +61,6 @@ export default function TripTrackingScreen() {
   const [pickupCoord, setPickupCoord] = useState(null);
   const [dropoffCoord, setDropoffCoord] = useState(null);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
-  const [region, setRegion] = useState(null);
   
   // Trip metrics
   const [distanceToTarget, setDistanceToTarget] = useState(null);
@@ -69,12 +68,15 @@ export default function TripTrackingScreen() {
   const [tripValid, setTripValid] = useState(true);
   const [timer, setTimer] = useState(0);
   
-  // Payment modal
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [cashAmount, setCashAmount] = useState('');
-  const [rating, setRating] = useState(5);
-  const [ratingComment, setRatingComment] = useState('');
-  const [submittingRating, setSubmittingRating] = useState(false);
+  // Driver details from backend
+  const [driverDetails, setDriverDetails] = useState({
+    name: driverName,
+    phone: driverPhone,
+    rating: driverRating,
+    vehicleModel: vehicleModel,
+    vehiclePlate: vehiclePlate,
+    profilePicUrl: null,
+  });
 
   // Guard against missing tripId
   if (!tripId) {
@@ -87,7 +89,7 @@ export default function TripTrackingScreen() {
     return null;
   }
 
-  // Poll trip status
+  // Poll trip status and driver details
   useEffect(() => {
     if (!tripId || !tripValid) return;
 
@@ -103,61 +105,104 @@ export default function TripTrackingScreen() {
         if (response.ok) {
           const data = await response.json();
           if (data.trip) {
-            const status = data.trip.status;
-            setTripStatus(status);
+            const trip = data.trip;
+            setTripStatus(trip.status);
 
             // Update trip phase based on status
-            if (status === 'started' || status === 'in_progress') {
+            if (trip.status === 'started' || trip.status === 'in_progress') {
               setTripPhase('in_progress');
             }
 
+            // Fetch driver details if we have driverId
+            if (trip.driverId && driverId) {
+              fetchDriverDetails(trip.driverId);
+            }
+
             // Handle trip end states
-            if (status === 'completed') {
-              console.log(`Trip ${tripId} completed, showing completion screen`);
+            if (trip.status === 'completed') {
+              console.log(`✅ Trip ${tripId} completed, navigating to completion screen`);
               setTripValid(false);
+              
+              // Calculate trip duration
+              const startTime = trip.startedAt ? new Date(trip.startedAt) : new Date(trip.requestedAt);
+              const endTime = trip.completedAt ? new Date(trip.completedAt) : new Date();
+              const tripDuration = Math.floor((endTime - startTime) / 1000); // in seconds
+
               setTimeout(() => {
                 navigation.replace('TripCompleted', {
                   tripId,
-                  driverId,
-                  driverName,
-                  driverRating,
-                  vehicleModel,
-                  vehiclePlate,
-                  fare,
-                  serviceType,
-                  paymentMethod,
+                  driverId: trip.driverId || driverId,
+                  driverName: driverDetails.name,
+                  driverRating: driverDetails.rating,
+                  vehicleModel: driverDetails.vehicleModel,
+                  vehiclePlate: driverDetails.vehiclePlate,
+                  fare: trip.finalFare || trip.estimatedFare || fare,
+                  serviceType: trip.serviceType || serviceType,
+                  paymentMethod: trip.paymentMethod || paymentMethod,
+                  tripDuration: tripDuration,
+                  pickupAddress: trip.pickupLocation ? pickupAddress : '',
+                  destinationAddress: trip.dropoffLocation ? destinationAddress : '',
+                  distanceKm: trip.distanceKm || 0,
                 });
               }, 1000);
-            } else if (status === 'cancelled') {
+            } else if (trip.status === 'cancelled') {
               Alert.alert(
                 'Trip Cancelled',
                 'This trip has been cancelled.',
                 [{ 
                   text: 'OK', 
-                  onPress: () => navigation.navigate('PassengerHome')
+                  onPress: () => navigation.navigate('PassengerMain')
                 }]
               );
               setTripValid(false);
             }
           }
         } else if (response.status === 404) {
-          console.log(`Trip ${tripId} not found`);
+          console.log(`❌ Trip ${tripId} not found`);
           Alert.alert(
             'Trip Not Found',
             'This trip is no longer available.',
-            [{ text: 'OK', onPress: () => navigation.navigate('PassengerHome') }]
+            [{ text: 'OK', onPress: () => navigation.navigate('PassengerMain') }]
           );
           setTripValid(false);
         }
       } catch (error) {
-        console.warn('Trip status polling error:', error);
+        console.warn('⚠️ Trip status polling error:', error);
       }
     };
 
     pollTripStatus();
-    const intervalId = setInterval(pollTripStatus, 10000);
+    const intervalId = setInterval(pollTripStatus, 5000); // Poll every 5 seconds
     return () => clearInterval(intervalId);
   }, [tripId, tripValid]);
+
+  // Fetch driver details
+  const fetchDriverDetails = async (driverIdParam) => {
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+
+      const response = await fetch(`${baseUrl}/users/${driverIdParam || driverId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.user) {
+          setDriverDetails({
+            name: data.user.name || driverName,
+            phone: data.user.phone || driverPhone,
+            rating: data.user.driverProfile?.rating || driverRating,
+            vehicleModel: data.user.driverProfile?.vehicleModel || vehicleModel,
+            vehiclePlate: data.user.driverProfile?.vehicleNumber || vehiclePlate,
+            profilePicUrl: data.user.driverProfile?.profilePicUrl || null,
+          });
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Error fetching driver details:', error);
+    }
+  };
 
   // Initialize screen
   useEffect(() => {
@@ -177,12 +222,12 @@ export default function TripTrackingScreen() {
     };
   }, [tripPhase]);
 
-  // Update route when trip phase changes
+  // Update route when trip phase changes or locations update
   useEffect(() => {
-    if (passengerLocation && tripPhase === 'in_progress' && dropoffCoord) {
+    if (tripPhase === 'in_progress' && passengerLocation && dropoffCoord) {
       fetchRoute(passengerLocation, dropoffCoord);
       updateMapRegion(passengerLocation, dropoffCoord);
-    } else if (driverLocation && tripPhase === 'pickup' && pickupCoord) {
+    } else if (tripPhase === 'pickup' && driverLocation && pickupCoord) {
       fetchRoute(driverLocation, pickupCoord);
       updateMapRegion(driverLocation, pickupCoord);
     }
@@ -213,44 +258,44 @@ export default function TripTrackingScreen() {
       }
 
       // Validate and set pickup coordinates
+      let pickupCoordinate = null;
       if (pickup?.coordinates && Array.isArray(pickup.coordinates)) {
         const [pickupLng, pickupLat] = pickup.coordinates;
-        const pickupCoordinate = { latitude: pickupLat, longitude: pickupLng };
-        setPickupCoord(pickupCoordinate);
+        pickupCoordinate = { latitude: pickupLat, longitude: pickupLng };
       } else if (pickup?.latitude && pickup?.longitude) {
-        setPickupCoord(pickup);
+        pickupCoordinate = pickup;
       }
+      setPickupCoord(pickupCoordinate);
 
       // Validate and set destination coordinates
+      let dropoffCoordinate = null;
       if (destination?.coordinates && Array.isArray(destination.coordinates)) {
         const [dropoffLng, dropoffLat] = destination.coordinates;
-        const dropoffCoordinate = { latitude: dropoffLat, longitude: dropoffLng };
-        setDropoffCoord(dropoffCoordinate);
+        dropoffCoordinate = { latitude: dropoffLat, longitude: dropoffLng };
       } else if (destination?.latitude && destination?.longitude) {
-        setDropoffCoord(destination);
+        dropoffCoordinate = destination;
       }
+      setDropoffCoord(dropoffCoordinate);
 
-      // Simulate driver location (in real app, this would come from WebSocket)
-      if (pickupCoord) {
-        // Simulate driver approaching pickup
+      // Simulate driver location (in production, this comes from real-time tracking)
+      if (pickupCoordinate) {
         const simulatedDriverLoc = {
-          latitude: pickupCoord.latitude + 0.005,
-          longitude: pickupCoord.longitude + 0.005,
+          latitude: pickupCoordinate.latitude + 0.003,
+          longitude: pickupCoordinate.longitude + 0.003,
         };
         setDriverLocation(simulatedDriverLoc);
         
-        // Calculate initial distance and time
-        const distance = calculateDistance(simulatedDriverLoc, pickupCoord);
-        const time = calculateTime(simulatedDriverLoc, pickupCoord);
+        const distance = calculateDistance(simulatedDriverLoc, pickupCoordinate);
+        const time = calculateTime(simulatedDriverLoc, pickupCoordinate);
         setDistanceToTarget(distance);
         setTimeToTarget(time);
 
-        // Fetch initial route
-        await fetchRoute(simulatedDriverLoc, pickupCoord);
-        updateMapRegion(simulatedDriverLoc, pickupCoord);
+        await fetchRoute(simulatedDriverLoc, pickupCoordinate);
+        
+        // ✅ FIX: Properly center map on driver and pickup
+        updateMapRegion(simulatedDriverLoc, pickupCoordinate);
       }
 
-      // Start location tracking
       startLocationTracking();
 
       setInitializing(false);
@@ -264,22 +309,24 @@ export default function TripTrackingScreen() {
   };
 
   const updateMapRegion = (from, to) => {
+    if (!from || !to) return;
+
     const centerLat = (from.latitude + to.latitude) / 2;
     const centerLng = (from.longitude + to.longitude) / 2;
-    const latDelta = Math.abs(from.latitude - to.latitude) * 1.8 + 0.01;
-    const lngDelta = Math.abs(from.longitude - to.longitude) * 1.8 + 0.01;
+    const latDelta = Math.abs(from.latitude - to.latitude) * 2.0 + 0.015;
+    const lngDelta = Math.abs(from.longitude - to.longitude) * 2.0 + 0.015;
     
     const newRegion = {
       latitude: centerLat,
       longitude: centerLng,
-      latitudeDelta: Math.max(latDelta, 0.05),
-      longitudeDelta: Math.max(lngDelta, 0.05 * (width / height)),
+      latitudeDelta: Math.max(latDelta, 0.02),
+      longitudeDelta: Math.max(lngDelta, 0.02 * (width / height)),
     };
     
-    setRegion(newRegion);
-    
     if (mapRef.current) {
-      mapRef.current.animateToRegion(newRegion, 1000);
+      setTimeout(() => {
+        mapRef.current.animateToRegion(newRegion, 1000);
+      }, 500);
     }
   };
 
@@ -297,11 +344,11 @@ export default function TripTrackingScreen() {
         const decoded = decodePolyline(points);
         setRouteCoordinates(decoded);
       } else {
-        console.warn('No routes found, using straight line');
+        console.warn('⚠️ No routes found, using straight line');
         setRouteCoordinates([from, to]);
       }
     } catch (error) {
-      console.error('Route fetching error:', error);
+      console.error('❌ Route fetching error:', error);
       setRouteCoordinates([from, to]);
     }
   };
@@ -354,7 +401,6 @@ export default function TripTrackingScreen() {
           
           setPassengerLocation(newLocation);
           
-          // Update route if in progress phase
           if (tripPhase === 'in_progress' && dropoffCoord) {
             const distance = calculateDistance(newLocation, dropoffCoord);
             const time = calculateTime(newLocation, dropoffCoord);
@@ -368,17 +414,17 @@ export default function TripTrackingScreen() {
         }
       );
     } catch (error) {
-      console.error('Location tracking error:', error);
+      console.error('❌ Location tracking error:', error);
     }
   };
 
   const makePhoneCall = () => {
-    if (!driverPhone) {
+    if (!driverDetails.phone) {
       Alert.alert('Error', 'Driver phone number not available');
       return;
     }
     
-    const phoneNumber = driverPhone.replace(/\D/g, '');
+    const phoneNumber = driverDetails.phone.replace(/\D/g, '');
     if (phoneNumber.length < 10) {
       Alert.alert('Error', 'Invalid phone number format');
       return;
@@ -391,13 +437,13 @@ export default function TripTrackingScreen() {
   };
 
   const openWhatsApp = () => {
-    if (!driverPhone) {
+    if (!driverDetails.phone) {
       Alert.alert('Error', 'Driver phone number not available');
       return;
     }
     
-    const phoneNumber = driverPhone.replace(/\D/g, '');
-    const message = `Hello ${driverName}, this is ${passengerName} regarding trip #${tripId}`;
+    const phoneNumber = driverDetails.phone.replace(/\D/g, '');
+    const message = `Hello ${driverDetails.name}, this is ${passengerName} regarding trip #${tripId}`;
     const url = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
     
     Linking.openURL(url).catch((err) => {
@@ -444,7 +490,7 @@ export default function TripTrackingScreen() {
                 Alert.alert(
                   'Trip Cancelled',
                   'The trip has been cancelled successfully.',
-                  [{ text: 'OK', onPress: () => navigation.navigate('PassengerHome') }]
+                  [{ text: 'OK', onPress: () => navigation.navigate('PassengerMain') }]
                 );
               } else {
                 const errorText = await response.text();
@@ -459,53 +505,6 @@ export default function TripTrackingScreen() {
         },
       ]
     );
-  };
-
-  const submitRating = async () => {
-    if (!rating || rating < 1 || rating > 5) {
-      Alert.alert('Error', 'Please select a rating between 1 and 5 stars');
-      return;
-    }
-
-    setSubmittingRating(true);
-    
-    try {
-      const token = await getAuthToken();
-      const response = await fetch(`${baseUrl}/trips/${tripId}/rate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          rating: rating,
-          comment: ratingComment || '',
-          tripId: tripId,
-          driverId: driverId
-        }),
-      });
-
-      if (response.ok) {
-        Alert.alert(
-          'Thank You!',
-          'Your rating has been submitted successfully.',
-          [{ 
-            text: 'OK', 
-            onPress: () => {
-              setShowPaymentModal(false);
-              navigation.navigate('PassengerHome');
-            }
-          }]
-        );
-      } else {
-        throw new Error('Failed to submit rating');
-      }
-    } catch (error) {
-      console.error('Submit rating error:', error);
-      Alert.alert('Error', 'Failed to submit rating. Please try again.');
-    } finally {
-      setSubmittingRating(false);
-    }
   };
 
   const formatTime = (seconds) => {
@@ -584,17 +583,23 @@ export default function TripTrackingScreen() {
           ref={mapRef}
           provider={PROVIDER_GOOGLE}
           style={styles.map}
-          region={region}
           showsUserLocation={true}
+          showsMyLocationButton={false}
           showsTraffic={true}
           showsCompass={true}
           showsScale={true}
           zoomEnabled={true}
           scrollEnabled={true}
           rotateEnabled={true}
+          initialRegion={{
+            latitude: passengerLocation?.latitude || pickupCoord?.latitude || 9.0820,
+            longitude: passengerLocation?.longitude || pickupCoord?.longitude || 8.6753,
+            latitudeDelta: 0.05,
+            longitudeDelta: 0.05,
+          }}
         >
-          {/* Passenger marker (user location) */}
-          {passengerLocation && tripPhase === 'in_progress' && (
+          {/* Passenger marker */}
+          {passengerLocation && (
             <Marker coordinate={passengerLocation} title="Your Location">
               <View style={styles.passengerMarker}>
                 <Ionicons name="person" size={18} color="#FFFFFF" />
@@ -604,7 +609,7 @@ export default function TripTrackingScreen() {
 
           {/* Driver marker */}
           {driverLocation && tripPhase === 'pickup' && (
-            <Marker coordinate={driverLocation} title={`${driverName} (Driver)`}>
+            <Marker coordinate={driverLocation} title={`${driverDetails.name} (Driver)`}>
               <View style={styles.driverMarker}>
                 <Ionicons name="car-sport" size={20} color="#FFFFFF" />
               </View>
@@ -645,29 +650,54 @@ export default function TripTrackingScreen() {
             />
           )}
         </MapView>
+
+        {/* Recenter button */}
+        <TouchableOpacity
+          style={styles.recenterButton}
+          onPress={() => {
+            if (tripPhase === 'in_progress' && passengerLocation && dropoffCoord) {
+              updateMapRegion(passengerLocation, dropoffCoord);
+            } else if (tripPhase === 'pickup' && driverLocation && pickupCoord) {
+              updateMapRegion(driverLocation, pickupCoord);
+            }
+          }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="locate" size={24} color="#007AFF" />
+        </TouchableOpacity>
       </View>
 
       {/* Bottom Card */}
       <View style={styles.bottomCard}>
         <ScrollView showsVerticalScrollIndicator={false}>
-          {/* Driver Info */}
+          {/* Driver Info - COMPLETE DETAILS */}
           <View style={styles.driverSection}>
             <View style={styles.driverAvatar}>
-              <Text style={styles.driverAvatarText}>
-                {driverName.charAt(0).toUpperCase()}
-              </Text>
+              {driverDetails.profilePicUrl ? (
+                <Image 
+                  source={{ uri: driverDetails.profilePicUrl }} 
+                  style={styles.driverAvatarImage}
+                />
+              ) : (
+                <Text style={styles.driverAvatarText}>
+                  {driverDetails.name.charAt(0).toUpperCase()}
+                </Text>
+              )}
             </View>
             <View style={styles.driverInfo}>
-              <Text style={styles.driverName}>{driverName}</Text>
+              <Text style={styles.driverName}>{driverDetails.name}</Text>
               <View style={styles.driverDetails}>
                 <View style={styles.ratingContainer}>
                   <Ionicons name="star" size={14} color="#FFD700" />
-                  <Text style={styles.ratingText}>{driverRating}</Text>
+                  <Text style={styles.ratingText}>{driverDetails.rating}</Text>
                 </View>
                 <Text style={styles.vehicleText}>
-                  {vehicleModel} • {vehiclePlate}
+                  {driverDetails.vehicleModel} • {driverDetails.vehiclePlate}
                 </Text>
               </View>
+              {driverDetails.phone && (
+                <Text style={styles.phoneText}>📞 {driverDetails.phone}</Text>
+              )}
             </View>
             <View style={styles.contactButtons}>
               <TouchableOpacity 
@@ -785,126 +815,6 @@ export default function TripTrackingScreen() {
           )}
         </ScrollView>
       </View>
-
-      {/* Trip Completed Modal */}
-      <Modal
-        visible={showPaymentModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowPaymentModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={styles.modalHeader}>
-                <Ionicons name="checkmark-circle" size={60} color="#34C759" />
-                <Text style={styles.modalTitle}>Trip Completed!</Text>
-                <Text style={styles.modalSubtitle}>
-                  Thank you for riding with us
-                </Text>
-              </View>
-
-              <View style={styles.modalSection}>
-                <Text style={styles.modalSectionTitle}>Trip Summary</Text>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Driver:</Text>
-                  <Text style={styles.summaryValue}>{driverName}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Vehicle:</Text>
-                  <Text style={styles.summaryValue}>{vehicleModel} ({vehiclePlate})</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Duration:</Text>
-                  <Text style={styles.summaryValue}>{formatTime(timer)}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Payment:</Text>
-                  <Text style={styles.summaryValue}>
-                    {paymentMethod === 'cash' ? 'Cash' : 'Wallet'} • ₦{Number(fare).toLocaleString()}
-                  </Text>
-                </View>
-              </View>
-
-              {paymentMethod === 'cash' && (
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Cash Payment</Text>
-                  <TextInput
-                    style={styles.cashInput}
-                    placeholder="Enter cash amount paid"
-                    keyboardType="numeric"
-                    value={cashAmount}
-                    onChangeText={setCashAmount}
-                    editable={!submittingRating}
-                  />
-                  <Text style={styles.cashHint}>
-                    Please confirm you paid ₦{Number(fare).toLocaleString()} to the driver
-                  </Text>
-                </View>
-              )}
-
-              <View style={styles.modalSection}>
-                <Text style={styles.modalSectionTitle}>Rate Your Driver</Text>
-                <View style={styles.ratingContainerModal}>
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <TouchableOpacity
-                      key={star}
-                      onPress={() => setRating(star)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name={star <= rating ? "star" : "star-outline"}
-                        size={32}
-                        color="#FFD700"
-                      />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                
-                <TextInput
-                  style={styles.commentInput}
-                  placeholder="Add a comment (optional)"
-                  multiline={true}
-                  numberOfLines={3}
-                  value={ratingComment}
-                  onChangeText={setRatingComment}
-                  editable={!submittingRating}
-                />
-              </View>
-
-              <View style={styles.modalButtons}>
-                <TouchableOpacity 
-                  style={[
-                    styles.modalButtonPrimary,
-                    submittingRating && styles.disabledButton
-                  ]} 
-                  onPress={submitRating}
-                  disabled={submittingRating}
-                  activeOpacity={0.7}
-                >
-                  {submittingRating ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
-                  ) : (
-                    <Text style={styles.modalButtonPrimaryText}>Submit Rating</Text>
-                  )}
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={styles.modalButtonSecondary} 
-                  onPress={() => {
-                    setShowPaymentModal(false);
-                    navigation.navigate('PassengerHome');
-                  }}
-                  disabled={submittingRating}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.modalButtonSecondaryText}>Skip Rating</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -1001,9 +911,26 @@ const styles = StyleSheet.create({
   },
   mapContainer: {
     flex: 1,
+    position: 'relative',
   },
   map: {
     flex: 1,
+  },
+  recenterButton: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
   passengerMarker: {
     width: 36,
@@ -1115,19 +1042,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 20,
+    padding: 16,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 16,
   },
   driverAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: '#007AFF',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    overflow: 'hidden',
+  },
+  driverAvatarImage: {
+    width: '100%',
+    height: '100%',
   },
   driverAvatarText: {
     color: '#FFFFFF',
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: 'bold',
   },
   driverInfo: {
@@ -1143,14 +1078,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
+    marginBottom: 4,
   },
   ratingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     marginRight: 12,
+    backgroundColor: '#FFF9E6',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
   ratingText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
     marginLeft: 4,
     fontWeight: '600',
@@ -1160,19 +1100,29 @@ const styles = StyleSheet.create({
     color: '#666',
     fontWeight: '500',
   },
+  phoneText: {
+    fontSize: 12,
+    color: '#007AFF',
+    marginTop: 2,
+  },
   contactButtons: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 8,
   },
   contactButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E5E5EA',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   statusSection: {
     backgroundColor: '#F8F9FA',
@@ -1207,7 +1157,7 @@ const styles = StyleSheet.create({
   locationRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: 4,
   },
   locationDot: {
     width: 12,
@@ -1220,16 +1170,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   locationLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#666',
     marginBottom: 4,
     fontWeight: '600',
     letterSpacing: 0.5,
   },
   locationAddress: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#000',
-    lineHeight: 22,
+    lineHeight: 20,
     fontWeight: '500',
   },
   divider: {
@@ -1267,10 +1217,10 @@ const styles = StyleSheet.create({
   metricItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   metricText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
     fontWeight: '600',
   },
@@ -1289,130 +1239,5 @@ const styles = StyleSheet.create({
     color: '#FF3B30',
     fontSize: 16,
     fontWeight: '600',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
-    maxHeight: height * 0.9,
-  },
-  modalHeader: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  modalTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#000',
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  modalSubtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  modalSection: {
-    marginBottom: 24,
-  },
-  modalSectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 16,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  summaryLabel: {
-    fontSize: 15,
-    color: '#666',
-    fontWeight: '500',
-  },
-  summaryValue: {
-    fontSize: 15,
-    color: '#000',
-    fontWeight: '600',
-  },
-  cashInput: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-  },
-  cashHint: {
-    fontSize: 13,
-    color: '#666',
-    fontStyle: 'italic',
-  },
-  ratingContainerModal: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 16,
-  },
-  commentInput: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 14,
-    color: '#000',
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
-  modalButtons: {
-    gap: 12,
-  },
-  modalButtonPrimary: {
-    paddingVertical: 16,
-    borderRadius: 12,
-    backgroundColor: '#34C759',
-    alignItems: 'center',
-    shadowColor: '#34C759',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  modalButtonSecondary: {
-    paddingVertical: 16,
-    borderRadius: 12,
-    backgroundColor: '#F0F0F0',
-    alignItems: 'center',
-  },
-  modalButtonPrimaryText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  modalButtonSecondaryText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#666',
-  },
-  disabledButton: {
-    backgroundColor: '#CCCCCC',
-    shadowOpacity: 0,
   },
 });

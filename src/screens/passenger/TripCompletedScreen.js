@@ -11,11 +11,16 @@ import {
   SafeAreaView,
   StatusBar,
   Platform,
+  TextInput,
+  ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { getAuthToken } from '../../utils/auth';
+import { LinearGradient } from 'expo-linear-gradient';
 
+const { width } = Dimensions.get('window');
 const baseUrl = 'https://wheels-backend.vercel.app';
 
 export default function TripCompletedScreen() {
@@ -32,7 +37,10 @@ export default function TripCompletedScreen() {
     fare = 0,
     serviceType = 'CITY_RIDE',
     paymentMethod = 'wallet',
-    tripDuration = 0, // in seconds
+    tripDuration = 0,
+    pickupAddress = '',
+    destinationAddress = '',
+    distanceKm = 0,
   } = route.params || {};
 
   const [rating, setRating] = useState(5);
@@ -41,11 +49,20 @@ export default function TripCompletedScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [tripDetails, setTripDetails] = useState(null);
+  const [driverDetails, setDriverDetails] = useState({
+    name: driverName,
+    rating: driverRating,
+    vehicleModel,
+    vehiclePlate,
+    profilePicUrl: null,
+  });
 
   const tipOptions = [0, 100, 200, 500, 1000];
+  const quickComments = ['Great ride!', 'Very professional', 'Clean vehicle', 'Safe driver', 'Friendly'];
 
   useEffect(() => {
     fetchTripDetails();
+    fetchDriverDetails();
   }, []);
 
   const fetchTripDetails = async () => {
@@ -63,6 +80,32 @@ export default function TripCompletedScreen() {
       }
     } catch (error) {
       console.error('Error fetching trip details:', error);
+    }
+  };
+
+  const fetchDriverDetails = async () => {
+    try {
+      const token = await getAuthToken();
+      if (!token || !driverId) return;
+
+      const response = await fetch(`${baseUrl}/users/${driverId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.user) {
+          setDriverDetails({
+            name: data.user.name || driverName,
+            rating: data.user.driverProfile?.rating || driverRating,
+            vehicleModel: data.user.driverProfile?.vehicleModel || vehicleModel,
+            vehiclePlate: data.user.driverProfile?.vehicleNumber || vehiclePlate,
+            profilePicUrl: data.user.driverProfile?.profilePicUrl || null,
+          });
+        }
+      }
+    } catch (error) {
+      console.warn('Error fetching driver details:', error);
     }
   };
 
@@ -118,12 +161,12 @@ export default function TripCompletedScreen() {
         }
 
         Alert.alert(
-          'Thank You!',
-          'Your rating and tip have been submitted successfully.',
+          '✅ Thank You!',
+          `Your ${rating}-star rating has been submitted${tipAmount > 0 ? ' along with your tip' : ''}.`,
           [
             {
-              text: 'OK',
-              onPress: () => navigation.navigate('PassengerHome'),
+              text: 'Done',
+              onPress: () => navigation.navigate('PassengerMain'),
             },
           ]
         );
@@ -153,23 +196,36 @@ export default function TripCompletedScreen() {
 
   const formatTime = (seconds) => {
     if (!seconds) return '0 min';
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    
+    if (hours > 0) {
+      return `${hours}h ${mins}m`;
+    }
+    return `${mins} min`;
   };
 
   const formatDate = (dateString) => {
-    if (!dateString) return 'Today';
+    if (!dateString) return new Date().toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
+      weekday: 'long',
+      month: 'long',
       day: 'numeric',
+      year: 'numeric',
     });
   };
 
   const formatTimeOfDay = (dateString) => {
-    if (!dateString) return '';
+    if (!dateString) return new Date().toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
     const date = new Date(dateString);
     return date.toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -179,117 +235,241 @@ export default function TripCompletedScreen() {
 
   const totalAmount = fare + tipAmount;
 
+  const getRatingEmoji = () => {
+    switch(rating) {
+      case 5: return '🌟';
+      case 4: return '😊';
+      case 3: return '😐';
+      case 2: return '😕';
+      case 1: return '😞';
+      default: return '⭐';
+    }
+  };
+
+  const getRatingText = () => {
+    switch(rating) {
+      case 5: return 'Excellent!';
+      case 4: return 'Good';
+      case 3: return 'Average';
+      case 2: return 'Below Average';
+      case 1: return 'Poor';
+      default: return 'Rate your ride';
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       
-      <ScrollView contentContainerStyle={styles.contentContainer}>
-        {/* Success Header */}
+      <ScrollView 
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Success Header with Animation */}
         <View style={styles.successHeader}>
-          <View style={styles.successIcon}>
-            <Ionicons name="checkmark-circle" size={80} color="#34C759" />
+          <View style={styles.checkmarkContainer}>
+            <LinearGradient
+              colors={['#34C759', '#2EBB4F']}
+              style={styles.checkmarkGradient}
+            >
+              <Ionicons name="checkmark" size={60} color="#FFFFFF" />
+            </LinearGradient>
           </View>
           <Text style={styles.successTitle}>Trip Completed!</Text>
           <Text style={styles.successSubtitle}>
-            {tripDetails?.completedAt 
-              ? `Completed on ${formatDate(tripDetails.completedAt)}`
-              : 'Thank you for riding with us'}
+            {formatDate(tripDetails?.completedAt)}
+          </Text>
+          <Text style={styles.successTime}>
+            at {formatTimeOfDay(tripDetails?.completedAt)}
           </Text>
         </View>
 
-        {/* Trip Summary */}
-        <View style={styles.card}>
+        {/* Trip Summary Card */}
+        <View style={styles.summaryCard}>
           <Text style={styles.cardTitle}>Trip Summary</Text>
           
           <View style={styles.summaryGrid}>
             <View style={styles.summaryItem}>
-              <Ionicons name="cash-outline" size={24} color="#666" />
+              <View style={styles.iconCircle}>
+                <Ionicons name="cash" size={22} color="#007AFF" />
+              </View>
               <Text style={styles.summaryLabel}>Fare</Text>
               <Text style={styles.summaryValue}>₦{Number(fare).toLocaleString()}</Text>
             </View>
             
             <View style={styles.summaryItem}>
-              <Ionicons name="time-outline" size={24} color="#666" />
+              <View style={styles.iconCircle}>
+                <Ionicons name="time" size={22} color="#FF9500" />
+              </View>
               <Text style={styles.summaryLabel}>Duration</Text>
               <Text style={styles.summaryValue}>{formatTime(tripDuration)}</Text>
             </View>
             
             <View style={styles.summaryItem}>
-              <Ionicons name="car-outline" size={24} color="#666" />
-              <Text style={styles.summaryLabel}>Service</Text>
-              <Text style={styles.summaryValue}>{formatServiceType(serviceType)}</Text>
+              <View style={styles.iconCircle}>
+                <Ionicons name="speedometer" size={22} color="#34C759" />
+              </View>
+              <Text style={styles.summaryLabel}>Distance</Text>
+              <Text style={styles.summaryValue}>{distanceKm || '0'} km</Text>
             </View>
             
             <View style={styles.summaryItem}>
-              <Ionicons name="card-outline" size={24} color="#666" />
+              <View style={styles.iconCircle}>
+                <Ionicons name="card" size={22} color="#FF3B30" />
+              </View>
               <Text style={styles.summaryLabel}>Payment</Text>
-              <Text style={styles.summaryValue}>{paymentMethod === 'cash' ? 'Cash' : 'Wallet'}</Text>
+              <Text style={styles.summaryValue}>
+                {paymentMethod === 'cash' ? 'Cash' : 'Wallet'}
+              </Text>
             </View>
           </View>
         </View>
 
-        {/* Driver Info */}
-        <View style={styles.card}>
+        {/* Route Card */}
+        {(pickupAddress || destinationAddress) && (
+          <View style={styles.routeCard}>
+            <View style={styles.routeItem}>
+              <View style={styles.routeIconContainer}>
+                <View style={styles.pickupDot} />
+              </View>
+              <View style={styles.routeDetails}>
+                <Text style={styles.routeLabel}>PICKUP</Text>
+                <Text style={styles.routeAddress} numberOfLines={2}>
+                  {pickupAddress || 'Pickup location'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.routeLine} />
+
+            <View style={styles.routeItem}>
+              <View style={styles.routeIconContainer}>
+                <View style={styles.dropoffDot} />
+              </View>
+              <View style={styles.routeDetails}>
+                <Text style={styles.routeLabel}>DROPOFF</Text>
+                <Text style={styles.routeAddress} numberOfLines={2}>
+                  {destinationAddress || 'Destination'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Driver Card */}
+        <View style={styles.driverCard}>
           <Text style={styles.cardTitle}>Your Driver</Text>
           <View style={styles.driverInfo}>
-            <View style={styles.driverAvatar}>
-              <Text style={styles.driverAvatarText}>
-                {driverName.charAt(0).toUpperCase()}
-              </Text>
+            <View style={styles.driverAvatarContainer}>
+              {driverDetails.profilePicUrl ? (
+                <Image 
+                  source={{ uri: driverDetails.profilePicUrl }} 
+                  style={styles.driverAvatarImage}
+                />
+              ) : (
+                <View style={styles.driverAvatar}>
+                  <Text style={styles.driverAvatarText}>
+                    {driverDetails.name.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.verifiedBadge}>
+                <Ionicons name="checkmark-circle" size={20} color="#34C759" />
+              </View>
             </View>
             <View style={styles.driverDetails}>
-              <Text style={styles.driverName}>{driverName}</Text>
+              <Text style={styles.driverName}>{driverDetails.name}</Text>
               <View style={styles.driverStats}>
                 <View style={styles.ratingContainer}>
                   <Ionicons name="star" size={16} color="#FFD700" />
-                  <Text style={styles.ratingText}>{driverRating}</Text>
+                  <Text style={styles.ratingText}>{driverDetails.rating}</Text>
+                  <Text style={styles.ratingCount}>(500+ trips)</Text>
                 </View>
+              </View>
+              <View style={styles.vehicleInfo}>
+                <Ionicons name="car-sport" size={16} color="#666" />
                 <Text style={styles.vehicleText}>
-                  {vehicleModel} • {vehiclePlate}
+                  {driverDetails.vehicleModel} • {driverDetails.vehiclePlate}
                 </Text>
               </View>
             </View>
           </View>
         </View>
 
-        {/* Rating */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>
-            {hasSubmitted ? 'Your Rating' : 'Rate Your Driver'}
-          </Text>
-          <View style={styles.ratingContainerMain}>
+        {/* Rating Section */}
+        {!hasSubmitted && (
+          <View style={styles.ratingCard}>
+            <View style={styles.ratingHeader}>
+              <Text style={styles.cardTitle}>Rate Your Ride</Text>
+              <Text style={styles.ratingEmoji}>{getRatingEmoji()}</Text>
+            </View>
+            
             <View style={styles.starsContainer}>
               {[1, 2, 3, 4, 5].map((star) => (
                 <TouchableOpacity
                   key={star}
-                  onPress={() => !hasSubmitted && setRating(star)}
-                  disabled={hasSubmitted}
+                  onPress={() => setRating(star)}
                   activeOpacity={0.7}
+                  style={styles.starButton}
                 >
                   <Ionicons
                     name={star <= rating ? "star" : "star-outline"}
                     size={40}
-                    color="#FFD700"
+                    color={star <= rating ? "#FFD700" : "#D1D1D6"}
                   />
                 </TouchableOpacity>
               ))}
             </View>
-            <Text style={styles.ratingTextMain}>
-              {rating === 5 ? 'Excellent! ⭐⭐⭐⭐⭐' : 
-               rating === 4 ? 'Good ⭐⭐⭐⭐' : 
-               rating === 3 ? 'Average ⭐⭐⭐' : 
-               rating === 2 ? 'Fair ⭐⭐' : 'Poor ⭐'}
-            </Text>
-          </View>
-        </View>
+            
+            <Text style={styles.ratingDescription}>{getRatingText()}</Text>
 
-        {/* Tip */}
+            {/* Quick Comments */}
+            <View style={styles.quickCommentsContainer}>
+              {quickComments.map((quickComment, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={[
+                    styles.quickCommentButton,
+                    comment === quickComment && styles.quickCommentButtonSelected
+                  ]}
+                  onPress={() => setComment(comment === quickComment ? '' : quickComment)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[
+                    styles.quickCommentText,
+                    comment === quickComment && styles.quickCommentTextSelected
+                  ]}>
+                    {quickComment}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Custom Comment */}
+            <TextInput
+              style={styles.commentInput}
+              placeholder="Add a personal comment (optional)"
+              placeholderTextColor="#999"
+              multiline={true}
+              numberOfLines={3}
+              value={comment}
+              onChangeText={setComment}
+              textAlignVertical="top"
+            />
+          </View>
+        )}
+
+        {/* Tip Section */}
         {!hasSubmitted && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Add a Tip (Optional)</Text>
-            <Text style={styles.tipDescription}>
-              Support your driver with a tip
-            </Text>
+          <View style={styles.tipCard}>
+            <View style={styles.tipHeader}>
+              <Ionicons name="gift" size={24} color="#FF9500" />
+              <View style={styles.tipHeaderText}>
+                <Text style={styles.cardTitle}>Add a Tip</Text>
+                <Text style={styles.tipSubtitle}>Show your appreciation</Text>
+              </View>
+            </View>
+            
             <View style={styles.tipContainer}>
               {tipOptions.map((tip) => (
                 <TouchableOpacity
@@ -299,6 +479,7 @@ export default function TripCompletedScreen() {
                     tipAmount === tip && styles.selectedTipButton,
                   ]}
                   onPress={() => setTipAmount(tip)}
+                  activeOpacity={0.7}
                 >
                   <Text style={[
                     styles.tipButtonText,
@@ -307,7 +488,7 @@ export default function TripCompletedScreen() {
                     {tip === 0 ? 'No Tip' : `₦${tip}`}
                   </Text>
                   {tip > 0 && tipAmount === tip && (
-                    <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
+                    <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
                   )}
                 </TouchableOpacity>
               ))}
@@ -315,164 +496,187 @@ export default function TripCompletedScreen() {
           </View>
         )}
 
-        {/* Comment */}
-        {!hasSubmitted && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Add a Comment (Optional)</Text>
-            <View style={styles.commentContainer}>
-              <Text style={styles.commentLabel}>How was your ride?</Text>
-              <View style={styles.commentInputContainer}>
-                <Ionicons name="chatbubble-outline" size={20} color="#666" style={styles.commentIcon} />
-                <Text style={styles.commentInput}>
-                  {comment || 'Share your experience...'}
+        {/* Payment Breakdown */}
+        <View style={styles.paymentCard}>
+          <Text style={styles.cardTitle}>Payment Details</Text>
+          <View style={styles.paymentBreakdown}>
+            <View style={styles.paymentRow}>
+              <Text style={styles.paymentLabel}>Trip Fare</Text>
+              <Text style={styles.paymentValue}>₦{Number(fare).toLocaleString()}</Text>
+            </View>
+            
+            {tipAmount > 0 && (
+              <View style={styles.paymentRow}>
+                <View style={styles.tipLabelContainer}>
+                  <Text style={styles.paymentLabel}>Driver Tip</Text>
+                  <View style={styles.thankYouBadge}>
+                    <Text style={styles.thankYouText}>Thank you! 🙏</Text>
+                  </View>
+                </View>
+                <Text style={[styles.paymentValue, styles.tipValue]}>
+                  +₦{tipAmount.toLocaleString()}
                 </Text>
-                <TouchableOpacity
-                  onPress={() => setComment('')}
-                  style={styles.clearCommentButton}
-                >
-                  <Ionicons name="close-circle" size={20} color="#999" />
-                </TouchableOpacity>
               </View>
-            </View>
-          </View>
-        )}
-
-        {/* Fare Breakdown */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Fare Breakdown</Text>
-          <View style={styles.fareBreakdown}>
-            <View style={styles.fareRow}>
-              <Text style={styles.fareLabel}>Trip Fare</Text>
-              <Text style={styles.fareValue}>₦{Number(fare).toLocaleString()}</Text>
-            </View>
-            <View style={styles.fareRow}>
-              <View style={styles.tipLabelContainer}>
-                <Text style={styles.fareLabel}>Tip</Text>
-                {tipAmount > 0 && (
-                  <Text style={styles.tipNote}>Thank you! 🙏</Text>
-                )}
-              </View>
-              <Text style={[
-                styles.fareValue,
-                tipAmount > 0 && styles.tipValue
-              ]}>
-                ₦{tipAmount.toLocaleString()}
-              </Text>
-            </View>
+            )}
+            
             <View style={styles.divider} />
-            <View style={styles.fareRow}>
-              <Text style={styles.totalLabel}>Total</Text>
+            
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Total Paid</Text>
               <Text style={styles.totalValue}>₦{totalAmount.toLocaleString()}</Text>
+            </View>
+            
+            <View style={styles.paymentMethodRow}>
+              <Ionicons 
+                name={paymentMethod === 'cash' ? "cash" : "wallet"} 
+                size={16} 
+                color="#666" 
+              />
+              <Text style={styles.paymentMethodText}>
+                Paid via {paymentMethod === 'cash' ? 'Cash' : 'Wallet'}
+              </Text>
             </View>
           </View>
         </View>
 
-        {/* Submit Button */}
+        {/* Action Buttons */}
         {!hasSubmitted ? (
-          <TouchableOpacity
-            style={[
-              styles.submitButton,
-              isSubmitting && styles.submitButtonDisabled
-            ]}
-            onPress={handleSubmit}
-            disabled={isSubmitting}
-            activeOpacity={0.7}
-          >
-            {isSubmitting ? (
-              <Text style={styles.submitButtonText}>Submitting...</Text>
-            ) : (
-              <>
-                <Text style={styles.submitButtonText}>
-                  {tipAmount > 0 ? 'Submit & Pay Tip' : 'Submit Rating'}
-                </Text>
-                {tipAmount > 0 && (
-                  <Text style={styles.submitTotalText}>
-                    ₦{totalAmount.toLocaleString()}
-                  </Text>
+          <View style={styles.actionButtons}>
+            <TouchableOpacity
+              style={[
+                styles.submitButton,
+                isSubmitting && styles.submitButtonDisabled
+              ]}
+              onPress={handleSubmit}
+              disabled={isSubmitting}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={isSubmitting ? ['#CCCCCC', '#AAAAAA'] : ['#007AFF', '#0051D5']}
+                style={styles.submitButtonGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={22} color="#FFFFFF" />
+                    <Text style={styles.submitButtonText}>
+                      {tipAmount > 0 ? 'Submit & Pay Tip' : 'Submit Rating'}
+                    </Text>
+                  </>
                 )}
-              </>
-            )}
-          </TouchableOpacity>
+              </LinearGradient>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.skipButton}
+              onPress={() => navigation.navigate('PassengerMain')}
+              disabled={isSubmitting}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.skipButtonText}>Skip for Now</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <View style={styles.submittedContainer}>
             <View style={styles.submittedBadge}>
-              <Ionicons name="checkmark" size={20} color="#34C759" />
-              <Text style={styles.submittedText}>Rating Submitted</Text>
+              <Ionicons name="checkmark-circle" size={24} color="#34C759" />
+              <Text style={styles.submittedText}>Rating Submitted Successfully!</Text>
             </View>
           </View>
         )}
 
-        {/* Return to Passenger Online Button */}
-        <TouchableOpacity
-          style={styles.returnButton}
-          onPress={() => navigation.navigate('PassengerOnline')}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="car-sport" size={22} color="#007AFF" />
-          <Text style={styles.returnButtonText}>Find Another Ride</Text>
-        </TouchableOpacity>
+        {/* Additional Actions */}
+        <View style={styles.additionalActions}>
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => navigation.navigate('PassengerMain')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="car-sport" size={20} color="#007AFF" />
+            <Text style={styles.actionButtonText}>Book Another Ride</Text>
+            <Ionicons name="chevron-forward" size={20} color="#007AFF" />
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => navigation.navigate('TripHistory')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="time" size={20} color="#666" />
+            <Text style={[styles.actionButtonText, { color: '#666' }]}>View Trip History</Text>
+            <Ionicons name="chevron-forward" size={20} color="#666" />
+          </TouchableOpacity>
+        </View>
 
-        {/* Back to Home Button */}
-        <TouchableOpacity
-          style={styles.homeButton}
-          onPress={() => navigation.navigate('PassengerMain')}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="home-outline" size={20} color="#666" />
-          <Text style={styles.homeButtonText}>Back to Home</Text>
-        </TouchableOpacity>
+        {/* Bottom Spacing */}
+        <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F5F5F7',
   },
   contentContainer: {
-    padding: 20,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 20 : 30,
+    paddingBottom: 20,
   },
   successHeader: {
     alignItems: 'center',
     marginBottom: 30,
-    marginTop: 20,
   },
-  successIcon: {
-    marginBottom: 16,
+  checkmarkContainer: {
+    marginBottom: 20,
+  },
+  checkmarkGradient: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#34C759',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 10,
   },
   successTitle: {
     fontSize: 32,
     fontWeight: '800',
     color: '#000',
     marginBottom: 8,
-    textAlign: 'center',
   },
   successSubtitle: {
     fontSize: 16,
     color: '#666',
-    textAlign: 'center',
+    marginBottom: 4,
   },
-  card: {
+  successTime: {
+    fontSize: 14,
+    color: '#999',
+  },
+  summaryCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 20,
     marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
   },
   cardTitle: {
     fontSize: 20,
     fontWeight: '700',
     color: '#000',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   summaryGrid: {
     flexDirection: 'row',
@@ -482,15 +686,29 @@ const styles = StyleSheet.create({
   summaryItem: {
     width: '48%',
     alignItems: 'center',
-    marginBottom: 16,
-    paddingVertical: 12,
+    marginBottom: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
     backgroundColor: '#F8F9FA',
-    borderRadius: 12,
+    borderRadius: 16,
+  },
+  iconCircle: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   summaryLabel: {
     fontSize: 12,
     color: '#666',
-    marginTop: 8,
     marginBottom: 4,
     fontWeight: '600',
   },
@@ -499,28 +717,112 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#000',
   },
+  routeCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  routeItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  routeIconContainer: {
+    marginRight: 16,
+    paddingTop: 2,
+  },
+  pickupDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#007AFF',
+    borderWidth: 3,
+    borderColor: '#E3F2FD',
+  },
+  dropoffDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#FF3B30',
+    borderWidth: 3,
+    borderColor: '#FFE5E5',
+  },
+  routeDetails: {
+    flex: 1,
+  },
+  routeLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#666',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  routeAddress: {
+    fontSize: 15,
+    color: '#000',
+    fontWeight: '500',
+    lineHeight: 20,
+  },
+  routeLine: {
+    width: 2,
+    height: 24,
+    backgroundColor: '#E5E5EA',
+    marginLeft: 7,
+    marginVertical: 8,
+  },
+  driverCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
   driverInfo: {
     flexDirection: 'row',
     alignItems: 'center',
   },
+  driverAvatarContainer: {
+    position: 'relative',
+    marginRight: 16,
+  },
   driverAvatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     backgroundColor: '#007AFF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
     shadowColor: '#007AFF',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 4,
   },
+  driverAvatarImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+  },
   driverAvatarText: {
     color: '#FFFFFF',
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
+  },
+  verifiedBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
   },
   driverDetails: {
     flex: 1,
@@ -529,241 +831,327 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#000',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   driverStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
+    marginBottom: 8,
   },
   ratingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 12,
     backgroundColor: '#FFF9E6',
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
+    alignSelf: 'flex-start',
   },
   ratingText: {
     fontSize: 14,
-    color: '#666',
+    color: '#000',
     marginLeft: 4,
     fontWeight: '600',
+  },
+  ratingCount: {
+    fontSize: 12,
+    color: '#666',
+    marginLeft: 4,
+  },
+  vehicleInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   vehicleText: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
   },
-  ratingContainerMain: {
+  ratingCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  ratingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 20,
+  },
+  ratingEmoji: {
+    fontSize: 32,
   },
   starsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginBottom: 12,
-    gap: 8,
+    marginBottom: 16,
+    gap: 12,
   },
-  ratingTextMain: {
+  starButton: {
+    padding: 4,
+  },
+  ratingDescription: {
     fontSize: 18,
-    color: '#000',
     fontWeight: '600',
+    color: '#007AFF',
     textAlign: 'center',
+    marginBottom: 20,
   },
-  tipDescription: {
+  quickCommentsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  quickCommentButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#F5F5F7',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
+  quickCommentButtonSelected: {
+    backgroundColor: '#007AFF',
+    borderColor: '#007AFF',
+  },
+  quickCommentText: {
     fontSize: 14,
     color: '#666',
+    fontWeight: '500',
+  },
+  quickCommentTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  commentInput: {
+    backgroundColor: '#F5F5F7',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
+    color: '#000',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    minHeight: 100,
+  },
+  tipCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
     marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  tipHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  tipHeaderText: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  tipSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
   },
   tipContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 12,
+    gap: 10,
   },
   tipButton: {
     flex: 1,
     minWidth: '30%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F8F9FA',
     paddingVertical: 16,
-    paddingHorizontal: 8,
-    borderRadius: 12,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: '#F5F5F7',
     borderWidth: 1,
     borderColor: '#E5E5EA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
     gap: 6,
   },
   selectedTipButton: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
+    backgroundColor: '#FF9500',
+    borderColor: '#FF9500',
   },
   tipButtonText: {
     fontSize: 15,
-    color: '#666',
     fontWeight: '600',
+    color: '#666',
   },
   selectedTipButtonText: {
     color: '#FFFFFF',
   },
-  commentContainer: {
-    marginTop: 8,
+  paymentCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  commentLabel: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 8,
+  paymentBreakdown: {
+    paddingHorizontal: 4,
   },
-  commentInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-  },
-  commentIcon: {
-    marginRight: 8,
-  },
-  commentInput: {
-    flex: 1,
-    fontSize: 15,
-    color: '#666',
-    minHeight: 40,
-  },
-  clearCommentButton: {
-    padding: 4,
-  },
-  fareBreakdown: {
-    padding: 4,
-  },
-  fareRow: {
+  paymentRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
-  },
-  fareLabel: {
-    fontSize: 16,
-    color: '#666',
-    fontWeight: '500',
+    marginBottom: 16,
   },
   tipLabelContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  tipNote: {
-    fontSize: 12,
-    color: '#34C759',
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  fareValue: {
+  paymentLabel: {
     fontSize: 16,
-    color: '#000',
+    color: '#666',
+  },
+  paymentValue: {
+    fontSize: 16,
     fontWeight: '600',
+    color: '#000',
   },
   tipValue: {
-    color: '#34C759',
+    color: '#FF9500',
+  },
+  thankYouBadge: {
+    backgroundColor: '#FF9500',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  thankYouText: {
+    fontSize: 11,
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
   divider: {
     height: 1,
-    backgroundColor: '#F0F0F0',
+    backgroundColor: '#E5E5EA',
     marginVertical: 12,
+  },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   totalLabel: {
     fontSize: 18,
-    color: '#000',
     fontWeight: '700',
+    color: '#000',
   },
   totalValue: {
-    fontSize: 24,
-    color: '#000',
-    fontWeight: '800',
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#007AFF',
+  },
+  paymentMethodRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  paymentMethodText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  actionButtons: {
+    marginBottom: 16,
   },
   submitButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 20,
     borderRadius: 16,
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 16,
+    marginBottom: 12,
+    overflow: 'hidden',
     shadowColor: '#007AFF',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.2,
     shadowRadius: 8,
-    elevation: 6,
+    elevation: 4,
   },
   submitButtonDisabled: {
-    backgroundColor: '#CCCCCC',
-    shadowOpacity: 0,
+    shadowOpacity: 0.1,
+  },
+  submitButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+    gap: 8,
   },
   submitButtonText: {
-    color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '700',
-    marginBottom: 4,
-  },
-  submitTotalText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    opacity: 0.9,
+  },
+  skipButton: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  skipButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
   },
   submittedContainer: {
-    alignItems: 'center',
-    marginTop: 20,
     marginBottom: 16,
   },
   submittedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E8F5E9',
+    justifyContent: 'center',
+    backgroundColor: '#E8F7ED',
+    paddingVertical: 16,
     paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 20,
+    borderRadius: 16,
     gap: 8,
   },
   submittedText: {
     fontSize: 16,
+    fontWeight: '600',
     color: '#34C759',
-    fontWeight: '600',
   },
-  returnButton: {
+  additionalActions: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F0F8FF',
-    paddingVertical: 18,
-    borderRadius: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#007AFF20',
-    gap: 10,
-  },
-  returnButtonText: {
-    color: '#007AFF',
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  homeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     paddingVertical: 16,
+    paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: '#F8F9FA',
-    gap: 8,
   },
-  homeButtonText: {
-    color: '#666',
+  actionButtonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
+    flex: 1,
+    marginLeft: 12,
   },
 });

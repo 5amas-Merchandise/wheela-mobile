@@ -16,13 +16,18 @@ import PassengerHomeScreen from './src/screens/passenger/PassengerHomeScreen';
 import TripHistoryScreen from './src/screens/passenger/TripHistoryScreen';
 import ProfileScreen from './src/screens/passenger/ProfileScreen';
 import WalletScreen from './src/screens/passenger/WalletScreen';
-import CityToCityScreen from './src/screens/passenger/CityToCityScreen';
 import SearchDestinationScreen from './src/screens/passenger/SearchDestinationScreen';
 import DriverMatchingScreen from './src/screens/passenger/DriverMatchingScreen';
 import TripInProgressScreen from './src/screens/passenger/TripInProgressScreen';
 import TripCompletedScreen from './src/screens/passenger/TripCompletedScreen';
 import NotificationScreen from './src/screens/passenger/NotificationScreen';
 import TripTrackingScreen from './src/screens/passenger/TripTrackingScreen';
+
+// Intercity Screens (City to City)
+import CityToCityScreen from './src/screens/passenger/CityToCityScreen'; // Renamed from CityToCityScreen
+import IntercityBookingsScreen from './src/screens/passenger/IntercityBookingsScreen';
+import IntercityBookingDetailsScreen from './src/screens/passenger/IntercityBookingDetailsScreen';
+import IntercityBookingFormScreen from './src/screens/passenger/IntercityBookingFormScreen';
 
 // Driver Screens
 import DriverHomeOfflineScreen from './src/screens/driver/DriverHomeOfflineScreen';
@@ -36,13 +41,14 @@ import EarningsScreen from './src/screens/driver/EarningsScreen';
 import LuxuryEarningsScreen from './src/screens/driver/LuxuryEarningsScreen';
 import SubscriptionStatusScreen from './src/screens/driver/SubscriptionStatusScreen';
 
-// Custom Drawer
+// Custom Drawer & Other Screens
 import SideDrawer from './src/screens/SideDrawer';
 import HaulageLogisticsScreen from './src/screens/passenger/HaulageLogisticsScreen';
 import PaymentMethodsScreen from './src/screens/passenger/PaymentMethodsScreen';
 import PromotionsScreen from './src/screens/passenger/PromotionsScreen';
 import HelpScreen from './src/screens/passenger/HelpScreen';
 import SettingsScreen from './src/screens/passenger/SettingsScreen';
+import TripDetailsScreen from './src/screens/passenger/TripDetailsScreen';
 
 const Stack = createNativeStackNavigator();
 const Drawer = createDrawerNavigator();
@@ -62,7 +68,15 @@ function PassengerDrawerNavigator() {
     >
       <Drawer.Screen name="PassengerHome" component={PassengerHomeScreen} />
       <Drawer.Screen name="TripHistory" component={TripHistoryScreen} />
-      <Drawer.Screen name="CityToCity" component={CityToCityScreen} />
+      <Drawer.Screen name="TripDetails" component={TripDetailsScreen} />
+      
+      {/* Intercity (City to City) - Main Search Screen */}
+      <Drawer.Screen 
+        name="CityToCity" 
+        component={CityToCityScreen} 
+        options={{ title: 'City to City' }}
+      />
+      
       <Drawer.Screen name="Profile" component={ProfileScreen} />
       <Drawer.Screen name="Wallet" component={WalletScreen} />
       <Drawer.Screen name="Notification" component={NotificationScreen} />
@@ -71,7 +85,6 @@ function PassengerDrawerNavigator() {
       <Drawer.Screen name="Promotions" component={PromotionsScreen} />
       <Drawer.Screen name="Help" component={HelpScreen} />
       <Drawer.Screen name="Settings" component={SettingsScreen} />
-      {/* Add more main screens here later */}
     </Drawer.Navigator>
   );
 }
@@ -90,12 +103,29 @@ export default function App() {
         {/* Main Passenger App with Drawer */}
         <Stack.Screen name="PassengerMain" component={PassengerDrawerNavigator} />
 
-        {/* Full-screen modals (no drawer access) */}
+        {/* Full-screen modals (no drawer access) - Regular Ride Hailing */}
         <Stack.Screen name="SearchDestination" component={SearchDestinationScreen} />
         <Stack.Screen name="DriverMatching" component={DriverMatchingScreen} />
         <Stack.Screen name="TripInProgress" component={TripInProgressScreen} />
         <Stack.Screen name="TripCompleted" component={TripCompletedScreen} />
         <Stack.Screen name="TripTracking" component={TripTrackingScreen} />
+
+        {/* Intercity Booking Flow Screens (Full-screen modals) */}
+        <Stack.Screen 
+          name="IntercityBookings" 
+          component={IntercityBookingsScreen}
+          options={{ title: 'My Intercity Bookings' }}
+        />
+        <Stack.Screen 
+          name="IntercityBookingDetails" 
+          component={IntercityBookingDetailsScreen}
+          options={{ title: 'Booking Details' }}
+        />
+        <Stack.Screen 
+          name="IntercityBookingForm" 
+          component={IntercityBookingFormScreen}
+          options={{ title: 'Complete Booking' }}
+        />
 
         {/* Driver Screens */}
         <Stack.Screen name="DriverHomeOffline" component={DriverHomeOfflineScreen} />
