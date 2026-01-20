@@ -21,7 +21,7 @@ import { getAuthToken } from '../../utils/auth';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const { width } = Dimensions.get('window');
-const baseUrl = 'https://wheels-backend.vercel.app';
+const baseUrl = 'https://wheels-backend-7ydc.onrender.com';
 
 export default function TripCompletedScreen() {
   const navigation = useNavigation();

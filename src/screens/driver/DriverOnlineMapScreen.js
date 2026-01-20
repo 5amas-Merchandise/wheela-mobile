@@ -28,7 +28,7 @@ import {
   closeWebSocket 
 } from '../../utils/socket';
 
-const baseUrl = 'https://wheels-backend.vercel.app';
+const baseUrl = 'https://wheels-backend-7ydc.onrender.com';
 const { width, height } = Dimensions.get('window');
 const LATITUDE_DELTA = 0.005;
 const LONGITUDE_DELTA = LATITUDE_DELTA * (width / height);

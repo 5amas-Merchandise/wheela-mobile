@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { getAuthToken } from '../../utils/auth';
 
-const API_BASE_URL = 'https://wheels-backend.vercel.app';
+const API_BASE_URL = 'https://wheels-backend-7ydc.onrender.com';
 const GOOGLE_MAPS_API_KEY = 'AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo'; // Replace with your key
 
 // Service type icon mapping

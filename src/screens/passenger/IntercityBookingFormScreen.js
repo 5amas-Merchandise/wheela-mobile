@@ -18,7 +18,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import axios from 'axios';
 import * as Auth from '../../utils/auth';
 
-const API_URL = 'https://wheels-backend.vercel.app';
+const API_URL = 'https://wheels-backend-7ydc.onrender.com';
 
 // Add timeout to axios requests
 const axiosInstance = axios.create({

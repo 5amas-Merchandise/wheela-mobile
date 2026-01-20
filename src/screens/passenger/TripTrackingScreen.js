@@ -22,7 +22,7 @@ import { getAuthToken } from '../../utils/auth';
 import * as Location from 'expo-location';
 
 const { width, height } = Dimensions.get('window');
-const baseUrl = 'https://wheels-backend.vercel.app';
+const baseUrl = 'https://wheels-backend-7ydc.onrender.com';
 const GOOGLE_MAPS_API_KEY = 'AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo';
 
 export default function TripTrackingScreen() {

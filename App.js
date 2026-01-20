@@ -15,7 +15,7 @@ import OTPVerifyScreen from './src/screens/auth/OTPVerifyScreen';
 import PassengerHomeScreen from './src/screens/passenger/PassengerHomeScreen';
 import TripHistoryScreen from './src/screens/passenger/TripHistoryScreen';
 import ProfileScreen from './src/screens/passenger/ProfileScreen';
-import WalletScreen from './src/screens/passenger/WalletScreen';
+import WalletScreen from './src/screens/driver/WalletScreen';
 import SearchDestinationScreen from './src/screens/passenger/SearchDestinationScreen';
 import DriverMatchingScreen from './src/screens/passenger/DriverMatchingScreen';
 import TripInProgressScreen from './src/screens/passenger/TripInProgressScreen';
@@ -39,7 +39,7 @@ import RideRequestScreen from './src/screens/driver/RideRequestCardScreen';
 import TripFlowScreen from './src/screens/driver/TripFlowScreen';
 import EarningsScreen from './src/screens/driver/EarningsScreen';
 import LuxuryEarningsScreen from './src/screens/driver/LuxuryEarningsScreen';
-import SubscriptionStatusScreen from './src/screens/driver/SubscriptionStatusScreen';
+import SubscriptionScreen from './src/screens/driver/SubscriptionStatusScreen';
 
 // Custom Drawer & Other Screens
 import SideDrawer from './src/screens/SideDrawer';
@@ -137,7 +137,8 @@ export default function App() {
         <Stack.Screen name="TripFlow" component={TripFlowScreen} />
         <Stack.Screen name="Earnings" component={EarningsScreen} />
         <Stack.Screen name="LuxuryEarnings" component={LuxuryEarningsScreen} />
-        <Stack.Screen name="SubscriptionStatus" component={SubscriptionStatusScreen} />
+        <Stack.Screen name="Subscription" component={SubscriptionScreen} />
+        <Stack.Screen name="Wallet" component={WalletScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

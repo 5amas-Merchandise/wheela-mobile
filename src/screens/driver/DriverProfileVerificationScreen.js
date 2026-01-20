@@ -21,7 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getAuthToken } from '../../utils/auth';
 
 // Backend URL
-const baseUrl = 'https://wheels-backend.vercel.app'
+const baseUrl = 'https://wheels-backend-7ydc.onrender.com';
 
 // Cloudinary Config
 const CLOUDINARY_CLOUD = 'ddlee3b3s';
@@ -29,13 +29,17 @@ const CLOUDINARY_PRESET = 'growvest';
 
 const WHEELA_LOGO = require('../../../assets/logo.jpg');
 
+// Service types that match backend schema
 const SERVICE_TYPES = [
-  { label: 'City Ride (Car)', value: 'CITY_RIDE' },
-  { label: 'Delivery (Bike)', value: 'DELIVERY_BIKE' },
-  { label: 'Truck / Logistics', value: 'TRUCK' },
-  { label: 'Interstate Travel', value: 'INTERSTATE' },
+  { label: 'City Car', value: 'CITY_CAR' },
+  { label: 'Bike', value: 'BIKE' },
   { label: 'Keke / Tricycle', value: 'KEKE' },
-  { label: 'Luxury Rental', value: 'LUXURY_RENTAL' },
+  { label: 'Truck / Logistics', value: 'TRUCK' },
+  { label: 'Luxury', value: 'LUXURY' },
+  { label: 'Van', value: 'VAN' },
+  { label: 'Interstate', value: 'INTERSTATE' },
+  { label: 'Delivery', value: 'DELIVERY' },
+  { label: 'Logistics', value: 'LOGISTICS' },
 ];
 
 export default function DriverProfileVerificationScreen({ navigation }) {
@@ -45,17 +49,22 @@ export default function DriverProfileVerificationScreen({ navigation }) {
     vehicleMake: '',
     vehicleModel: '',
     vehicleNumber: '',
+    vehicleYear: '',
+    vehicleColor: '',
     nin: '',
     licenseNumber: '',
+    driverLicenseClass: '',
     serviceCategory: null,
   });
 
   const [uploadedUrls, setUploadedUrls] = useState({
-    profilePic: null,
-    vehiclePic: null,
-    ninDoc: null,
-    driversLicense: null,
-    vehicleRegistration: null,
+    profilePicUrl: null,
+    carPicUrl: null,
+    ninImageUrl: null,
+    licenseImageUrl: null,
+    vehicleRegistrationUrl: null,
+    insuranceUrl: null,
+    roadWorthinessUrl: null,
   });
 
   const [previews, setPreviews] = useState({});
@@ -195,33 +204,29 @@ export default function DriverProfileVerificationScreen({ navigation }) {
   };
 
   const isFormComplete = () => {
-    const complete = 
-      form.name.trim() &&
-      form.vehicleMake.trim() &&
-      form.vehicleModel.trim() &&
-      form.vehicleNumber.trim() &&
-      /^[0-9]{11}$/.test(form.nin) &&
-      form.licenseNumber.trim() &&
-      form.serviceCategory &&
-      uploadedUrls.profilePic &&
-      uploadedUrls.vehiclePic &&
-      uploadedUrls.ninDoc &&
-      uploadedUrls.driversLicense &&
-      uploadedUrls.vehicleRegistration;
+    const requiredFormFields = [
+      form.name.trim(),
+      form.vehicleMake.trim(),
+      form.vehicleModel.trim(),
+      form.vehicleNumber.trim(),
+      /^\d{11}$/.test(form.nin),
+      form.licenseNumber.trim(),
+      form.serviceCategory
+    ].every(Boolean);
+
+    const requiredDocs = [
+      uploadedUrls.profilePicUrl,
+      uploadedUrls.carPicUrl,
+      uploadedUrls.ninImageUrl,
+      uploadedUrls.licenseImageUrl,
+      uploadedUrls.vehicleRegistrationUrl
+    ].every(Boolean);
+
+    const complete = requiredFormFields && requiredDocs;
     
     console.log('📋 Form completion check:', {
-      name: !!form.name.trim(),
-      vehicleMake: !!form.vehicleMake.trim(),
-      vehicleModel: !!form.vehicleModel.trim(),
-      vehicleNumber: !!form.vehicleNumber.trim(),
-      nin: /^[0-9]{11}$/.test(form.nin),
-      licenseNumber: !!form.licenseNumber.trim(),
-      serviceCategory: !!form.serviceCategory,
-      profilePic: !!uploadedUrls.profilePic,
-      vehiclePic: !!uploadedUrls.vehiclePic,
-      ninDoc: !!uploadedUrls.ninDoc,
-      driversLicense: !!uploadedUrls.driversLicense,
-      vehicleRegistration: !!uploadedUrls.vehicleRegistration,
+      requiredFormFields,
+      requiredDocs,
       allComplete: complete,
     });
     
@@ -236,18 +241,18 @@ export default function DriverProfileVerificationScreen({ navigation }) {
     if (!form.vehicleModel.trim()) errors.push('Vehicle model is required');
     if (!form.vehicleNumber.trim()) errors.push('Vehicle plate number is required');
     
-    if (!/^[0-9]{11}$/.test(form.nin)) {
+    if (!/^\d{11}$/.test(form.nin)) {
       errors.push('NIN must be exactly 11 digits');
     }
     
     if (!form.licenseNumber.trim()) errors.push('Driver\'s license number is required');
     if (!form.serviceCategory) errors.push('Service type is required');
     
-    if (!uploadedUrls.profilePic) errors.push('Profile photo is required');
-    if (!uploadedUrls.vehiclePic) errors.push('Vehicle photo is required');
-    if (!uploadedUrls.ninDoc) errors.push('NIN document is required');
-    if (!uploadedUrls.driversLicense) errors.push('Driver\'s license is required');
-    if (!uploadedUrls.vehicleRegistration) errors.push('Vehicle registration is required');
+    if (!uploadedUrls.profilePicUrl) errors.push('Profile photo is required');
+    if (!uploadedUrls.carPicUrl) errors.push('Vehicle photo is required');
+    if (!uploadedUrls.ninImageUrl) errors.push('NIN document is required');
+    if (!uploadedUrls.licenseImageUrl) errors.push('Driver\'s license is required');
+    if (!uploadedUrls.vehicleRegistrationUrl) errors.push('Vehicle registration is required');
     
     return errors;
   };
@@ -280,30 +285,6 @@ export default function DriverProfileVerificationScreen({ navigation }) {
     }
   };
 
-  const checkUser = async (userId) => {
-    if (!userId) return;
-    
-    try {
-      console.log(`🔍 Checking user ${userId}...`);
-      const response = await axios.get(`${baseUrl}/drivers/check-user/${userId}`);
-      console.log('User check result:', response.data);
-      
-      if (response.data.success) {
-        const user = response.data.user;
-        Alert.alert(
-          'User Check',
-          `Name: ${user.name}\n` +
-          `Has Driver Profile: ${user.hasDriverProfile ? 'Yes' : 'No'}\n` +
-          `Profile Keys: ${user.driverProfileKeys?.join(', ') || 'None'}\n` +
-          `Vehicle Make: ${user.driverProfile?.vehicleMake || 'Not saved'}\n` +
-          `Service Categories: ${user.driverProfile?.serviceCategories?.join(', ') || 'None'}`
-        );
-      }
-    } catch (error) {
-      console.warn('Could not check user:', error.message);
-    }
-  };
-
   const handleSubmit = async () => {
     console.log('🚀 Starting submission process...');
     
@@ -324,22 +305,25 @@ export default function DriverProfileVerificationScreen({ navigation }) {
       return;
     }
 
-    // Ensure serviceCategory is always an array
-    const serviceCategories = form.serviceCategory ? [form.serviceCategory] : [];
-    
+    // Prepare payload with correct field names for backend
     const payload = {
       name: form.name.trim(),
       vehicleMake: form.vehicleMake.trim(),
       vehicleModel: form.vehicleModel.trim(),
       vehicleNumber: form.vehicleNumber.trim().toUpperCase(),
+      vehicleYear: form.vehicleYear || null,
+      vehicleColor: form.vehicleColor.trim() || '',
       nin: form.nin,
       licenseNumber: form.licenseNumber.trim(),
-      serviceCategories: serviceCategories,
-      profilePicUrl: uploadedUrls.profilePic,
-      carPicUrl: uploadedUrls.vehiclePic,
-      ninImageUrl: uploadedUrls.ninDoc,
-      licenseImageUrl: uploadedUrls.driversLicense,
-      vehicleRegistrationUrl: uploadedUrls.vehicleRegistration,
+      driverLicenseClass: form.driverLicenseClass.trim() || '',
+      serviceCategories: [form.serviceCategory], // Send as array
+      profilePicUrl: uploadedUrls.profilePicUrl,
+      carPicUrl: uploadedUrls.carPicUrl,
+      ninImageUrl: uploadedUrls.ninImageUrl,
+      licenseImageUrl: uploadedUrls.licenseImageUrl,
+      vehicleRegistrationUrl: uploadedUrls.vehicleRegistrationUrl,
+      insuranceUrl: uploadedUrls.insuranceUrl || null,
+      roadWorthinessUrl: uploadedUrls.roadWorthinessUrl || null,
     };
 
     console.log('📦 Submission Payload:', JSON.stringify(payload, null, 2));
@@ -376,105 +360,48 @@ export default function DriverProfileVerificationScreen({ navigation }) {
         visibilityTime: 4000,
       });
 
-      // Check if driverProfile was saved
-      const hasDriverProfile = response.data.debug?.hasDriverProfile;
-      const profileKeys = response.data.debug?.profileKeys || [];
-      const vehicleMake = response.data.debug?.vehicleMake;
-      
-      // Immediately check pending drivers
-      setTimeout(async () => {
-        try {
-          console.log('🔄 Checking pending drivers list...');
-          const pendingResponse = await axios.get(`${baseUrl}/drivers/pending`);
-          console.log('📊 Pending drivers after submission:', pendingResponse.data);
-          
-          if (pendingResponse.data.success) {
-            const currentUserInList = pendingResponse.data.drivers?.some(
-              driver => driver.name === form.name.trim()
-            );
-            
-            if (currentUserInList) {
-              console.log('✅ User found in pending list!');
-            } else {
-              console.log('⚠️ User NOT found in pending list');
-            }
-          }
-        } catch (checkErr) {
-          console.warn('Could not check pending drivers:', checkErr.message);
-        }
-      }, 1000);
-
-      // Also check the specific user
-      if (response.data.data?.userId) {
-        setTimeout(() => {
-          checkUser(response.data.data.userId);
-        }, 1500);
-      }
-
-      const alertButtons = [
-        { 
-          text: 'OK', 
-          onPress: () => {
-            // Clear form after successful submission
-            setForm({
-              name: '',
-              vehicleMake: '',
-              vehicleModel: '',
-              vehicleNumber: '',
-              nin: '',
-              licenseNumber: '',
-              serviceCategory: null,
-            });
-            setUploadedUrls({
-              profilePic: null,
-              vehiclePic: null,
-              ninDoc: null,
-              driversLicense: null,
-              vehicleRegistration: null,
-            });
-            setPreviews({});
-            navigation.replace('DriverHomeOffline');
-          }
-        }
-      ];
-
-      // Add debug button if we have debug info
-      if (response.data.debug) {
-        alertButtons.push({
-          text: 'Debug Info',
-          onPress: () => {
-            Alert.alert(
-              'Debug Information',
-              `Status: Success\n` +
-              `Message: ${response.data.message}\n\n` +
-              `Driver Profile Saved: ${hasDriverProfile ? '✅ Yes' : '❌ No'}\n` +
-              `Profile Keys: ${profileKeys.length > 0 ? profileKeys.join(', ') : 'None'}\n` +
-              `Vehicle Make: ${vehicleMake || 'Not saved'}\n\n` +
-              `Verification State: ${response.data.data?.verificationState || 'pending'}\n` +
-              `Submitted At: ${new Date(response.data.data?.submittedAt || Date.now()).toLocaleString()}`
-            );
-          }
-        });
-      }
-
       Alert.alert(
         'Success ✓',
         'Documents submitted successfully!\n\n' +
         'Review takes 24-48 hours.\n\n' +
-        `Status: ${response.data.data?.verificationState || 'pending'}\n` +
-        `Driver Profile: ${hasDriverProfile ? 'Saved ✓' : 'Not saved'}`,
-        alertButtons
+        `Status: ${response.data.data?.verificationState || 'pending'}`,
+        [
+          { 
+            text: 'OK', 
+            onPress: () => {
+              // Clear form after successful submission
+              setForm({
+                name: '',
+                vehicleMake: '',
+                vehicleModel: '',
+                vehicleNumber: '',
+                vehicleYear: '',
+                vehicleColor: '',
+                nin: '',
+                licenseNumber: '',
+                driverLicenseClass: '',
+                serviceCategory: null,
+              });
+              setUploadedUrls({
+                profilePicUrl: null,
+                carPicUrl: null,
+                ninImageUrl: null,
+                licenseImageUrl: null,
+                vehicleRegistrationUrl: null,
+                insuranceUrl: null,
+                roadWorthinessUrl: null,
+              });
+              setPreviews({});
+              navigation.replace('DriverHomeOffline');
+            }
+          }
+        ]
       );
     } catch (err) {
       console.error('❌ Submission Error:', {
         message: err.message,
         response: err.response?.data,
         status: err.response?.status,
-        config: {
-          url: err.config?.url,
-          data: err.config?.data,
-        },
-        stack: err.stack,
       });
       
       setDebugInfo(prev => ({ ...prev, lastError: err }));
@@ -506,33 +433,16 @@ export default function DriverProfileVerificationScreen({ navigation }) {
         message = 'Request timeout. Server is taking too long to respond.';
       }
 
-      const alertButtons = [{ text: 'OK' }];
-      
-      if (err.response?.data) {
-        alertButtons.push({
-          text: 'View Error Details',
-          onPress: () => {
-            Alert.alert(
-              'Error Details',
-              `Message: ${message}\n\n` +
-              (details ? `Details: ${details}\n\n` : '') +
-              `Status: ${err.response?.status || 'N/A'}\n` +
-              `Full Response: ${JSON.stringify(err.response?.data || {}, null, 2)}`
-            );
-          }
-        });
-      }
-
-      Alert.alert('Submission Failed', message, alertButtons);
+      Alert.alert('Submission Failed', message);
     } finally {
       setLoading(false);
     }
   };
 
-  const UploadBox = ({ title, field }) => (
+  const UploadBox = ({ title, field, required = false }) => (
     <View style={styles.uploadSection}>
       <Text style={styles.uploadLabel}>
-        {title} * {uploadedUrls[field] ? '✓' : ''}
+        {title} {required ? '* ' : ''}{uploadedUrls[field] ? '✓' : ''}
       </Text>
       <TouchableOpacity
         style={[
@@ -646,6 +556,24 @@ export default function DriverProfileVerificationScreen({ navigation }) {
         placeholderTextColor="#FFFFFF88"
       />
       
+      <View style={styles.rowInputs}>
+        <TextInput 
+          style={[styles.input, { flex: 1, marginRight: 8 }]} 
+          placeholder="Vehicle Year (optional)" 
+          value={form.vehicleYear} 
+          onChangeText={v => setForm(p => ({ ...p, vehicleYear: v }))} 
+          keyboardType="numeric"
+          placeholderTextColor="#FFFFFF88"
+        />
+        <TextInput 
+          style={[styles.input, { flex: 1, marginLeft: 8 }]} 
+          placeholder="Vehicle Color (optional)" 
+          value={form.vehicleColor} 
+          onChangeText={v => setForm(p => ({ ...p, vehicleColor: v }))} 
+          placeholderTextColor="#FFFFFF88"
+        />
+      </View>
+      
       <TextInput 
         style={styles.input} 
         placeholder="NIN (11 digits) *" 
@@ -656,13 +584,22 @@ export default function DriverProfileVerificationScreen({ navigation }) {
         placeholderTextColor="#FFFFFF88"
       />
       
-      <TextInput 
-        style={styles.input} 
-        placeholder="Driver's License Number *" 
-        value={form.licenseNumber} 
-        onChangeText={v => setForm(p => ({ ...p, licenseNumber: v }))} 
-        placeholderTextColor="#FFFFFF88"
-      />
+      <View style={styles.rowInputs}>
+        <TextInput 
+          style={[styles.input, { flex: 2, marginRight: 8 }]} 
+          placeholder="Driver's License Number *" 
+          value={form.licenseNumber} 
+          onChangeText={v => setForm(p => ({ ...p, licenseNumber: v }))} 
+          placeholderTextColor="#FFFFFF88"
+        />
+        <TextInput 
+          style={[styles.input, { flex: 1, marginLeft: 8 }]} 
+          placeholder="Class (optional)" 
+          value={form.driverLicenseClass} 
+          onChangeText={v => setForm(p => ({ ...p, driverLicenseClass: v }))} 
+          placeholderTextColor="#FFFFFF88"
+        />
+      </View>
 
       {/* Service Type Dropdown */}
       <View style={styles.section}>
@@ -694,12 +631,16 @@ export default function DriverProfileVerificationScreen({ navigation }) {
         )}
       </View>
 
-      {/* Image Uploads */}
-      <UploadBox title="Profile Photo (Clear Face)" field="profilePic" />
-      <UploadBox title="Vehicle Photo (Full View)" field="vehiclePic" />
-      <UploadBox title="NIN Document" field="ninDoc" />
-      <UploadBox title="Driver's License" field="driversLicense" />
-      <UploadBox title="Vehicle Registration" field="vehicleRegistration" />
+      {/* Required Image Uploads */}
+      <UploadBox title="Profile Photo (Clear Face)" field="profilePicUrl" required />
+      <UploadBox title="Vehicle Photo (Full View)" field="carPicUrl" required />
+      <UploadBox title="NIN Document" field="ninImageUrl" required />
+      <UploadBox title="Driver's License" field="licenseImageUrl" required />
+      <UploadBox title="Vehicle Registration" field="vehicleRegistrationUrl" required />
+
+      {/* Optional Image Uploads */}
+      <UploadBox title="Insurance (Optional)" field="insuranceUrl" />
+      <UploadBox title="Road Worthiness (Optional)" field="roadWorthinessUrl" />
 
       {/* Form Status */}
       <View style={styles.statusContainer}>
@@ -711,7 +652,7 @@ export default function DriverProfileVerificationScreen({ navigation }) {
           {isFormComplete() ? '✅ Ready to Submit' : '❌ Incomplete'}
         </Text>
         <Text style={styles.statusDetails}>
-          {Object.values(uploadedUrls).filter(url => url).length}/5 documents uploaded
+          {Object.values(uploadedUrls).filter(url => url).length}/7 documents uploaded
         </Text>
         <Text style={styles.statusDetails}>
           {form.name ? `Name: ${form.name}` : 'Name not provided'}
@@ -749,7 +690,7 @@ export default function DriverProfileVerificationScreen({ navigation }) {
         📱 Ensure all documents are clear and readable.
       </Text>
       <Text style={styles.note}>
-        🔍 Use debug buttons above to check submission status.
+        * Required documents must be uploaded
       </Text>
 
       <Toast />
@@ -816,6 +757,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderWidth: 1,
     borderColor: '#2A2F7A',
+  },
+  rowInputs: {
+    flexDirection: 'row',
+    marginBottom: 16,
   },
   section: { 
     marginBottom: 24 

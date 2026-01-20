@@ -19,7 +19,7 @@ import axios from 'axios';
 import * as Auth from '../../utils/auth';
 
 // REPLACE WITH YOUR ACTUAL API URL
-const API_URL = 'https://wheels-backend.vercel.app';
+const API_URL = 'https://wheels-backend-7ydc.onrender.com';
 
 const NIGERIA_STATES = [
   'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa',

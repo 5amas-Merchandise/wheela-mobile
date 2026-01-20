@@ -1,12 +1,11 @@
+// src/screens/SplashScreen.js
 import React, { useEffect } from 'react';
 import { View, Image, Text, StyleSheet, StatusBar, Animated } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
+import { getAuthToken, getUserRole } from '../utils/auth'; // Import from your auth utils
 
-// Replace with your actual Wheela logo asset (transparent background recommended)
-const WHEELA_LOGO = require('../../assets/logo.jpg'); // <-- Update this path
-
-const JWT_KEY = 'WHEELA_JWT';
+// Replace with your actual Wheela logo asset
+const WHEELA_LOGO = require('../../assets/logo.jpg');
 
 export default function SplashScreen() {
   const navigation = useNavigation();
@@ -15,7 +14,7 @@ export default function SplashScreen() {
   const scaleAnim = new Animated.Value(0.95);
 
   useEffect(() => {
-    // Premium logo animation: fade in + gentle spring scale
+    // Premium logo animation
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -31,18 +30,47 @@ export default function SplashScreen() {
     ]).start();
 
     let mounted = true;
-    const timer = setTimeout(async () => {
+    
+    const checkAuthAndNavigate = async () => {
       if (!mounted) return;
+      
       try {
-        const token = await AsyncStorage.getItem(JWT_KEY);
-        navigation.reset({
-          index: 0,
-          routes: [{ name: token ? 'RoleSwitch' : 'Welcome' }],
-        });
+        // Check if user has valid token
+        const token = await getAuthToken();
+        const role = await getUserRole();
+        
+        if (token) {
+          // User is authenticated, navigate based on role
+          if (role === 'driver') {
+            // Driver goes to offline screen
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'DriverHomeOffline' }],
+            });
+          } else {
+            // Passenger goes to passenger online screen
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'PassengerMain' }],
+            });
+          }
+        } else {
+          // No token, go to welcome screen
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Welcome' }],
+          });
+        }
       } catch (err) {
+        console.error('Auth check error:', err);
         navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
       }
-    }, 2800); // Extended slightly for luxurious feel
+    };
+
+    // Delay navigation to allow animation to complete
+    const timer = setTimeout(() => {
+      checkAuthAndNavigate();
+    }, 2800);
 
     return () => {
       mounted = false;
@@ -54,15 +82,11 @@ export default function SplashScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#010C44" />
 
-
       <Animated.View style={[styles.logoContainer, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
         <Image source={WHEELA_LOGO} style={styles.logoImage} resizeMode="contain" />
         <Text style={styles.logoText}>WHEELA</Text>
         <Text style={styles.tagline}>Ride with Confidence</Text>
       </Animated.View>
-
-      {/* Optional: Re-add ActivityIndicator if you want a loader at bottom */}
-      {/* <ActivityIndicator size="large" color="#00B0F3" style={styles.loader} /> */}
     </View>
   );
 }
@@ -70,7 +94,7 @@ export default function SplashScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#010C44', // Deep navy for premium sophistication
+    backgroundColor: '#010C44',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -78,7 +102,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoImage: {
-    width: 160,   // Adjust based on your logo's aspect ratio
+    width: 160,
     height: 160,
     marginBottom: 20,
   },
@@ -90,13 +114,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   tagline: {
-    color: '#00B0F3', // Vibrant accent for energy
+    color: '#00B0F3',
     fontSize: 18,
     fontWeight: '600',
     letterSpacing: 2,
-  },
-  loader: {
-    position: 'absolute',
-    bottom: 80,
   },
 });

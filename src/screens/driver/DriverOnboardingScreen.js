@@ -4,7 +4,7 @@ import axios from 'axios'
 import Constants from 'expo-constants'
 import { useNavigation } from '@react-navigation/native'
 
-const baseUrl = 'https://wheels-backend.vercel.app'
+const baseUrl = 'https://wheels-backend-7ydc.onrender.com'
 
 export default function DriverOnboardingScreen() {
   const navigation = useNavigation()
