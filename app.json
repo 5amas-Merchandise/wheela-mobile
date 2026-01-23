@@ -13,7 +13,8 @@
       "bundleIdentifier": "com.wheela.wheela",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app needs access to your location to find nearby drivers and show your ride route.",
-        "NSLocationAlwaysUsageDescription": "This app needs access to your location to find nearby drivers and show your ride route."
+        "NSLocationAlwaysUsageDescription": "This app needs access to your location to find nearby drivers and show your ride route.",
+        "UIBackgroundModes": ["remote-notification"]
       }
     },
     "android": {
@@ -30,13 +31,15 @@
         "ACCESS_BACKGROUND_LOCATION",
         "INTERNET",
         "ACCESS_NETWORK_STATE",
-        "android.permission.ACCESS_BACKGROUND_LOCATION"
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo"
         }
-      }
+      },
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
@@ -45,6 +48,17 @@
     "plugins": [
       "expo-router",
       "expo-location",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#0066FF",
+          "sounds": ["./assets/notification.wav"],
+          "iosDisplayInForeground": true,
+          "androidMode": "default",
+          "androidCollapsedTitle": "Wheela Updates"
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -65,7 +79,14 @@
             "enableProguardInReleaseBuilds": false,
             "extraMavenRepos": [
               "$rootDir/../node_modules/react-native-maps/android/maven"
-            ]
+            ],
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "buildToolsVersion": "34.0.0",
+            "useLegacyPackaging": false
+          },
+          "ios": {
+            "deploymentTarget": "15.1"
           }
         }
       ]
@@ -75,11 +96,20 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {},
+      "router": {
+        "origin": false
+      },
       "eas": {
         "projectId": "89ca3ed1-d2fb-429a-9fdb-614202a280e5"
       }
     },
-    "owner": "wheela"
+    "owner": "wheela",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/89ca3ed1-d2fb-429a-9fdb-614202a280e5",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }

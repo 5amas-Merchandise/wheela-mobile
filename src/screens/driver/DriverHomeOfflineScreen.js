@@ -15,7 +15,7 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 
 // Utils
-import { getAuthToken, removeAuthToken, logout } from "../../utils/auth"; // Added removeAuthToken
+import { getAuthToken, removeAuthToken, logout } from "../../utils/auth";
 
 // Backend URL
 const baseUrl = "https://wheels-backend-7ydc.onrender.com";
@@ -30,6 +30,7 @@ export default function DriverHomeOfflineScreen() {
   const [token, setToken] = useState(null);
   const [goingOnline, setGoingOnline] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const fetchProfileData = async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -52,7 +53,7 @@ export default function DriverHomeOfflineScreen() {
           Authorization: `Bearer ${authToken}`,
           "Content-Type": "application/json",
         },
-        timeout: 10000, // Add timeout
+        timeout: 10000,
       });
 
       console.log("User profile response:", res.data);
@@ -65,6 +66,8 @@ export default function DriverHomeOfflineScreen() {
           name: user.name || "Driver",
           phone: user.phone || "Not set",
           email: user.email || "Not set",
+          isActive: user.isActive,
+          userId: user._id,
         });
 
         // Set driver data with proper defaults
@@ -82,16 +85,13 @@ export default function DriverHomeOfflineScreen() {
     } catch (err) {
       console.error("Error fetching profile:", err);
 
-      // Handle specific error cases
       if (err.code === "ECONNABORTED") {
         Alert.alert(
           "Connection Timeout",
           "Server is taking too long to respond."
         );
       } else if (err.response) {
-        // Server responded with error status
         if (err.response.status === 401) {
-          // Token expired or invalid
           await removeAuthToken();
           Alert.alert("Session Expired", "Please log in again.", [
             { text: "OK", onPress: () => navigation.replace("Login") },
@@ -108,13 +108,11 @@ export default function DriverHomeOfflineScreen() {
           );
         }
       } else if (err.request) {
-        // Request was made but no response
         Alert.alert(
           "Network Error",
           "Please check your internet connection and try again."
         );
       } else {
-        // Other errors
         Alert.alert("Error", "An unexpected error occurred.");
       }
     } finally {
@@ -179,7 +177,6 @@ export default function DriverHomeOfflineScreen() {
           onPress: async () => {
             setGoingOnline(true);
             try {
-              // Update driver availability to online
               const response = await axios.post(
                 `${baseUrl}/drivers/availability`,
                 {
@@ -197,7 +194,6 @@ export default function DriverHomeOfflineScreen() {
 
               console.log("Go online response:", response.data);
 
-              // Navigate to DriverOnlineMapScreen
               navigation.replace("DriverOnlineMap");
             } catch (err) {
               console.error("Error going online:", err);
@@ -238,6 +234,189 @@ export default function DriverHomeOfflineScreen() {
     ]);
   };
 
+  const handleDeleteAccount = () => {
+    // Check if account is already suspended
+    if (userData && userData.isActive === false) {
+      Alert.alert(
+        "Account Already Suspended",
+        "Your account has already been suspended.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Delete Account",
+      "Are you sure you want to delete your account? This action will SUSPEND your account and cannot be undone. You will not be able to log in again.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Continue",
+          style: "destructive",
+          onPress: () => confirmDeleteAccount(),
+        },
+      ]
+    );
+  };
+
+  const confirmDeleteAccount = () => {
+    Alert.alert(
+      "Confirm Deletion",
+      "Type DELETE to confirm account suspension:",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Type DELETE",
+          style: "destructive",
+          onPress: () => showTypeDeleteInput(),
+        },
+      ]
+    );
+  };
+
+  const showTypeDeleteInput = () => {
+    Alert.prompt(
+      "Type DELETE",
+      "Please type DELETE to confirm account suspension:",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Confirm",
+          style: "destructive",
+          onPress: (input) => {
+            if (input?.toUpperCase() === "DELETE") {
+              proceedWithDeletion();
+            } else {
+              Alert.alert("Incorrect", "You must type DELETE exactly.");
+            }
+          },
+        },
+      ],
+      'plain-text'
+    );
+  };
+
+  const proceedWithDeletion = async () => {
+    Alert.alert(
+      "Final Warning",
+      "This is your last chance to cancel. Your account will be permanently SUSPENDED. This cannot be undone.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "SUSPEND MY ACCOUNT",
+          style: "destructive",
+          onPress: async () => {
+            setDeletingAccount(true);
+            try {
+              const authToken = await getAuthToken();
+              
+              // Call the delete/suspend account API
+              const response = await axios.delete(`${baseUrl}/auth/delete-account`, {
+                headers: {
+                  Authorization: `Bearer ${authToken}`,
+                  "Content-Type": "application/json",
+                },
+                data: {
+                  reason: "User requested account deletion",
+                  userId: userData?.userId,
+                },
+                timeout: 10000,
+              });
+
+              if (response.data.ok) {
+                await logout();
+                Alert.alert(
+                  "Account Suspended",
+                  "Your account has been suspended successfully. You will not be able to log in again.",
+                  [
+                    {
+                      text: "OK",
+                      onPress: () => navigation.replace("Welcome"),
+                    },
+                  ]
+                );
+              }
+            } catch (error) {
+              console.error("Error deleting account:", error);
+              
+              // Handle specific error cases
+              if (error.response?.status === 403) {
+                Alert.alert(
+                  "Account Already Suspended",
+                  "This account has already been suspended."
+                );
+              } else if (error.response?.status === 400) {
+                if (error.response.data?.error?.message?.includes('active rides')) {
+                  Alert.alert(
+                    "Active Rides Found",
+                    "Please complete or cancel all active rides before deleting your account.",
+                    [
+                      { text: "OK" },
+                      {
+                        text: "Go to Rides",
+                        onPress: () => navigation.navigate("DriverRides"),
+                      }
+                    ]
+                  );
+                } else if (error.response.data?.error?.message?.includes('balance')) {
+                  Alert.alert(
+                    "Wallet Balance",
+                    "Please withdraw your remaining balance before deleting your account.",
+                    [
+                      { text: "OK" },
+                      {
+                        text: "Go to Wallet",
+                        onPress: () => navigation.navigate("Wallet"),
+                      }
+                    ]
+                  );
+                } else {
+                  Alert.alert(
+                    "Cannot Delete Account",
+                    error.response.data?.error?.message || "Failed to delete account"
+                  );
+                }
+              } else if (error.response?.status === 401) {
+                await removeAuthToken();
+                Alert.alert(
+                  "Session Expired",
+                  "Please log in again.",
+                  [
+                    { text: "OK", onPress: () => navigation.replace("Login") },
+                  ]
+                );
+              } else if (error.request) {
+                Alert.alert(
+                  "Network Error",
+                  "Please check your internet connection and try again."
+                );
+              } else {
+                Alert.alert(
+                  "Deletion Failed",
+                  "Failed to delete account. Please try again or contact support."
+                );
+              }
+            } finally {
+              setDeletingAccount(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -255,16 +434,11 @@ export default function DriverHomeOfflineScreen() {
     isAdmin: false,
   };
 
-  console.log("Display data:", {
-    profile: profile,
-    user: user,
-    roles: roles,
-  });
-
   const isVerified = profile.verified === true;
   const verificationState = profile.verificationState || "pending";
   const profilePicUrl = profile.profilePicUrl || "";
   const isAvailable = profile.isAvailable || false;
+  const isAccountActive = user.isActive !== false; // Default to true if not specified
 
   const vehicleDisplay =
     profile.vehicleMake && profile.vehicleModel && profile.vehicleNumber
@@ -273,23 +447,26 @@ export default function DriverHomeOfflineScreen() {
         } • ${profile.vehicleNumber.toUpperCase()}`
       : "Not set";
 
-  // Determine status text and color
   let statusText = "";
-  let statusColor = "#F59E0B"; // amber for pending
+  let statusColor = "#F59E0B";
 
   switch (verificationState) {
     case "approved":
       statusText = "Verified";
-      statusColor = "#10B981"; // green
+      statusColor = "#10B981";
       break;
     case "rejected":
       statusText = "Rejected";
-      statusColor = "#EF4444"; // red
+      statusColor = "#EF4444";
       break;
     default:
       statusText = "Pending Review";
-      statusColor = "#F59E0B"; // amber
+      statusColor = "#F59E0B";
   }
+
+  // Account status badge
+  const accountStatusText = isAccountActive ? "Active" : "Suspended";
+  const accountStatusColor = isAccountActive ? "#10B981" : "#EF4444";
 
   return (
     <ScrollView
@@ -326,6 +503,16 @@ export default function DriverHomeOfflineScreen() {
         </View>
       </View>
 
+      {/* Account Status Badge */}
+      {!isAccountActive && (
+        <View style={styles.suspendedWarning}>
+          <Ionicons name="alert-circle" size={20} color="#FFFFFF" />
+          <Text style={styles.suspendedWarningText}>
+            ACCOUNT SUSPENDED
+          </Text>
+        </View>
+      )}
+
       {/* Status Card */}
       <View style={styles.statusCard}>
         <View style={styles.statusHeader}>
@@ -348,6 +535,18 @@ export default function DriverHomeOfflineScreen() {
           />
           <Text style={styles.statusDetailText}>
             {isAvailable ? "Currently Online" : "Currently Offline"}
+          </Text>
+        </View>
+
+        {/* Account Active Status */}
+        <View style={styles.accountStatusRow}>
+          <Ionicons
+            name={isAccountActive ? "shield-checkmark" : "shield-off"}
+            size={20}
+            color={accountStatusColor}
+          />
+          <Text style={[styles.accountStatusText, { color: accountStatusColor }]}>
+            Account: {accountStatusText}
           </Text>
         </View>
 
@@ -391,15 +590,20 @@ export default function DriverHomeOfflineScreen() {
       <TouchableOpacity
         style={[
           styles.goOnlineBtn,
-          !isVerified && styles.disabledBtn,
+          (!isVerified || !isAccountActive) && styles.disabledBtn,
           verificationState === "rejected" && styles.rejectedBtn,
-          goingOnline && styles.loadingBtn,
+          (goingOnline || !isAccountActive) && styles.loadingBtn,
         ]}
         onPress={handleGoOnline}
-        disabled={!isVerified || goingOnline}
+        disabled={!isVerified || goingOnline || !isAccountActive}
       >
         {goingOnline ? (
           <ActivityIndicator color="#FFFFFF" size="small" />
+        ) : !isAccountActive ? (
+          <>
+            <Ionicons name="ban-outline" size={24} color="#FFFFFF" />
+            <Text style={styles.goOnlineText}>ACCOUNT SUSPENDED</Text>
+          </>
         ) : (
           <>
             <Ionicons name="radio-button-on" size={24} color="#FFFFFF" />
@@ -483,11 +687,11 @@ export default function DriverHomeOfflineScreen() {
       </View>
 
       {/* Quick Actions */}
-      {/* Quick Actions */}
       <View style={styles.quickActions}>
         <TouchableOpacity
-          style={styles.actionCard}
+          style={[styles.actionCard, !isAccountActive && styles.disabledActionCard]}
           onPress={() => navigation.navigate("Subscription")}
+          disabled={!isAccountActive}
         >
           <View style={styles.actionIconContainer}>
             <Ionicons name="card-outline" size={24} color="#0066FF" />
@@ -497,8 +701,9 @@ export default function DriverHomeOfflineScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.actionCard}
+          style={[styles.actionCard, !isAccountActive && styles.disabledActionCard]}
           onPress={() => navigation.navigate("Wallet")}
+          disabled={!isAccountActive}
         >
           <View style={styles.actionIconContainer}>
             <Ionicons name="wallet-outline" size={24} color="#0066FF" />
@@ -508,40 +713,62 @@ export default function DriverHomeOfflineScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.actionCard}
+          style={[styles.actionCard, !isAccountActive && styles.disabledActionCard]}
           onPress={() => navigation.navigate("Earnings")}
+          disabled={!isAccountActive}
         >
           <View style={styles.actionIconContainer}>
-            <Ionicons name="wallet-outline" size={24} color="#0066FF" />
+            <Ionicons name="cash-outline" size={24} color="#0066FF" />
           </View>
           <Text style={styles.actionTitle}>Earnings</Text>
           <Text style={styles.actionSubtitle}>View your earnings</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Delete Account Button */}
+      <TouchableOpacity
+        style={[
+          styles.deleteAccountBtn,
+          deletingAccount && styles.loadingBtn,
+          !isAccountActive && styles.disabledDeleteBtn,
+        ]}
+        onPress={handleDeleteAccount}
+        disabled={deletingAccount || !isAccountActive}
+      >
+        {deletingAccount ? (
+          <ActivityIndicator color="#FFFFFF" size="small" />
+        ) : !isAccountActive ? (
+          <>
+            <Ionicons name="ban-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.deleteAccountText}>ACCOUNT SUSPENDED</Text>
+          </>
+        ) : (
+          <>
+            <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.deleteAccountText}>Delete Account</Text>
+          </>
+        )}
+      </TouchableOpacity>
+
       {/* Logout Button */}
-      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+      <TouchableOpacity 
+        style={styles.logoutBtn} 
+        onPress={handleLogout}
+        disabled={deletingAccount}
+      >
         <Ionicons name="log-out-outline" size={20} color="#EF4444" />
         <Text style={styles.logoutText}>Logout</Text>
       </TouchableOpacity>
 
-      {/* Debug Info Button */}
-      <TouchableOpacity
-        style={styles.debugButton}
-        onPress={() => {
-          Alert.alert(
-            "Debug Information",
-            `Verification State: ${verificationState}\n` +
-              `Verified: ${isVerified}\n` +
-              `Available: ${isAvailable}\n` +
-              `Name: ${user.name || "Not set"}\n` +
-              `Phone: ${user.phone || "Not set"}\n` +
-              `Email: ${user.email || "Not set"}\n` +
-              `Driver Role: ${roles.isDriver ? "Yes" : "No"}`
-          );
-        }}
-      >
-        <Text style={styles.debugButtonText}>🛠️ Debug Info</Text>
-      </TouchableOpacity>
+      {/* Info Note */}
+      {isAccountActive && (
+        <View style={styles.infoNote}>
+          <Ionicons name="information-circle-outline" size={16} color="#6B7280" />
+          <Text style={styles.infoNoteText}>
+            Account deletion will suspend your account. You will not be able to log in again.
+          </Text>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -610,6 +837,22 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#DBEAFE",
   },
+  suspendedWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#EF4444",
+    marginHorizontal: 20,
+    marginTop: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  suspendedWarningText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
   statusCard: {
     backgroundColor: "#FFFFFF",
     marginHorizontal: 20,
@@ -655,11 +898,26 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   statusDetailText: {
     color: "#6B7280",
     fontSize: 14,
+  },
+  accountStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  accountStatusText: {
+    fontSize: 14,
+    fontWeight: "600",
   },
   statusNote: {
     flexDirection: "row",
@@ -787,6 +1045,10 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  disabledActionCard: {
+    backgroundColor: "#F3F4F6",
+    opacity: 0.6,
+  },
   actionIconContainer: {
     width: 48,
     height: 48,
@@ -807,13 +1069,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: "center",
   },
+  deleteAccountBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginHorizontal: 20,
+    marginTop: 16,
+    paddingVertical: 16,
+    borderRadius: 8,
+    backgroundColor: "#DC2626",
+  },
+  disabledDeleteBtn: {
+    backgroundColor: "#9CA3AF",
+  },
+  deleteAccountText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
   logoutBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
     marginHorizontal: 20,
-    marginTop: 20,
+    marginTop: 12,
     paddingVertical: 14,
     borderRadius: 8,
     backgroundColor: "#FEF2F2",
@@ -823,19 +1104,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  debugButton: {
-    marginHorizontal: 20,
-    marginTop: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
+  infoNote: {
+    flexDirection: "row",
     alignItems: "center",
+    gap: 8,
+    marginHorizontal: 20,
+    marginTop: 12,
+    padding: 12,
     backgroundColor: "#F3F4F6",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderRadius: 8,
   },
-  debugButtonText: {
+  infoNoteText: {
     color: "#6B7280",
     fontSize: 12,
-    fontWeight: "500",
+    flex: 1,
   },
 });

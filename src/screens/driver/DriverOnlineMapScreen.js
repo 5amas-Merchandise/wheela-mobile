@@ -10,7 +10,9 @@ import {
   Dimensions, 
   Platform, 
   Animated, 
-  Modal 
+  Modal,
+  Vibration,
+  Image
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, Circle } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -27,6 +29,7 @@ import {
   isWebSocketConnected, 
   closeWebSocket 
 } from '../../utils/socket';
+import * as Notifications from 'expo-notifications';
 
 const baseUrl = 'https://wheels-backend-7ydc.onrender.com';
 const { width, height } = Dimensions.get('window');
@@ -34,9 +37,42 @@ const LATITUDE_DELTA = 0.005;
 const LONGITUDE_DELTA = LATITUDE_DELTA * (width / height);
 const CAR_MARKER = require('../../../assets/car-marker.png');
 
+// Try to load the logo
+let WHEELS_LOGO = null;
+try {
+  WHEELS_LOGO = require('../../../assets/logo.jpg');
+} catch (error) {
+  console.warn('Logo not found');
+}
+
+// Configure notifications with custom icon
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
+
+// Set default notification channel for Android
+if (Platform.OS === 'android') {
+  Notifications.setNotificationChannelAsync('default', {
+    name: 'Wheels Driver Notifications',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: '#0066FF',
+    sound: 'default',
+    enableVibrate: true,
+    showBadge: true,
+  }).catch(error => {
+    console.warn('Error setting notification channel:', error);
+  });
+}
+
 export default function DriverOnlineMapScreen() {
   const navigation = useNavigation();
   const mapRef = useRef(null);
+  const notificationListener = useRef();
   const [token, setToken] = useState(null);
   const [location, setLocation] = useState(null);
   const [heading, setHeading] = useState(0);
@@ -56,6 +92,94 @@ export default function DriverOnlineMapScreen() {
   const soundIntervalRef = useRef(null);
   const pollingRef = useRef(null);
   const [pollCount, setPollCount] = useState(0);
+
+  // ────────────────────────────────────────────────
+  // NOTIFICATION SYSTEM
+  // ────────────────────────────────────────────────
+  useEffect(() => {
+    registerForPushNotificationsAsync();
+    
+    // Listen for notifications while app is foregrounded
+    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+      console.log('Driver notification received:', notification);
+      Vibration.vibrate(300);
+    });
+
+    return () => {
+      if (notificationListener.current) {
+        notificationListener.current.remove();
+      }
+      Notifications.removeAllListeners?.();
+    };
+  }, []);
+
+  // Send notification helper function
+  const sendNotification = async (title, body, data = {}) => {
+    try {
+      const notificationContent = {
+        title,
+        body,
+        data: { 
+          ...data, 
+          screen: 'DriverOnlineMap',
+          logo: WHEELS_LOGO ? 'wheels_logo' : 'default_icon'
+        },
+        sound: true,
+        vibrate: [0, 250, 250],
+      };
+
+      if (data.badgeCount) {
+        notificationContent.badge = data.badgeCount;
+      }
+
+      await Notifications.scheduleNotificationAsync({
+        content: notificationContent,
+        trigger: null,
+      });
+      
+      console.log(`📱 Notification sent: ${title}`);
+    } catch (error) {
+      console.error('Error sending notification:', error);
+    }
+  };
+
+  // Register for push notifications
+  async function registerForPushNotificationsAsync() {
+    try {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      if (finalStatus !== 'granted') {
+        console.log('Failed to get push notification permission');
+        return null;
+      }
+
+      const token = await Notifications.getExpoPushTokenAsync({
+        projectId: '89ca3ed1-d2fb-429a-9fdb-614202a280e5',
+      });
+
+      console.log('Push token:', token.data);
+      
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'default',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#0066FF',
+        });
+      }
+
+      return token.data;
+    } catch (error) {
+      console.error('Error getting push token:', error);
+      return null;
+    }
+  }
 
   // ────────────────────────────────────────────────
   // LOAD NOTIFICATION SOUND
@@ -93,9 +217,42 @@ export default function DriverOnlineMapScreen() {
     const setupWebSocket = async () => {
       try {
         await initWebSocket();
-        addListener('connect', () => setWsStatus('connected'));
-        addListener('disconnect', () => setWsStatus('disconnected'));
-        addListener('error', () => setWsStatus('error'));
+        addListener('connect', () => {
+          setWsStatus('connected');
+          sendNotification(
+            '✅ Connected',
+            'You are now connected to ride requests',
+            { 
+              action: 'websocket_connected',
+              icon: 'connection_icon',
+              color: '#34C759',
+            }
+          );
+        });
+        addListener('disconnect', () => {
+          setWsStatus('disconnected');
+          sendNotification(
+            '⚠️ Connection Lost',
+            'Reconnecting to ride requests...',
+            { 
+              action: 'websocket_disconnected',
+              icon: 'warning_icon',
+              color: '#FF9500',
+            }
+          );
+        });
+        addListener('error', () => {
+          setWsStatus('error');
+          sendNotification(
+            '❌ Connection Error',
+            'Please check your internet connection',
+            { 
+              action: 'websocket_error',
+              icon: 'error_icon',
+              color: '#FF3B30',
+            }
+          );
+        });
         addListener('trip_offered', handleIncomingOffer);
         addListener('notification', (data) => {
           if (data.type === 'trip_offered' || data.notificationType === 'trip_offered') {
@@ -104,6 +261,15 @@ export default function DriverOnlineMapScreen() {
         });
       } catch (err) {
         console.error('WebSocket setup failed:', err);
+        sendNotification(
+          '❌ WebSocket Error',
+          'Failed to establish live connection',
+          { 
+            action: 'websocket_setup_failed',
+            icon: 'error_icon',
+            color: '#FF3B30',
+          }
+        );
       }
     };
 
@@ -131,6 +297,19 @@ export default function DriverOnlineMapScreen() {
       }
 
       console.log('📨 Incoming offer:', data);
+
+      // Send push notification for new ride
+      sendNotification(
+        '🚗 New Ride Request!',
+        'Tap to view the ride details',
+        { 
+          requestId: requestId,
+          action: 'new_ride_request',
+          icon: 'ride_request_icon',
+          color: '#007AFF',
+          badgeCount: 1,
+        }
+      );
 
       try {
         const details = await fetchOfferDetails(requestId);
@@ -195,6 +374,15 @@ export default function DriverOnlineMapScreen() {
         startSoundLoop();
       } catch (err) {
         console.error('Error processing incoming offer:', err);
+        sendNotification(
+          '⚠️ Ride Request Error',
+          'Failed to load ride details',
+          { 
+            action: 'ride_request_error',
+            icon: 'error_icon',
+            color: '#FF9500',
+          }
+        );
       }
     },
     [incomingRequest, offerVisible]
@@ -239,6 +427,15 @@ export default function DriverOnlineMapScreen() {
 
     const timeoutId = setTimeout(() => {
       console.log('Offer timed out → auto reject');
+      sendNotification(
+        '⏰ Ride Expired',
+        'The ride request has expired',
+        { 
+          action: 'ride_expired',
+          icon: 'timeout_icon',
+          color: '#FF9500',
+        }
+      );
       rejectRide();
     }, 20000);
 
@@ -302,267 +499,311 @@ export default function DriverOnlineMapScreen() {
         setOfferTimeout(null);
       }
       if (callback) {
-        setTimeout(callback, 100); // Small delay for safety
+        setTimeout(callback, 100);
       }
     });
   };
 
-const checkAndCleanupDriverState = async () => {
-  try {
-    const authToken = token || await getAuthToken();
-    if (!authToken) {
-      console.log('No auth token for cleanup check');
-      return;
-    }
+  const checkAndCleanupDriverState = async () => {
+    try {
+      const authToken = token || await getAuthToken();
+      if (!authToken) {
+        console.log('No auth token for cleanup check');
+        return;
+      }
 
-    console.log('🔍 Checking driver state...');
+      console.log('🔍 Checking driver state...');
 
-    // ✅ FIXED: Use correct endpoint
-    const stateResponse = await fetch(`${baseUrl}/drivers/current-state`, {
-      headers: { Authorization: `Bearer ${authToken}` }
-    });
-
-    if (!stateResponse.ok) {
-      console.log('Failed to get driver state');
-      return;
-    }
-
-    const state = await stateResponse.json();
-    console.log('Driver state:', state);
-
-    // If cleanup is needed, perform it
-    if (state.needsCleanup) {
-      console.log('⚠️ Driver state needs cleanup - performing automatic cleanup...');
-
-      Alert.alert(
-        'Cleaning Up',
-        'Your driver status is being refreshed...',
-        [],
-        { cancelable: false }
-      );
-
-      // ✅ FIXED: Use correct endpoint
-      const cleanupResponse = await fetch(`${baseUrl}/drivers/cleanup-state`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`
-        }
+      const stateResponse = await fetch(`${baseUrl}/drivers/current-state`, {
+        headers: { Authorization: `Bearer ${authToken}` }
       });
 
-      if (cleanupResponse.ok) {
-        const result = await cleanupResponse.json();
-        console.log('✅ Cleanup result:', result);
+      if (!stateResponse.ok) {
+        console.log('Failed to get driver state');
+        return;
+      }
 
-        Alert.alert(
-          'Status Refreshed',
-          'Your driver status has been cleaned up. You can now accept new rides.',
-          [{ text: 'OK' }]
+      const state = await stateResponse.json();
+      console.log('Driver state:', state);
+
+      if (state.needsCleanup) {
+        console.log('⚠️ Driver state needs cleanup - performing automatic cleanup...');
+
+        sendNotification(
+          '🔄 Cleaning Up',
+          'Your driver status is being refreshed...',
+          { 
+            action: 'driver_cleanup_started',
+            icon: 'refresh_icon',
+            color: '#FF9500',
+          }
         );
 
-        return true;
+        const cleanupResponse = await fetch(`${baseUrl}/drivers/cleanup-state`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`
+          }
+        });
+
+        if (cleanupResponse.ok) {
+          const result = await cleanupResponse.json();
+          console.log('✅ Cleanup result:', result);
+
+          sendNotification(
+            '✅ Status Refreshed',
+            'Your driver status has been cleaned up. You can now accept new rides.',
+            { 
+              action: 'driver_cleanup_completed',
+              icon: 'success_icon',
+              color: '#34C759',
+            }
+          );
+
+          return true;
+        } else {
+          console.error('Cleanup failed');
+          sendNotification(
+            '❌ Cleanup Failed',
+            'Could not refresh driver status',
+            { 
+              action: 'driver_cleanup_failed',
+              icon: 'error_icon',
+              color: '#FF3B30',
+            }
+          );
+          return false;
+        }
       } else {
-        console.error('Cleanup failed');
+        console.log('✅ Driver state is clean - no cleanup needed');
         return false;
       }
-    } else {
-      console.log('✅ Driver state is clean - no cleanup needed');
+
+    } catch (err) {
+      console.error('State check/cleanup error:', err);
+      sendNotification(
+        '❌ Cleanup Error',
+        'Error checking driver status',
+        { 
+          action: 'driver_cleanup_error',
+          icon: 'error_icon',
+          color: '#FF3B30',
+        }
+      );
       return false;
     }
+  };
 
-  } catch (err) {
-    console.error('State check/cleanup error:', err);
-    return false;
-  }
-};
-
-// ✅ UPDATED: Accept Ride with Pre-Check
-// ✅ FIXED: Accept Ride with Pre-Check (no empty alert)
-const acceptRide = async () => {
-  console.log('=== ACCEPT RIDE CALLED ===');
-  console.log('Incoming request:', incomingRequest);
-  
-  if (!incomingRequest?.requestId) {
-    Alert.alert('Error', 'Invalid trip request');
-    hideOfferCard();
-    return;
-  }
-
-  if (offerVisible === false) {
-    console.log('⚠️ Already processing, ignoring duplicate tap');
-    return;
-  }
-
-  try {
-    stopSoundLoop();
-    if (offerTimeout) {
-      clearTimeout(offerTimeout);
-      setOfferTimeout(null);
-    }
-
-    // ✅ PRE-CHECK: Verify and cleanup driver state BEFORE accepting
-    console.log('🔍 Pre-checking driver state before accept...');
-    await checkAndCleanupDriverState();
-
-    Alert.alert('Processing', 'Accepting ride request...', [], { cancelable: false });
-
-    const authToken = token || await getAuthToken();
-    if (!authToken) {
-      Alert.alert(
-        'Session Error',
-        'Please go offline and online again to refresh your session.',
-        [{ text: 'OK', onPress: () => navigation.replace('DriverHomeOffline') }]
-      );
+  // ✅ UPDATED: Accept Ride with Pre-Check and Notifications
+  const acceptRide = async () => {
+    console.log('=== ACCEPT RIDE CALLED ===');
+    console.log('Incoming request:', incomingRequest);
+    
+    if (!incomingRequest?.requestId) {
+      Alert.alert('Error', 'Invalid trip request');
+      hideOfferCard();
       return;
     }
 
-    const idempotencyKey = `accept_${incomingRequest.requestId}_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-    
-    console.log('🚗 Sending accept request');
-    console.log('Request ID:', incomingRequest.requestId);
-    console.log('Idempotency Key:', idempotencyKey);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-      console.log('⏰ Request aborted due to timeout');
-    }, 30000);
-
-    const response = await fetch(`${baseUrl}/trips/accept`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Idempotency-Key': idempotencyKey,
-        'Authorization': `Bearer ${authToken}`,
-      },
-      body: JSON.stringify({ 
-        requestId: incomingRequest.requestId,
-        idempotencyKey: idempotencyKey
-      }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    const responseText = await response.text();
-    console.log('Response status:', response.status);
-    console.log('Response body:', responseText);
-
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('❌ JSON parse error:', parseError);
-      throw new Error('Invalid server response. Please try again.');
+    if (offerVisible === false) {
+      console.log('⚠️ Already processing, ignoring duplicate tap');
+      return;
     }
 
-    if (response.ok && data.success) {
-      console.log('✅ Ride accepted successfully');
-      console.log('Trip ID:', data.tripId);
-      
-      // ✅ FIXED: Show proper success alert
-      Alert.alert(
-        'Ride Accepted!',
-        'Navigating to ride details...',
-        [{ text: 'OK' }],
-        { cancelable: false }
+    try {
+      stopSoundLoop();
+      if (offerTimeout) {
+        clearTimeout(offerTimeout);
+        setOfferTimeout(null);
+      }
+
+      // ✅ PRE-CHECK: Verify and cleanup driver state BEFORE accepting
+      console.log('🔍 Pre-checking driver state before accept...');
+      await checkAndCleanupDriverState();
+
+      // Send accepting notification
+      sendNotification(
+        '🔄 Processing...',
+        'Accepting ride request...',
+        { 
+          action: 'ride_accept_started',
+          icon: 'processing_icon',
+          color: '#FF9500',
+        }
       );
-      
-      // ✅ FIXED: Remove the empty alert and improve navigation flow
-      hideOfferCard(() => {
-        // Clear any existing alerts
-        setTimeout(() => {
-          // Navigate directly without empty alert
-          navigation.replace('RideRequest', {
-            tripId: data.tripId,
-            requestId: data.requestId || incomingRequest.requestId,
-            passengerName: incomingRequest.passengerName || 'Passenger',
-            passengerPhone: incomingRequest.passengerPhone || '',
-            serviceType: incomingRequest.serviceType || 'CITY_RIDE',
-            fare: incomingRequest.fare || 0,
-            pickup: incomingRequest.pickup,
-            destination: incomingRequest.destination,
-            pickupAddress: pickupAddress || 'Pickup location',
-            destinationAddress: destinationAddress || 'Destination',
-            driverId: data.driverId,
-          });
-        }, 300); // Slightly longer delay for smoother transition
-      });
-      
-    } else {
-      const errorMsg = data?.error?.message || 'Could not accept ride';
-      const errorCode = data?.error?.code;
-      
-      console.error('❌ Accept failed:', errorMsg, errorCode);
-      
-      let alertTitle = 'Accept Failed';
-      let alertMessage = errorMsg;
-      
-      // ✅ SPECIAL HANDLING: If driver is on a trip, offer cleanup
-      if (errorMsg.includes('already on') || errorCode === 'TRIP_UNAVAILABLE') {
+
+      const authToken = token || await getAuthToken();
+      if (!authToken) {
         Alert.alert(
-          'Status Issue Detected',
-          'Your driver status needs to be refreshed. Would you like to fix this now?',
-          [
-            {
-              text: 'Cancel',
-              style: 'cancel',
-              onPress: () => hideOfferCard()
-            },
-            {
-              text: 'Fix Now',
-              onPress: async () => {
-                const cleaned = await checkAndCleanupDriverState();
-                if (cleaned) {
-                  // After cleanup, try accepting again automatically
-                  setTimeout(() => acceptRide(), 500);
-                } else {
-                  hideOfferCard();
-                }
-              }
-            }
-          ]
+          'Session Error',
+          'Please go offline and online again to refresh your session.',
+          [{ text: 'OK', onPress: () => navigation.replace('DriverHomeOffline') }]
         );
         return;
       }
+
+      const idempotencyKey = `accept_${incomingRequest.requestId}_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
       
-      if (errorCode === 'TRIP_ALREADY_ASSIGNED') {
-        alertMessage = 'This trip was already assigned to another driver.';
-      } else if (errorCode === 'DUPLICATE_REQUEST') {
-        alertMessage = 'This ride has already been processed.';
+      console.log('🚗 Sending accept request');
+      console.log('Request ID:', incomingRequest.requestId);
+      console.log('Idempotency Key:', idempotencyKey);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+        console.log('⏰ Request aborted due to timeout');
+      }, 30000);
+
+      const response = await fetch(`${baseUrl}/trips/accept`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Idempotency-Key': idempotencyKey,
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ 
+          requestId: incomingRequest.requestId,
+          idempotencyKey: idempotencyKey
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      const responseText = await response.text();
+      console.log('Response status:', response.status);
+      console.log('Response body:', responseText);
+
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('❌ JSON parse error:', parseError);
+        throw new Error('Invalid server response. Please try again.');
+      }
+
+      if (response.ok && data.success) {
+        console.log('✅ Ride accepted successfully');
+        console.log('Trip ID:', data.tripId);
+        
+        // Send success notification
+        sendNotification(
+          '✅ Ride Accepted!',
+          'Navigating to ride details...',
+          { 
+            tripId: data.tripId,
+            passengerName: incomingRequest.passengerName,
+            action: 'ride_accepted',
+            icon: 'success_icon',
+            color: '#34C759',
+            badgeCount: 0, // Clear badge
+          }
+        );
+        
+        hideOfferCard(() => {
+          setTimeout(() => {
+            navigation.replace('RideRequest', {
+              tripId: data.tripId,
+              requestId: data.requestId || incomingRequest.requestId,
+              passengerName: incomingRequest.passengerName || 'Passenger',
+              passengerPhone: incomingRequest.passengerPhone || '',
+              serviceType: incomingRequest.serviceType || 'CITY_RIDE',
+              fare: incomingRequest.fare || 0,
+              pickup: incomingRequest.pickup,
+              destination: incomingRequest.destination,
+              pickupAddress: pickupAddress || 'Pickup location',
+              destinationAddress: destinationAddress || 'Destination',
+              driverId: data.driverId,
+            });
+          }, 300);
+        });
+        
+      } else {
+        const errorMsg = data?.error?.message || 'Could not accept ride';
+        const errorCode = data?.error?.code;
+        
+        console.error('❌ Accept failed:', errorMsg, errorCode);
+        
+        // Send error notification
+        sendNotification(
+          '❌ Accept Failed',
+          errorMsg,
+          { 
+            action: 'ride_accept_failed',
+            icon: 'error_icon',
+            color: '#FF3B30',
+          }
+        );
+        
+        let alertTitle = 'Accept Failed';
+        let alertMessage = errorMsg;
+        
+        if (errorMsg.includes('already on') || errorCode === 'TRIP_UNAVAILABLE') {
+          Alert.alert(
+            'Status Issue Detected',
+            'Your driver status needs to be refreshed. Would you like to fix this now?',
+            [
+              {
+                text: 'Cancel',
+                style: 'cancel',
+                onPress: () => hideOfferCard()
+              },
+              {
+                text: 'Fix Now',
+                onPress: async () => {
+                  const cleaned = await checkAndCleanupDriverState();
+                  if (cleaned) {
+                    // After cleanup, try accepting again automatically
+                    setTimeout(() => acceptRide(), 500);
+                  } else {
+                    hideOfferCard();
+                  }
+                }
+              }
+            ]
+          );
+          return;
+        }
+        
+        if (errorCode === 'TRIP_ALREADY_ASSIGNED') {
+          alertMessage = 'This trip was already assigned to another driver.';
+        } else if (errorCode === 'DUPLICATE_REQUEST') {
+          alertMessage = 'This ride has already been processed.';
+        }
+        
+        Alert.alert(alertTitle, alertMessage, [
+          { text: 'OK', onPress: () => hideOfferCard() }
+        ]);
+      }
+
+    } catch (error) {
+      console.error('❌ Accept ride error:', error);
+      
+      let errorMessage = 'Failed to accept ride. Please check your connection and try again.';
+      
+      if (error.name === 'AbortError') {
+        errorMessage = 'Request timed out. The ride may have been assigned to another driver.';
+      } else if (error.message) {
+        errorMessage = error.message;
       }
       
-      Alert.alert(alertTitle, alertMessage, [
+      // Send error notification
+      sendNotification(
+        '❌ Accept Error',
+        errorMessage,
+        { 
+          action: 'ride_accept_error',
+          icon: 'error_icon',
+          color: '#FF3B30',
+        }
+      );
+      
+      Alert.alert('Error', errorMessage, [
         { text: 'OK', onPress: () => hideOfferCard() }
       ]);
     }
-
-  } catch (error) {
-    console.error('❌ Accept ride error:', error);
-    
-    let errorMessage = 'Failed to accept ride. Please check your connection and try again.';
-    
-    if (error.name === 'AbortError') {
-      errorMessage = 'Request timed out. The ride may have been assigned to another driver.';
-    } else if (error.message) {
-      errorMessage = error.message;
-    }
-    
-    Alert.alert('Error', errorMessage, [
-      { text: 'OK', onPress: () => hideOfferCard() }
-    ]);
-  }
-};
-
-
-// Helper function to re-enable buttons
-const enableButtons = () => {
-  const declineButton = document.querySelector('[data-testid="decline-button"]');
-  const acceptButton = document.querySelector('[data-testid="accept-button"]');
-  if (declineButton) declineButton.disabled = false;
-  if (acceptButton) acceptButton.disabled = false;
-};
-
+  };
 
   const rejectRide = async () => {
     if (!incomingRequest?.requestId) {
@@ -570,7 +811,6 @@ const enableButtons = () => {
       return;
     }
 
-    // ✅ FIX: Get token dynamically for reject too
     const authToken = token || await getAuthToken();
     if (!authToken) {
       hideOfferCard();
@@ -578,6 +818,17 @@ const enableButtons = () => {
     }
 
     stopSoundLoop();
+
+    // Send rejection notification
+    sendNotification(
+      '❌ Ride Declined',
+      'You declined the ride request',
+      { 
+        action: 'ride_declined',
+        icon: 'decline_icon',
+        color: '#FF3B30',
+      }
+    );
 
     try {
       await fetch(`${baseUrl}/trips/reject`, {
@@ -642,6 +893,18 @@ const enableButtons = () => {
     const initialize = async () => {
       try {
         console.log('🚗 Initializing DriverOnlineMapScreen...');
+        
+        // Send notification for going online
+        sendNotification(
+          '🚗 Going Online',
+          'You are now available for ride requests',
+          { 
+            action: 'driver_online',
+            icon: 'online_icon',
+            color: '#34C759',
+          }
+        );
+
         const authToken = await getAuthToken();
         if (!authToken) {
           console.log('❌ No auth token found');
@@ -762,7 +1025,6 @@ const enableButtons = () => {
           setLocation(newLocation);
           setHeading(newLocation.heading);
 
-          // Send real-time location via WebSocket
           if (isWebSocketConnected()) {
             sendWS({
               type: 'driver:location',
@@ -773,7 +1035,6 @@ const enableButtons = () => {
             });
           }
 
-          // Update server location
           try {
             await fetch(`${baseUrl}/drivers/availability`, {
               method: 'POST',
@@ -790,7 +1051,6 @@ const enableButtons = () => {
             console.warn('Location update failed:', updateErr.message);
           }
 
-          // Smooth map animation
           if (mapRef.current) {
             mapRef.current.animateToRegion(
               {
@@ -833,6 +1093,17 @@ const enableButtons = () => {
             }
           } catch {}
 
+          // Send offline notification
+          sendNotification(
+            '🔴 Going Offline',
+            'You are now offline and will not receive ride requests',
+            { 
+              action: 'driver_offline',
+              icon: 'offline_icon',
+              color: '#FF3B30',
+            }
+          );
+
           setIsOnline(false);
           locationSubscription?.remove();
           if (pollingRef.current) clearInterval(pollingRef.current);
@@ -842,6 +1113,32 @@ const enableButtons = () => {
         },
       },
     ]);
+  };
+
+  // Test notification function
+  const handleTestNotification = () => {
+    sendNotification(
+      '🔔 Test Notification',
+      'This is a test notification from Wheels Driver app',
+      { 
+        action: 'test_notification',
+        icon: WHEELS_LOGO ? 'wheels_logo' : 'default_icon',
+        color: '#0066FF',
+        badgeCount: 1,
+      }
+    );
+  };
+
+  // Clear all notifications
+  const clearAllNotifications = async () => {
+    try {
+      await Notifications.cancelAllScheduledNotificationsAsync();
+      await Notifications.dismissAllNotificationsAsync();
+      Alert.alert('Success', 'All notifications cleared.');
+    } catch (error) {
+      console.error('Error clearing notifications:', error);
+      Alert.alert('Error', 'Could not clear notifications.');
+    }
   };
 
   // Pulse animation when online
@@ -861,6 +1158,9 @@ const enableButtons = () => {
   if (loading) {
     return (
       <View style={styles.loading}>
+        {WHEELS_LOGO && (
+          <Image source={WHEELS_LOGO} style={styles.loadingLogo} resizeMode="contain" />
+        )}
         <ActivityIndicator size="large" color="#00B0F3" />
         <Text style={styles.loadingText}>Loading map...</Text>
       </View>
@@ -934,11 +1234,22 @@ const enableButtons = () => {
         <Text style={styles.goOfflineText}>Go Offline</Text>
       </TouchableOpacity>
 
+      {/* Notification Test Button (hidden but accessible) */}
+      <TouchableOpacity 
+        style={styles.testNotificationBtn}
+        onPress={handleTestNotification}
+      >
+        <Ionicons name="notifications-outline" size={18} color="white" />
+      </TouchableOpacity>
+
       {/* Incoming Ride Offer Modal */}
       <Modal transparent visible={offerVisible} animationType="none">
         <View style={styles.modalOverlay}>
           <Animated.View style={[styles.offerCard, { transform: [{ translateY: slideAnim }] }]}>
             <LinearGradient colors={['#007AFF', '#0051CC']} style={styles.headerGradient}>
+              {WHEELS_LOGO && (
+                <Image source={WHEELS_LOGO} style={styles.notificationLogo} resizeMode="contain" />
+              )}
               <Text style={styles.headerTitle}>New Ride Request</Text>
               <TouchableOpacity onPress={rejectRide}>
                 <Ionicons name="close-circle" size={32} color="white" />
@@ -1032,6 +1343,12 @@ const styles = StyleSheet.create({
     alignItems: 'center', 
     backgroundColor: '#0A1733' 
   },
+  loadingLogo: {
+    width: 100,
+    height: 100,
+    marginBottom: 20,
+    borderRadius: 10,
+  },
   loadingText: { 
     color: '#fff', 
     marginTop: 16, 
@@ -1089,6 +1406,18 @@ const styles = StyleSheet.create({
     fontSize: 16, 
     fontWeight: '700' 
   },
+  testNotificationBtn: {
+    position: 'absolute',
+    bottom: 160,
+    right: 20,
+    backgroundColor: 'rgba(0,102,255,0.8)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+  },
   modalOverlay: { 
     flex: 1, 
     backgroundColor: 'rgba(0,0,0,0.65)', 
@@ -1107,10 +1436,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24, 
     paddingVertical: 20 
   },
+  notificationLogo: {
+    width: 30,
+    height: 30,
+    borderRadius: 5,
+    marginRight: 10,
+  },
   headerTitle: { 
     fontSize: 24, 
     fontWeight: '800', 
-    color: 'white' 
+    color: 'white',
+    flex: 1,
   },
   cardContent: { 
     padding: 24, 

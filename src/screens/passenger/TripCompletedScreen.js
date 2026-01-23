@@ -6,13 +6,10 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
   Image,
   SafeAreaView,
   StatusBar,
   Platform,
-  TextInput,
-  ActivityIndicator,
   Dimensions,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -43,11 +40,6 @@ export default function TripCompletedScreen() {
     distanceKm = 0,
   } = route.params || {};
 
-  const [rating, setRating] = useState(5);
-  const [tipAmount, setTipAmount] = useState(0);
-  const [comment, setComment] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [hasSubmitted, setHasSubmitted] = useState(false);
   const [tripDetails, setTripDetails] = useState(null);
   const [driverDetails, setDriverDetails] = useState({
     name: driverName,
@@ -56,9 +48,6 @@ export default function TripCompletedScreen() {
     vehiclePlate,
     profilePicUrl: null,
   });
-
-  const tipOptions = [0, 100, 200, 500, 1000];
-  const quickComments = ['Great ride!', 'Very professional', 'Clean vehicle', 'Safe driver', 'Friendly'];
 
   useEffect(() => {
     fetchTripDetails();
@@ -106,79 +95,6 @@ export default function TripCompletedScreen() {
       }
     } catch (error) {
       console.warn('Error fetching driver details:', error);
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (hasSubmitted) {
-      Alert.alert('Already Submitted', 'You have already submitted your rating for this trip.');
-      return;
-    }
-
-    setIsSubmitting(true);
-    
-    try {
-      const token = await getAuthToken();
-      if (!token) {
-        throw new Error('Authentication token not available');
-      }
-
-      // Submit rating
-      const ratingResponse = await fetch(`${baseUrl}/trips/${tripId}/rate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          rating: rating,
-          comment: comment || '',
-          tipAmount: tipAmount,
-        }),
-      });
-
-      if (ratingResponse.ok) {
-        setHasSubmitted(true);
-        
-        // Process tip payment if any
-        if (tipAmount > 0) {
-          const tipResponse = await fetch(`${baseUrl}/wallet/pay-tip`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              tripId: tripId,
-              driverId: driverId,
-              amount: tipAmount,
-            }),
-          });
-
-          if (!tipResponse.ok) {
-            console.warn('Failed to process tip, but rating was submitted');
-          }
-        }
-
-        Alert.alert(
-          '✅ Thank You!',
-          `Your ${rating}-star rating has been submitted${tipAmount > 0 ? ' along with your tip' : ''}.`,
-          [
-            {
-              text: 'Done',
-              onPress: () => navigation.navigate('PassengerMain'),
-            },
-          ]
-        );
-      } else {
-        const errorText = await ratingResponse.text();
-        throw new Error(errorText || 'Failed to submit rating');
-      }
-    } catch (error) {
-      console.error('Submit error:', error);
-      Alert.alert('Error', 'Failed to submit. Please try again.');
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -233,30 +149,6 @@ export default function TripCompletedScreen() {
     });
   };
 
-  const totalAmount = fare + tipAmount;
-
-  const getRatingEmoji = () => {
-    switch(rating) {
-      case 5: return '🌟';
-      case 4: return '😊';
-      case 3: return '😐';
-      case 2: return '😕';
-      case 1: return '😞';
-      default: return '⭐';
-    }
-  };
-
-  const getRatingText = () => {
-    switch(rating) {
-      case 5: return 'Excellent!';
-      case 4: return 'Good';
-      case 3: return 'Average';
-      case 2: return 'Below Average';
-      case 1: return 'Poor';
-      default: return 'Rate your ride';
-    }
-  };
-
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
@@ -265,7 +157,7 @@ export default function TripCompletedScreen() {
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
       >
-        {/* Success Header with Animation */}
+        {/* Success Header */}
         <View style={styles.successHeader}>
           <View style={styles.checkmarkContainer}>
             <LinearGradient
@@ -396,107 +288,7 @@ export default function TripCompletedScreen() {
           </View>
         </View>
 
-        {/* Rating Section */}
-        {!hasSubmitted && (
-          <View style={styles.ratingCard}>
-            <View style={styles.ratingHeader}>
-              <Text style={styles.cardTitle}>Rate Your Ride</Text>
-              <Text style={styles.ratingEmoji}>{getRatingEmoji()}</Text>
-            </View>
-            
-            <View style={styles.starsContainer}>
-              {[1, 2, 3, 4, 5].map((star) => (
-                <TouchableOpacity
-                  key={star}
-                  onPress={() => setRating(star)}
-                  activeOpacity={0.7}
-                  style={styles.starButton}
-                >
-                  <Ionicons
-                    name={star <= rating ? "star" : "star-outline"}
-                    size={40}
-                    color={star <= rating ? "#FFD700" : "#D1D1D6"}
-                  />
-                </TouchableOpacity>
-              ))}
-            </View>
-            
-            <Text style={styles.ratingDescription}>{getRatingText()}</Text>
-
-            {/* Quick Comments */}
-            <View style={styles.quickCommentsContainer}>
-              {quickComments.map((quickComment, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={[
-                    styles.quickCommentButton,
-                    comment === quickComment && styles.quickCommentButtonSelected
-                  ]}
-                  onPress={() => setComment(comment === quickComment ? '' : quickComment)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[
-                    styles.quickCommentText,
-                    comment === quickComment && styles.quickCommentTextSelected
-                  ]}>
-                    {quickComment}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Custom Comment */}
-            <TextInput
-              style={styles.commentInput}
-              placeholder="Add a personal comment (optional)"
-              placeholderTextColor="#999"
-              multiline={true}
-              numberOfLines={3}
-              value={comment}
-              onChangeText={setComment}
-              textAlignVertical="top"
-            />
-          </View>
-        )}
-
-        {/* Tip Section */}
-        {!hasSubmitted && (
-          <View style={styles.tipCard}>
-            <View style={styles.tipHeader}>
-              <Ionicons name="gift" size={24} color="#FF9500" />
-              <View style={styles.tipHeaderText}>
-                <Text style={styles.cardTitle}>Add a Tip</Text>
-                <Text style={styles.tipSubtitle}>Show your appreciation</Text>
-              </View>
-            </View>
-            
-            <View style={styles.tipContainer}>
-              {tipOptions.map((tip) => (
-                <TouchableOpacity
-                  key={tip}
-                  style={[
-                    styles.tipButton,
-                    tipAmount === tip && styles.selectedTipButton,
-                  ]}
-                  onPress={() => setTipAmount(tip)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[
-                    styles.tipButtonText,
-                    tipAmount === tip && styles.selectedTipButtonText,
-                  ]}>
-                    {tip === 0 ? 'No Tip' : `₦${tip}`}
-                  </Text>
-                  {tip > 0 && tipAmount === tip && (
-                    <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {/* Payment Breakdown */}
+        {/* Payment Details */}
         <View style={styles.paymentCard}>
           <Text style={styles.cardTitle}>Payment Details</Text>
           <View style={styles.paymentBreakdown}>
@@ -505,25 +297,11 @@ export default function TripCompletedScreen() {
               <Text style={styles.paymentValue}>₦{Number(fare).toLocaleString()}</Text>
             </View>
             
-            {tipAmount > 0 && (
-              <View style={styles.paymentRow}>
-                <View style={styles.tipLabelContainer}>
-                  <Text style={styles.paymentLabel}>Driver Tip</Text>
-                  <View style={styles.thankYouBadge}>
-                    <Text style={styles.thankYouText}>Thank you! 🙏</Text>
-                  </View>
-                </View>
-                <Text style={[styles.paymentValue, styles.tipValue]}>
-                  +₦{tipAmount.toLocaleString()}
-                </Text>
-              </View>
-            )}
-            
             <View style={styles.divider} />
             
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Total Paid</Text>
-              <Text style={styles.totalValue}>₦{totalAmount.toLocaleString()}</Text>
+              <Text style={styles.totalValue}>₦{Number(fare).toLocaleString()}</Text>
             </View>
             
             <View style={styles.paymentMethodRow}>
@@ -539,77 +317,22 @@ export default function TripCompletedScreen() {
           </View>
         </View>
 
-        {/* Action Buttons */}
-        {!hasSubmitted ? (
-          <View style={styles.actionButtons}>
-            <TouchableOpacity
-              style={[
-                styles.submitButton,
-                isSubmitting && styles.submitButtonDisabled
-              ]}
-              onPress={handleSubmit}
-              disabled={isSubmitting}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
-                colors={isSubmitting ? ['#CCCCCC', '#AAAAAA'] : ['#007AFF', '#0051D5']}
-                style={styles.submitButtonGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="checkmark-circle" size={22} color="#FFFFFF" />
-                    <Text style={styles.submitButtonText}>
-                      {tipAmount > 0 ? 'Submit & Pay Tip' : 'Submit Rating'}
-                    </Text>
-                  </>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={styles.skipButton}
-              onPress={() => navigation.navigate('PassengerMain')}
-              disabled={isSubmitting}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.skipButtonText}>Skip for Now</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.submittedContainer}>
-            <View style={styles.submittedBadge}>
-              <Ionicons name="checkmark-circle" size={24} color="#34C759" />
-              <Text style={styles.submittedText}>Rating Submitted Successfully!</Text>
-            </View>
-          </View>
-        )}
-
-        {/* Additional Actions */}
-        <View style={styles.additionalActions}>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => navigation.navigate('PassengerMain')}
-            activeOpacity={0.7}
+        {/* Return Home Button */}
+        <TouchableOpacity
+          style={styles.homeButton}
+          onPress={() => navigation.navigate('PassengerMain')}
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={['#007AFF', '#0051D5']}
+            style={styles.homeButtonGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
           >
-            <Ionicons name="car-sport" size={20} color="#007AFF" />
-            <Text style={styles.actionButtonText}>Book Another Ride</Text>
-            <Ionicons name="chevron-forward" size={20} color="#007AFF" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => navigation.navigate('TripHistory')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="time" size={20} color="#666" />
-            <Text style={[styles.actionButtonText, { color: '#666' }]}>View Trip History</Text>
-            <Ionicons name="chevron-forward" size={20} color="#666" />
-          </TouchableOpacity>
-        </View>
+            <Ionicons name="home" size={22} color="#FFFFFF" />
+            <Text style={styles.homeButtonText}>Return to Home</Text>
+          </LinearGradient>
+        </TouchableOpacity>
 
         {/* Bottom Spacing */}
         <View style={{ height: 40 }} />
@@ -617,6 +340,7 @@ export default function TripCompletedScreen() {
     </SafeAreaView>
   );
 }
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -866,136 +590,6 @@ const styles = StyleSheet.create({
     color: '#666',
     fontWeight: '500',
   },
-  ratingCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  ratingHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  ratingEmoji: {
-    fontSize: 32,
-  },
-  starsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 16,
-    gap: 12,
-  },
-  starButton: {
-    padding: 4,
-  },
-  ratingDescription: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#007AFF',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  quickCommentsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
-  },
-  quickCommentButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: '#F5F5F7',
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-  },
-  quickCommentButtonSelected: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
-  },
-  quickCommentText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  quickCommentTextSelected: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  commentInput: {
-    backgroundColor: '#F5F5F7',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
-    color: '#000',
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-    minHeight: 100,
-  },
-  tipCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  tipHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  tipHeaderText: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  tipSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 2,
-  },
-  tipContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  tipButton: {
-    flex: 1,
-    minWidth: '30%',
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    backgroundColor: '#F5F5F7',
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 6,
-  },
-  selectedTipButton: {
-    backgroundColor: '#FF9500',
-    borderColor: '#FF9500',
-  },
-  tipButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#666',
-  },
-  selectedTipButtonText: {
-    color: '#FFFFFF',
-  },
   paymentCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
@@ -1016,11 +610,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
-  tipLabelContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
   paymentLabel: {
     fontSize: 16,
     color: '#666',
@@ -1029,20 +618,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#000',
-  },
-  tipValue: {
-    color: '#FF9500',
-  },
-  thankYouBadge: {
-    backgroundColor: '#FF9500',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  thankYouText: {
-    fontSize: 11,
-    color: '#FFFFFF',
-    fontWeight: '600',
   },
   divider: {
     height: 1,
@@ -1075,12 +650,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
   },
-  actionButtons: {
-    marginBottom: 16,
-  },
-  submitButton: {
+  homeButton: {
     borderRadius: 16,
-    marginBottom: 12,
+    marginBottom: 16,
     overflow: 'hidden',
     shadowColor: '#007AFF',
     shadowOffset: { width: 0, height: 4 },
@@ -1088,70 +660,16 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  submitButtonDisabled: {
-    shadowOpacity: 0.1,
-  },
-  submitButtonGradient: {
+  homeButtonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 18,
     gap: 8,
   },
-  submitButtonText: {
+  homeButtonText: {
     fontSize: 18,
     fontWeight: '700',
     color: '#FFFFFF',
-  },
-  skipButton: {
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  skipButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#666',
-  },
-  submittedContainer: {
-    marginBottom: 16,
-  },
-  submittedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#E8F7ED',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 16,
-    gap: 8,
-  },
-  submittedText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#34C759',
-  },
-  additionalActions: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-  },
-  actionButtonText: {
-    fontSize: 16,
-    fontWeight: '500',
-    flex: 1,
-    marginLeft: 12,
   },
 });

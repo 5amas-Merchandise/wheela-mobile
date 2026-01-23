@@ -19,7 +19,7 @@ import axios from 'axios';
 const WHEELA_LOGO = require('../../../assets/logo3.png');
 const { width, height } = Dimensions.get('window');
 
-const BASE_URL = 'https://wheels-backend.vercel.app';
+const BASE_URL = 'https://wheels-backend-7ydc.onrender.com';
 
 export const TOKEN_KEY = 'WHEELA_TOKEN';
 export const USER_KEY = 'WHEELA_USER';

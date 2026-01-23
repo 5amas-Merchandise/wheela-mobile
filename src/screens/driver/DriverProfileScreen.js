@@ -14,7 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { useNavigation } from '@react-navigation/native';
 
-const baseUrl = 'https://wheels-backend.vercel.app'
+const baseUrl = 'https://wheels-backend-7ydc.onrender.com'
 
 // Replace with your actual logo & profile placeholder if needed
 const WHEELA_LOGO = require('../../../assets/logo.jpg');

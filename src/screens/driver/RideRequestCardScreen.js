@@ -1,4 +1,4 @@
-// src/screens/driver/RideRequestScreen.js (SIMPLIFIED CASH-ONLY VERSION)
+// src/screens/driver/RideRequestScreen.js (WITH CORRECTED PUSH NOTIFICATIONS)
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -13,23 +13,35 @@ import {
   StatusBar,
   Platform,
   Modal,
-  TextInput,
   ScrollView,
   BackHandler,
+  Vibration,
 } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { getAuthToken } from '../../utils/auth';
 import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
 
 const { width, height } = Dimensions.get('window');
 const baseUrl = 'https://wheels-backend-7ydc.onrender.com';
+
+// Configure notifications
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 export default function RideRequestScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const mapRef = useRef(null);
+  const notificationListener = useRef();
+  const responseListener = useRef();
   
   const {
     tripId,
@@ -57,6 +69,103 @@ export default function RideRequestScreen() {
   const [timeToTarget, setTimeToTarget] = useState(null);
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [completingTrip, setCompletingTrip] = useState(false);
+  const [lastNotificationTime, setLastNotificationTime] = useState(0);
+
+  // Initialize notifications
+  useEffect(() => {
+    registerForPushNotificationsAsync();
+    
+    // Listen for notifications while app is foregrounded
+    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+      console.log('Notification received:', notification);
+      Vibration.vibrate(500);
+    });
+
+    // Listen for notification responses
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('Notification response:', response);
+      const data = response.notification.request.content.data;
+      
+      // Handle notification tap actions
+      if (data.action === 'call_passenger') {
+        makePhoneCall();
+      } else if (data.action === 'navigate') {
+        openNavigation();
+      }
+    });
+
+    return () => {
+      // Proper cleanup for notification listeners
+      if (notificationListener.current) {
+        notificationListener.current.remove();
+      }
+      if (responseListener.current) {
+        responseListener.current.remove();
+      }
+      // Alternative cleanup
+      Notifications.removeAllListeners?.();
+    };
+  }, []);
+
+  // CORRECTED: Register for push notifications
+  async function registerForPushNotificationsAsync() {
+    try {
+      // Check for existing permission
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      
+      // Request permission if not granted
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      // Return if permission not granted
+      if (finalStatus !== 'granted') {
+        console.log('Failed to get push notification permission');
+        return null;
+      }
+
+      // Get the push token with your actual project ID
+      const token = await Notifications.getExpoPushTokenAsync({
+        projectId: '89ca3ed1-d2fb-429a-9fdb-614202a280e5', // Your actual project ID from app.json
+      });
+
+      console.log('Push token:', token.data);
+      
+      // For Android, set notification channel
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'Wheela Ride Notifications',
+          importance: Notifications.AndroidImportance.HIGH,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#007AFF',
+        });
+      }
+
+      return token.data;
+    } catch (error) {
+      console.error('Error getting push token:', error);
+      return null;
+    }
+  }
+
+  // Send notification helper function
+  const sendNotification = async (title, body, data = {}) => {
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body,
+          data: { ...data, screen: 'RideRequestScreen' },
+          sound: true,
+        },
+        trigger: null, // Send immediately
+      });
+    } catch (error) {
+      console.error('Error sending notification:', error);
+    }
+  };
 
   useEffect(() => {
     if (!tripId) {
@@ -64,6 +173,13 @@ export default function RideRequestScreen() {
         'Invalid Trip Data',
         'Unable to load trip information.',
         [{ text: 'OK', onPress: () => navigation.goBack() }]
+      );
+    } else {
+      // Send initial notification for ride assignment
+      sendNotification(
+        '🎉 New Ride Assigned!',
+        `You have a new ride request from ${passengerName}`,
+        { tripId, passengerName, action: 'ride_assigned' }
       );
     }
   }, [tripId]);
@@ -94,7 +210,37 @@ export default function RideRequestScreen() {
           const data = await response.json();
           if (data.trip) {
             const status = data.trip.status;
+            const oldStatus = tripStatus;
             setTripStatus(status);
+
+            // Send notification on status changes
+            if (status !== oldStatus) {
+              let notificationTitle = '';
+              let notificationBody = '';
+              
+              switch (status) {
+                case 'started':
+                  notificationTitle = '🚗 Trip Started';
+                  notificationBody = 'You have started the trip. Head to destination.';
+                  break;
+                case 'in_progress':
+                  notificationTitle = '📍 Trip In Progress';
+                  notificationBody = 'You are now on the way to destination.';
+                  break;
+                case 'cancelled':
+                  notificationTitle = '❌ Trip Cancelled';
+                  notificationBody = 'This trip has been cancelled.';
+                  break;
+                case 'completed':
+                  notificationTitle = '✅ Trip Completed';
+                  notificationBody = 'Trip completed successfully!';
+                  break;
+              }
+              
+              if (notificationTitle) {
+                sendNotification(notificationTitle, notificationBody, { tripId, status });
+              }
+            }
 
             if (status === 'started' || status === 'in_progress') {
               setTripPhase('in_progress');
@@ -201,6 +347,13 @@ export default function RideRequestScreen() {
         setTimeToTarget(time);
         await fetchRoute(driverLoc, targetCoord);
         updateMapRegion(driverLoc, targetCoord);
+        
+        // Send notification for navigation
+        sendNotification(
+          '📍 Navigate to Pickup',
+          `Pickup ${passengerName} from ${pickupAddress}`,
+          { tripId, passengerName, action: 'navigate_to_pickup' }
+        );
       } else {
         updateMapRegion(driverLoc, pickupCoordinate);
       }
@@ -321,6 +474,42 @@ export default function RideRequestScreen() {
             const time = calculateTime(newLocation, targetCoord);
             setDistanceToTarget(distance);
             setTimeToTarget(time);
+            
+            // Send proximity notifications
+            const now = Date.now();
+            if (now - lastNotificationTime > 30000) { // Every 30 seconds
+              if (distance < 0.5) { // 500 meters
+                if (tripPhase === 'pickup') {
+                  sendNotification(
+                    '🚗 Approaching Pickup',
+                    `You're close to pickup location. ${distanceToTarget} km away`,
+                    { tripId, action: 'near_pickup' }
+                  );
+                } else {
+                  sendNotification(
+                    '🏁 Approaching Destination',
+                    `You're close to destination. ${distanceToTarget} km to go`,
+                    { tripId, action: 'near_destination' }
+                  );
+                }
+                setLastNotificationTime(now);
+              } else if (distance < 0.1) { // 100 meters
+                if (tripPhase === 'pickup') {
+                  sendNotification(
+                    '📍 Arrived at Pickup',
+                    'You have arrived at the pickup location',
+                    { tripId, action: 'arrived_pickup' }
+                  );
+                } else {
+                  sendNotification(
+                    '🏁 Arrived at Destination',
+                    'You have arrived at the destination',
+                    { tripId, action: 'arrived_destination' }
+                  );
+                }
+                setLastNotificationTime(now);
+              }
+            }
           }
         }
       );
@@ -336,6 +525,13 @@ export default function RideRequestScreen() {
       Alert.alert('Error', 'Destination not available');
       return;
     }
+    
+    // Send notification for navigation
+    sendNotification(
+      '🗺️ Navigation Started',
+      `Opening ${Platform.OS === 'ios' ? 'Apple Maps' : 'Google Maps'} for navigation`,
+      { tripId, action: 'navigation_started' }
+    );
     
     const url = Platform.select({
       ios: `http://maps.apple.com/?daddr=${targetCoord.latitude},${targetCoord.longitude}&dirflg=d`,
@@ -359,6 +555,13 @@ export default function RideRequestScreen() {
       Alert.alert('Error', 'Invalid phone number format');
       return;
     }
+    
+    // Send notification for call
+    sendNotification(
+      '📞 Calling Passenger',
+      `Calling ${passengerName} at ${passengerPhone}`,
+      { tripId, passengerName, action: 'calling_passenger' }
+    );
     
     Linking.openURL(`tel:${phoneNumber}`).catch((err) => {
       console.error('Failed to make call:', err);
@@ -390,6 +593,13 @@ export default function RideRequestScreen() {
         setTripPhase('in_progress');
         setTripStatus('started');
         
+        // Send notification for trip start
+        sendNotification(
+          '🚗 Trip Started',
+          'You have started the trip. Navigate to the destination.',
+          { tripId, action: 'trip_started' }
+        );
+        
         if (dropoffCoord && driverLocation) {
           await fetchRoute(driverLocation, dropoffCoord);
           updateMapRegion(driverLocation, dropoffCoord);
@@ -414,6 +624,13 @@ export default function RideRequestScreen() {
       return;
     }
 
+    // Send notification for trip completion request
+    sendNotification(
+      '💰 Complete Trip',
+      `Confirm cash received from ${passengerName}`,
+      { tripId, passengerName, action: 'complete_trip_request' }
+    );
+    
     setShowCompleteModal(true);
   };
 
@@ -454,6 +671,13 @@ export default function RideRequestScreen() {
         setShowCompleteModal(false);
         setTripValid(false);
         
+        // Send success notification
+        sendNotification(
+          '✅ Trip Completed!',
+          `Trip with ${passengerName} completed successfully. ₦${Number(fare).toLocaleString()} cash received.`,
+          { tripId, passengerName, fare, action: 'trip_completed' }
+        );
+        
         Alert.alert(
           '✅ Trip Completed Successfully!',
           `Trip has been completed. Cash received: ₦${Number(fare).toLocaleString()}`,
@@ -473,6 +697,13 @@ export default function RideRequestScreen() {
         
       } else {
         console.error('❌ Trip completion failed:', responseData);
+        
+        // Send error notification
+        sendNotification(
+          '❌ Trip Completion Failed',
+          'Failed to complete trip. Please try again.',
+          { tripId, action: 'completion_failed' }
+        );
         
         if (response.status === 400 && responseData.error?.code === 'TRIP_ALREADY_ENDED') {
           Alert.alert(
@@ -513,6 +744,13 @@ export default function RideRequestScreen() {
       }
     } catch (error) {
       console.error('❌ Complete trip error:', error);
+      
+      // Send network error notification
+      sendNotification(
+        '⚠️ Network Error',
+        'Unable to connect to server. Please check your internet.',
+        { tripId, action: 'network_error' }
+      );
       
       if (error.message.includes('Network') || error.message.includes('Failed to fetch')) {
         Alert.alert(
@@ -555,6 +793,13 @@ export default function RideRequestScreen() {
                 Alert.alert('Error', 'Authentication error.');
                 return;
               }
+
+              // Send cancellation notification
+              sendNotification(
+                '❌ Trip Cancelled',
+                `Trip with ${passengerName} has been cancelled`,
+                { tripId, passengerName, action: 'trip_cancelled' }
+              );
 
               const response = await fetch(`${baseUrl}/trips/${tripId}/cancel`, {
                 method: 'POST',
