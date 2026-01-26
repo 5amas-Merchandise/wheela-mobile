@@ -497,7 +497,7 @@ export default function DriverProfileVerificationScreen({ navigation }) {
         <Text style={styles.title}>Complete Your Profile</Text>
         <Text style={styles.subtitle}>Submit documents for driver verification</Text>
         
-        <View style={styles.debugButtonsContainer}>
+        {/* <View style={styles.debugButtonsContainer}>
           <TouchableOpacity 
             style={styles.debugButton}
             onPress={testAdminView}
@@ -520,7 +520,7 @@ export default function DriverProfileVerificationScreen({ navigation }) {
           >
             <Text style={styles.debugButtonText}>🛠️ Debug Info</Text>
           </TouchableOpacity>
-        </View>
+        </View> */}
       </View>
 
       <TextInput 

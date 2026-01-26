@@ -4,61 +4,70 @@
     "slug": "wheela",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/logo3.png",
     "scheme": "wheelamobile",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+
+    "newArchEnabled": false,
+
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.wheela.wheela",
+      "buildNumber": "1.0.0",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "This app needs access to your location to find nearby drivers and show your ride route.",
-        "NSLocationAlwaysUsageDescription": "This app needs access to your location to find nearby drivers and show your ride route.",
-        "UIBackgroundModes": ["remote-notification"]
+        "NSLocationWhenInUseUsageDescription": "Wheela uses your location to find nearby drivers and show ride routes.",
+        "NSLocationAlwaysUsageDescription": "Wheela uses background location to track trips in progress.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Wheela requires background location access to support real-time trip tracking.",
+        "UIBackgroundModes": [
+          "location",
+          "remote-notification"
+        ],
+        "NSCameraUsageDescription": "Camera access is required for profile verification.",
+        "NSPhotoLibraryUsageDescription": "Photo access is required to upload profile images."
       }
     },
+
     "android": {
+      "package": "com.wheela.wheela",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/adaptive-icon.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.wheela.wheela",
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
         "INTERNET",
         "ACCESS_NETWORK_STATE",
-        "android.permission.ACCESS_BACKGROUND_LOCATION",
-        "android.permission.POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS"
       ],
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo"
         }
-      },
-      "googleServicesFile": "./google-services.json"
+      }
     },
+
     "web": {
       "output": "static",
       "favicon": "./assets/favicon.png"
     },
+
     "plugins": [
       "expo-router",
       "expo-location",
+
       [
         "expo-notifications",
         {
-          "icon": "./assets/notification-icon.png",
-          "color": "#0066FF",
-          "sounds": ["./assets/notification.wav"],
-          "iosDisplayInForeground": true,
-          "androidMode": "default",
-          "androidCollapsedTitle": "Wheela Updates"
+          "icon": "./assets/logo3.png",
+          "color": "#0066FF"
         }
       ],
+
       [
         "expo-splash-screen",
         {
@@ -71,42 +80,43 @@
           }
         }
       ],
+
       [
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true,
-            "enableProguardInReleaseBuilds": false,
-            "extraMavenRepos": [
-              "$rootDir/../node_modules/react-native-maps/android/maven"
-            ],
             "compileSdkVersion": 34,
             "targetSdkVersion": 34,
-            "buildToolsVersion": "34.0.0",
-            "useLegacyPackaging": false
+            "minSdkVersion": 23,
+            "enableProguardInReleaseBuilds": false,
+            "usesCleartextTraffic": false
           },
           "ios": {
-            "deploymentTarget": "15.1"
+            "deploymentTarget": "15.4",
+            "useFrameworks": "static"
           }
         }
       ]
     ],
+
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
+
     "extra": {
-      "router": {
-        "origin": false
-      },
+      "router": {},
       "eas": {
         "projectId": "89ca3ed1-d2fb-429a-9fdb-614202a280e5"
       }
     },
+
     "owner": "wheela",
+
     "runtimeVersion": {
       "policy": "appVersion"
     },
+
     "updates": {
       "url": "https://u.expo.dev/89ca3ed1-d2fb-429a-9fdb-614202a280e5",
       "fallbackToCacheTimeout": 0
