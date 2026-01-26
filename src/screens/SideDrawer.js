@@ -178,7 +178,6 @@ const SideDrawer = ({ navigation }) => {
     { id: 'home', title: 'Home', icon: 'home-outline', screen: 'PassengerHome' },
     { id: 'history', title: 'Ride History', icon: 'time-outline', screen: 'TripHistory' },
     { id: 'intercity', title: 'City to City', icon: 'car-outline', screen: 'CityToCity' },
-    { id: 'haulage', title: 'Haulage & Logistics', icon: 'cube-outline', screen: 'HaulageLogistics' },
     { id: 'wallet', title: 'Payment Methods', icon: 'card-outline', screen: 'PaymentMethods' },
     { id: 'promos', title: 'Promotions', icon: 'pricetag-outline', screen: 'Promotions' },
     { id: 'help', title: 'Help', icon: 'help-circle-outline', screen: 'Help' },
