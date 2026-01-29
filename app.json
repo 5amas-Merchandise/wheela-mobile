@@ -7,9 +7,7 @@
     "icon": "./assets/logo3.png",
     "scheme": "wheelamobile",
     "userInterfaceStyle": "automatic",
-
     "newArchEnabled": true,
-
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.wheela.wheela",
@@ -20,13 +18,15 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Wheela requires background location access to support real-time trip tracking.",
         "UIBackgroundModes": [
           "location",
+          "remote-notification",
+          "location",
           "remote-notification"
         ],
         "NSCameraUsageDescription": "Camera access is required for profile verification.",
-        "NSPhotoLibraryUsageDescription": "Photo access is required to upload profile images."
+        "NSPhotoLibraryUsageDescription": "Photo access is required to upload profile images.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
-
     "android": {
       "package": "com.wheela.wheela",
       "adaptiveIcon": {
@@ -41,7 +41,9 @@
         "ACCESS_BACKGROUND_LOCATION",
         "INTERNET",
         "ACCESS_NETWORK_STATE",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ],
       "config": {
         "googleMaps": {
@@ -49,16 +51,13 @@
         }
       }
     },
-
     "web": {
       "output": "static",
       "favicon": "./assets/favicon.png"
     },
-
     "plugins": [
       "expo-router",
       "expo-location",
-
       [
         "expo-notifications",
         {
@@ -66,7 +65,6 @@
           "color": "#0066FF"
         }
       ],
-
       [
         "expo-splash-screen",
         {
@@ -79,7 +77,6 @@
           }
         }
       ],
-
       [
         "expo-build-properties",
         {
@@ -88,7 +85,8 @@
             "targetSdkVersion": 34,
             "minSdkVersion": 24,
             "enableProguardInReleaseBuilds": false,
-            "usesCleartextTraffic": false
+            "usesCleartextTraffic": false,
+            "enableMinifyInReleaseBuilds": false
           },
           "ios": {
             "deploymentTarget": "15.4",
@@ -97,25 +95,20 @@
         }
       ]
     ],
-
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
-
     "extra": {
       "router": {},
       "eas": {
         "projectId": "89ca3ed1-d2fb-429a-9fdb-614202a280e5"
       }
     },
-
     "owner": "wheela",
-
     "runtimeVersion": {
       "policy": "appVersion"
     },
-
     "updates": {
       "url": "https://u.expo.dev/89ca3ed1-d2fb-429a-9fdb-614202a280e5",
       "fallbackToCacheTimeout": 0
