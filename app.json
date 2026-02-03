@@ -18,17 +18,16 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Wheela requires background location access to support real-time trip tracking.",
         "UIBackgroundModes": [
           "location",
-          "remote-notification",
-          "location",
           "remote-notification"
         ],
-        "NSCameraUsageDescription": "Camera access is required for profile verification.",
-        "NSPhotoLibraryUsageDescription": "Photo access is required to upload profile images.",
+        "NSCameraUsageDescription": "Wheela uses your camera to capture profile photos, verify driver documents, and report incidents. Camera access is optional and only activated when you choose to take or upload a photo.",
+        "NSPhotoLibraryUsageDescription": "Wheela needs access to your photo library to upload profile photos and incident reports. Photo access is optional.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.wheela.wheela",
+      "versionCode": 1,
       "privacyPolicy": "https://www.wheela.ng/privacy",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -43,15 +42,16 @@
         "INTERNET",
         "ACCESS_NETWORK_STATE",
         "CAMERA",
-        "POST_NOTIFICATIONS",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "POST_NOTIFICATIONS"
       ],
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo"
         }
-      }
+      },
+      "blockedPermissions": []
     },
     "web": {
       "output": "static",
@@ -59,12 +59,37 @@
     },
     "plugins": [
       "expo-router",
-      "expo-location",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Wheela uses your location to find nearby drivers, calculate routes, and track your ride in real-time.",
+          "locationAlwaysPermission": "Wheela uses background location to track trips in progress and provide accurate ride updates.",
+          "locationWhenInUsePermission": "Wheela uses your location to show nearby drivers and navigate to your destination.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
       [
         "expo-notifications",
         {
           "icon": "./assets/logo3.png",
-          "color": "#0066FF"
+          "color": "#0066FF",
+          "sounds": []
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Wheela uses your camera to capture profile photos, verify driver documents, and report incidents. Camera access is optional and only activated when you choose to take or upload a photo.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Wheela needs access to your photo library to upload profile photos and incident reports. Photo access is optional.",
+          "cameraPermission": "Wheela uses your camera to capture profile photos, verify driver documents, and report incidents. Camera access is optional."
         }
       ],
       [
@@ -86,9 +111,9 @@
             "compileSdkVersion": 36,
             "targetSdkVersion": 35,
             "minSdkVersion": 24,
-            "enableProguardInReleaseBuilds": false,
+            "enableProguardInReleaseBuilds": true,
             "usesCleartextTraffic": false,
-            "enableMinifyInReleaseBuilds": false
+            "enableMinifyInReleaseBuilds": true
           },
           "ios": {
             "deploymentTarget": "15.4",
