@@ -16,7 +16,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Import auth utilities
-import { getAuthToken, logout } from '../utils/auth';
+import { getAuthToken, logout, removeAuthToken } from '../utils/auth';
 
 const baseUrl = "https://wheels-backend-7ydc.onrender.com";
 
@@ -33,8 +33,10 @@ const SideDrawer = ({ navigation }) => {
     phone: '',
     profilePicUrl: '',
   });
+  const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   // Check if cache is still valid
   const isCacheValid = async () => {
@@ -116,6 +118,7 @@ const SideDrawer = ({ navigation }) => {
         };
         
         setUser(profileData);
+        setUserData(u); // Store full user data
         await cacheProfile(profileData);
         setRetryCount(0); // Reset retry count on success
       }
@@ -173,6 +176,202 @@ const SideDrawer = ({ navigation }) => {
   useEffect(() => {
     fetchUserProfile();
   }, []);
+
+  // Delete Account Functions
+  const handleDeleteAccount = () => {
+    // Check if account is already suspended
+    if (userData && userData.isActive === false) {
+      Alert.alert(
+        "Account Already Deleted",
+        "Your account has already been deleted.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Delete Account",
+      "Are you sure you want to delete your account? This action will DELETE your account and cannot be undone. You will not be able to log in again.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Continue",
+          style: "destructive",
+          onPress: () => confirmDeleteAccount(),
+        },
+      ]
+    );
+  };
+
+  const confirmDeleteAccount = () => {
+    Alert.alert(
+      "Confirm Deletion",
+      "Type DELETE to confirm account deletion:",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Type DELETE",
+          style: "destructive",
+          onPress: () => showTypeDeleteInput(),
+        },
+      ]
+    );
+  };
+
+  const showTypeDeleteInput = () => {
+    Alert.prompt(
+      "Type DELETE",
+      "Please type DELETE to confirm account deletion:",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Confirm",
+          style: "destructive",
+          onPress: (input) => {
+            if (input?.toUpperCase() === "DELETE") {
+              proceedWithDeletion();
+            } else {
+              Alert.alert("Incorrect", "You must type DELETE exactly.");
+            }
+          },
+        },
+      ],
+      'plain-text'
+    );
+  };
+
+  const proceedWithDeletion = async () => {
+    Alert.alert(
+      "Final Warning",
+      "This is your last chance to cancel. Your account will be permanently DELETED. This cannot be undone.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "DELETE MY ACCOUNT",
+          style: "destructive",
+          onPress: async () => {
+            setDeletingAccount(true);
+            try {
+              const authToken = await getAuthToken();
+              
+              // Call the delete/suspend account API
+              const response = await axios.delete(`${baseUrl}/auth/delete-account`, {
+                headers: {
+                  Authorization: `Bearer ${authToken}`,
+                  "Content-Type": "application/json",
+                },
+                data: {
+                  reason: "User requested account deletion",
+                  userId: userData?.userId,
+                },
+                timeout: 10000,
+              });
+
+              if (response.data.ok) {
+                // Clear cache on account deletion
+                await AsyncStorage.multiRemove([
+                  USER_PROFILE_CACHE_KEY,
+                  USER_PROFILE_TIMESTAMP_KEY,
+                ]);
+                
+                await logout();
+                Alert.alert(
+                  "Account Deleted",
+                  "Your account has been deleted successfully. You will not be able to log in again.",
+                  [
+                    {
+                      text: "OK",
+                      onPress: () => navigation.replace("Welcome"),
+                    },
+                  ]
+                );
+              }
+            } catch (error) {
+              console.error("Error deleting account:", error);
+              
+              // Handle specific error cases
+              if (error.response?.status === 403) {
+                Alert.alert(
+                  "Account Already Suspended",
+                  "This account has already been suspended."
+                );
+              } else if (error.response?.status === 400) {
+                if (error.response.data?.error?.message?.includes('active rides')) {
+                  Alert.alert(
+                    "Active Rides Found",
+                    "Please complete or cancel all active rides before deleting your account.",
+                    [
+                      { text: "OK" },
+                      {
+                        text: "Go to Rides",
+                        onPress: () => {
+                          navigation.closeDrawer();
+                          navigation.navigate("TripHistory");
+                        },
+                      }
+                    ]
+                  );
+                } else if (error.response.data?.error?.message?.includes('balance')) {
+                  Alert.alert(
+                    "Wallet Balance",
+                    "Please withdraw your remaining balance before deleting your account.",
+                    [
+                      { text: "OK" },
+                      {
+                        text: "Go to Wallet",
+                        onPress: () => {
+                          navigation.closeDrawer();
+                          navigation.navigate("PaymentMethods");
+                        },
+                      }
+                    ]
+                  );
+                } else {
+                  Alert.alert(
+                    "Cannot Delete Account",
+                    error.response.data?.error?.message || "Failed to delete account"
+                  );
+                }
+              } else if (error.response?.status === 401) {
+                await removeAuthToken();
+                Alert.alert(
+                  "Session Expired",
+                  "Please log in again.",
+                  [
+                    { text: "OK", onPress: () => navigation.replace("Login") },
+                  ]
+                );
+              } else if (error.request) {
+                Alert.alert(
+                  "Network Error",
+                  "Please check your internet connection and try again."
+                );
+              } else {
+                Alert.alert(
+                  "Deletion Failed",
+                  "Failed to delete account. Please try again or contact support."
+                );
+              }
+            } finally {
+              setDeletingAccount(false);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const menuItems = [
     { id: 'home', title: 'Home', icon: 'home-outline', screen: 'PassengerHome' },
@@ -305,6 +504,22 @@ const SideDrawer = ({ navigation }) => {
           <Ionicons name="refresh-circle" size={24} color="#00B0F3" />
           <Text style={styles.refreshText}>Refresh Profile</Text>
         </TouchableOpacity>
+
+        {/* Delete Account Button */}
+        <TouchableOpacity 
+          style={styles.deleteAccountButton} 
+          onPress={handleDeleteAccount}
+          disabled={deletingAccount}
+        >
+          {deletingAccount ? (
+            <ActivityIndicator size="small" color="#EF4444" />
+          ) : (
+            <>
+              <Ionicons name="trash-outline" size={22} color="#EF4444" />
+              <Text style={styles.deleteAccountText}>Delete Account</Text>
+            </>
+          )}
+        </TouchableOpacity>
       </ScrollView>
 
       {/* Footer with Logout */}
@@ -431,6 +646,24 @@ const styles = StyleSheet.create({
   refreshText: {
     fontSize: 14,
     color: '#00B0F3',
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  deleteAccountButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    backgroundColor: '#FEF2F2',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+  },
+  deleteAccountText: {
+    fontSize: 14,
+    color: '#EF4444',
     fontWeight: '600',
     marginLeft: 8,
   },

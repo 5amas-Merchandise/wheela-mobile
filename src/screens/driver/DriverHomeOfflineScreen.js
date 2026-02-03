@@ -238,8 +238,8 @@ export default function DriverHomeOfflineScreen() {
     // Check if account is already suspended
     if (userData && userData.isActive === false) {
       Alert.alert(
-        "Account Already Suspended",
-        "Your account has already been suspended.",
+        "Account Already Deleted",
+        "Your account has already been deleted.",
         [{ text: "OK" }]
       );
       return;
@@ -247,7 +247,7 @@ export default function DriverHomeOfflineScreen() {
 
     Alert.alert(
       "Delete Account",
-      "Are you sure you want to delete your account? This action will SUSPEND your account and cannot be undone. You will not be able to log in again.",
+      "Are you sure you want to delete your account? This action will DELETE your account and cannot be undone. You will not be able to log in again.",
       [
         {
           text: "Cancel",
@@ -265,7 +265,7 @@ export default function DriverHomeOfflineScreen() {
   const confirmDeleteAccount = () => {
     Alert.alert(
       "Confirm Deletion",
-      "Type DELETE to confirm account suspension:",
+      "Type DELETE to confirm account deletion:",
       [
         {
           text: "Cancel",
@@ -283,7 +283,7 @@ export default function DriverHomeOfflineScreen() {
   const showTypeDeleteInput = () => {
     Alert.prompt(
       "Type DELETE",
-      "Please type DELETE to confirm account suspension:",
+      "Please type DELETE to confirm account deletion:",
       [
         {
           text: "Cancel",
@@ -308,7 +308,7 @@ export default function DriverHomeOfflineScreen() {
   const proceedWithDeletion = async () => {
     Alert.alert(
       "Final Warning",
-      "This is your last chance to cancel. Your account will be permanently SUSPENDED. This cannot be undone.",
+      "This is your last chance to cancel. Your account will be permanently DELETED. This cannot be undone.",
       [
         {
           text: "Cancel",
@@ -338,8 +338,8 @@ export default function DriverHomeOfflineScreen() {
               if (response.data.ok) {
                 await logout();
                 Alert.alert(
-                  "Account Suspended",
-                  "Your account has been suspended successfully. You will not be able to log in again.",
+                  "Account Deleted",
+                  "Your account has been deleted successfully. You will not be able to log in again.",
                   [
                     {
                       text: "OK",

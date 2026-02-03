@@ -29,6 +29,7 @@
     },
     "android": {
       "package": "com.wheela.wheela",
+      "privacyPolicy": "https://www.wheela.ng/privacy",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/adaptive-icon.png"
