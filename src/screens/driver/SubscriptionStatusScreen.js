@@ -565,10 +565,6 @@ export default function SubscriptionScreen() {
         <Text style={styles.walletBalance}>
           ₦{(walletBalance / 100).toFixed(2)}
         </Text>
-        <TouchableOpacity style={styles.fundWalletBtn} onPress={handleFundWallet}>
-          <Ionicons name="add-circle-outline" size={18} color="#FFFFFF" />
-          <Text style={styles.fundWalletText}>Fund Wallet</Text>
-        </TouchableOpacity>
       </View>
 
       {/* Current Subscription */}
@@ -736,21 +732,7 @@ export default function SubscriptionScreen() {
             <Text style={styles.notificationStatus}>Enabled</Text>
           </View>
           
-          <TouchableOpacity 
-            style={styles.testNotificationBtn}
-            onPress={handleTestNotification}
-          >
-            <Ionicons name="send-outline" size={16} color="#FFFFFF" />
-            <Text style={styles.testNotificationText}>Send Test Notification</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.clearNotificationsBtn}
-            onPress={clearAllNotifications}
-          >
-            <Ionicons name="trash-outline" size={16} color="#FFFFFF" />
-            <Text style={styles.clearNotificationsText}>Clear All Notifications</Text>
-          </TouchableOpacity>
+         
         </View>
       </View>
 

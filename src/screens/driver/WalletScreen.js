@@ -99,7 +99,7 @@ export default function WalletScreen() {
         <View style={styles.infoNote}>
           <Ionicons name="information-circle-outline" size={16} color="#6B7280" />
           <Text style={styles.infoNoteText}>
-            Login to your account on the web to Fund your account.
+            Contact admin to Fund your account.
           </Text>
         </View>
       </View>
