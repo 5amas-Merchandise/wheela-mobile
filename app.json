@@ -31,7 +31,7 @@
       "privacyPolicy": "https://www.wheela.ng/privacy",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/adaptive-icon.png"
+        "foregroundImage": "./assets/logo3.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
