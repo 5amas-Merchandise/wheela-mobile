@@ -42,6 +42,14 @@ const LATITUDE_DELTA = 0.015;
 const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
 const GOOGLE_API_KEY = 'AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo';
 
+// Default region (Abuja, Nigeria - can be changed to any default location)
+const DEFAULT_REGION = {
+  latitude: 9.0765,
+  longitude: 7.3986,
+  latitudeDelta: 0.05,
+  longitudeDelta: 0.05,
+};
+
 const RIDE_TYPES = [
   { id: 'CITY_RIDE', name: 'City Ride', icon: 'car-sport', color: '#00B0F3', multiplier: 2.3, eta: '~3 min' },
   { id: 'DELIVERY_BIKE', name: 'Bike', icon: 'bicycle', color: '#4ADE80', multiplier: 0.8, eta: '~2 min' },
@@ -54,7 +62,7 @@ export default function PassengerHomeScreen() {
   const mapRef = useRef(null);
 
   // States
-  const [currentLocation, setCurrentLocation] = useState(null);
+  const [currentLocation, setCurrentLocation] = useState(DEFAULT_REGION);
   const [pickupLocation, setPickupLocation] = useState(null);
   const [dropoffLocation, setDropoffLocation] = useState(null);
   const [pickupAddress, setPickupAddress] = useState('Getting location...');
@@ -62,7 +70,7 @@ export default function PassengerHomeScreen() {
   const [selectedRideType, setSelectedRideType] = useState('CITY_RIDE');
   const [estimatedFare, setEstimatedFare] = useState(null);
   const [routeCoords, setRouteCoords] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [showRideModal, setShowRideModal] = useState(false);
   const [routeDistance, setRouteDistance] = useState(0);
   const [routeDuration, setRouteDuration] = useState(0);
@@ -77,20 +85,35 @@ export default function PassengerHomeScreen() {
   const [pickupSearchQuery, setPickupSearchQuery] = useState('');
   const [pickupSearchResults, setPickupSearchResults] = useState([]);
   const [pickupSearchLoading, setPickupSearchLoading] = useState(false);
+  const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
 
   // Initialize location
   useEffect(() => {
     let isMounted = true;
 
-    (async () => {
+    const requestLocation = async () => {
       try {
+        // Request permissions
         const { status } = await Location.requestForegroundPermissionsAsync();
+        
         if (status !== 'granted') {
-          Alert.alert('Permission Denied', 'Location access is required.');
-          setLoading(false);
+          if (isMounted) {
+            setLocationPermissionGranted(false);
+            setPickupAddress('Location permission denied');
+            Alert.alert(
+              'Permission Denied',
+              'Location access is required to use this app. Please enable location permissions in your device settings.',
+              [{ text: 'OK' }]
+            );
+          }
           return;
         }
 
+        if (isMounted) {
+          setLocationPermissionGranted(true);
+        }
+
+        // Get current location
         const loc = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
@@ -107,24 +130,35 @@ export default function PassengerHomeScreen() {
         setCurrentLocation(region);
         setPickupLocation(region);
         await reverseGeocodeGoogle(region, true);
-        setLoading(false);
       } catch (error) {
         console.error('Location error:', error);
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          setPickupAddress('Unable to get location');
+          Alert.alert(
+            'Location Error',
+            'Unable to retrieve your current location. Please try again.',
+            [{ text: 'OK' }]
+          );
+        }
       }
-    })();
+    };
+
+    requestLocation();
 
     return () => {
       isMounted = false;
     };
   }, []);
 
-  // Center map when location updates
+  // Center map when location updates (only if user location was obtained)
   useEffect(() => {
-    if (isMapReady && currentLocation && mapRef.current) {
-      mapRef.current.animateToRegion(currentLocation, 1000);
+    if (isMapReady && currentLocation && mapRef.current && locationPermissionGranted) {
+      // Only animate if it's not the default region
+      if (currentLocation.latitude !== DEFAULT_REGION.latitude) {
+        mapRef.current.animateToRegion(currentLocation, 1000);
+      }
     }
-  }, [isMapReady, currentLocation]);
+  }, [isMapReady, currentLocation, locationPermissionGranted]);
 
   // Initialize WebSocket
   useEffect(() => {
@@ -465,15 +499,6 @@ export default function PassengerHomeScreen() {
   // Get selected ride details
   const selectedRide = RIDE_TYPES.find(r => r.id === selectedRideType) || RIDE_TYPES[0];
 
-  if (!currentLocation) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#00B0F3" />
-        <Text style={styles.loadingText}>Loading map...</Text>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       <MapView
@@ -481,7 +506,7 @@ export default function PassengerHomeScreen() {
         provider={PROVIDER_GOOGLE}
         style={styles.map}
         initialRegion={currentLocation}
-        showsUserLocation={true}
+        showsUserLocation={locationPermissionGranted}
         showsMyLocationButton={false}
         onMapReady={() => setIsMapReady(true)}
       >
@@ -722,6 +747,10 @@ export default function PassengerHomeScreen() {
                   Alert.alert('Connection Error', 'Please wait for connection');
                   return;
                 }
+                if (!locationPermissionGranted) {
+                  Alert.alert('Location Required', 'Please enable location permissions to request a ride');
+                  return;
+                }
                 navigation.navigate('DriverMatching', {
                   pickup: pickupLocation,
                   dropoff: dropoffLocation,
@@ -733,10 +762,10 @@ export default function PassengerHomeScreen() {
                   duration: routeDuration,
                 });
               }}
-              disabled={!wsReady}
+              disabled={!wsReady || !locationPermissionGranted}
             >
               <Text style={styles.requestText}>
-                {wsReady ? 'Request Ride' : 'Connecting...'}
+                {!locationPermissionGranted ? 'Location Required' : wsReady ? 'Request Ride' : 'Connecting...'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -785,13 +814,6 @@ export default function PassengerHomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-  },
-  loadingText: { marginTop: 16, fontSize: 16, color: '#666' },
   
   // WebSocket Loader
   wsLoaderOverlay: {

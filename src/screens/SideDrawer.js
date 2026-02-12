@@ -499,11 +499,6 @@ const SideDrawer = ({ navigation }) => {
           <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
         </TouchableOpacity>
 
-        {/* Refresh Button */}
-        <TouchableOpacity style={styles.refreshButton} onPress={handleRetry}>
-          <Ionicons name="refresh-circle" size={24} color="#00B0F3" />
-          <Text style={styles.refreshText}>Refresh Profile</Text>
-        </TouchableOpacity>
 
         {/* Delete Account Button */}
         <TouchableOpacity 
