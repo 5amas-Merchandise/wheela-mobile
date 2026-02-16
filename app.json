@@ -12,6 +12,9 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.wheela.wheela",
       "buildNumber": "1.0.0",
+      "config": {
+        "googleMapsApiKey": "AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo"
+      },
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Wheela uses your location to find nearby drivers and show ride routes.",
         "NSLocationAlwaysUsageDescription": "Wheela uses background location to track trips in progress.",
