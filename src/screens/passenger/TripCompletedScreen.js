@@ -1,5 +1,5 @@
 // src/screens/passenger/TripCompletedScreen.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -11,32 +11,39 @@ import {
   StatusBar,
   Platform,
   Dimensions,
-} from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
-import { getAuthToken } from '../../utils/auth';
-import { LinearGradient } from 'expo-linear-gradient';
+  Animated,
+} from "react-native";
+import { useNavigation, useRoute } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
+import { getAuthToken } from "../../utils/auth";
 
-const { width } = Dimensions.get('window');
-const baseUrl = 'https://wheels-backend-7ydc.onrender.com';
+const { width } = Dimensions.get("window");
+const baseUrl = "https://wheels-backend-7ydc.onrender.com";
+
+const SERVICE_LABELS = {
+  CITY_RIDE: "City Ride",
+  DELIVERY_BIKE: "Bike",
+  LUXURY_RENTAL: "Luxury",
+  KEKE: "Keke",
+};
 
 export default function TripCompletedScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  
+
   const {
     tripId,
     driverId,
-    driverName = 'Driver',
-    driverRating = '4.8',
-    vehicleModel = 'Car',
-    vehiclePlate = 'ABC-123',
+    driverName = "Driver",
+    driverRating = "4.8",
+    vehicleModel = "Car",
+    vehiclePlate = "—",
     fare = 0,
-    serviceType = 'CITY_RIDE',
-    paymentMethod = 'wallet',
+    serviceType = "CITY_RIDE",
+    paymentMethod = "cash",
     tripDuration = 0,
-    pickupAddress = '',
-    destinationAddress = '',
+    pickupAddress = "",
+    destinationAddress = "",
     distanceKm = 0,
   } = route.params || {};
 
@@ -48,27 +55,66 @@ export default function TripCompletedScreen() {
     vehiclePlate,
     profilePicUrl: null,
   });
+  const [referralBonus, setReferralBonus] = useState(null);
+
+  // Animations
+  const checkAnim = useRef(new Animated.Value(0)).current;
+  const contentAnim = useRef(new Animated.Value(0)).current;
+  const bonusAnim = useRef(new Animated.Value(0)).current;
+  const checkScale = useRef(new Animated.Value(0.4)).current;
 
   useEffect(() => {
+    // Staggered entrance: checkmark first, then content
+    Animated.sequence([
+      Animated.parallel([
+        Animated.spring(checkScale, {
+          toValue: 1,
+          tension: 60,
+          friction: 7,
+          useNativeDriver: true,
+        }),
+        Animated.timing(checkAnim, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.timing(contentAnim, {
+        toValue: 1,
+        duration: 350,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
     fetchTripDetails();
     fetchDriverDetails();
+    checkReferralReward();
   }, []);
+
+  useEffect(() => {
+    if (referralBonus) {
+      Animated.spring(bonusAnim, {
+        toValue: 1,
+        tension: 55,
+        friction: 8,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [referralBonus]);
 
   const fetchTripDetails = async () => {
     try {
       const token = await getAuthToken();
       if (!token || !tripId) return;
-
-      const response = await fetch(`${baseUrl}/trips/${tripId}`, {
+      const res = await fetch(`${baseUrl}/trips/${tripId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
-      if (response.ok) {
-        const data = await response.json();
+      if (res.ok) {
+        const data = await res.json();
         setTripDetails(data.trip);
       }
-    } catch (error) {
-      console.error('Error fetching trip details:', error);
+    } catch (e) {
+      console.error("fetchTripDetails error:", e);
     }
   };
 
@@ -76,600 +122,728 @@ export default function TripCompletedScreen() {
     try {
       const token = await getAuthToken();
       if (!token || !driverId) return;
-
-      const response = await fetch(`${baseUrl}/users/${driverId}`, {
+      const res = await fetch(`${baseUrl}/users/${driverId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
-      if (response.ok) {
-        const data = await response.json();
+      if (res.ok) {
+        const data = await res.json();
         if (data.user) {
           setDriverDetails({
             name: data.user.name || driverName,
             rating: data.user.driverProfile?.rating || driverRating,
             vehicleModel: data.user.driverProfile?.vehicleModel || vehicleModel,
-            vehiclePlate: data.user.driverProfile?.vehicleNumber || vehiclePlate,
+            vehiclePlate:
+              data.user.driverProfile?.vehicleNumber || vehiclePlate,
             profilePicUrl: data.user.driverProfile?.profilePicUrl || null,
           });
         }
       }
-    } catch (error) {
-      console.warn('Error fetching driver details:', error);
+    } catch (e) {
+      console.warn("fetchDriverDetails error:", e);
     }
   };
 
-  const formatServiceType = (type) => {
-    const typeMap = {
-      'CITY_RIDE': 'City Ride',
-      'DELIVERY_BIKE': 'Bike Delivery',
-      'LUXURY_RENTAL': 'Luxury Rental',
-      'KEKE': 'Keke (Tricycle)',
-      'CAR_RENTAL': 'Car Rental',
-      'BIKE_RIDE': 'Bike Ride',
-    };
-    return typeMap[type] || type.replace('_', ' ');
-  };
+  const checkReferralReward = async () => {
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+      const meRes = await fetch(`${baseUrl}/users/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!meRes.ok) return;
+      const { user } = await meRes.json();
+      if (!user?.usedReferralCode || !user?.hasCompletedFirstTrip) return;
 
-  const formatTime = (seconds) => {
-    if (!seconds) return '0 min';
-    const hours = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    
-    if (hours > 0) {
-      return `${hours}h ${mins}m`;
+      const refRes = await fetch(`${baseUrl}/referrals/history?limit=1`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (refRes.ok) {
+        const refData = await refRes.json();
+        const latest = refData.referrals?.[0];
+        setReferralBonus({
+          amount: 300,
+          referrerName: latest?.referee?.name || null,
+        });
+      } else {
+        setReferralBonus({ amount: 300, referrerName: null });
+      }
+    } catch (e) {
+      console.warn("checkReferralReward (non-fatal):", e);
     }
-    return `${mins} min`;
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return new Date().toLocaleDateString('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    });
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    });
+  const formatTime = (s) => {
+    if (!s) return "0 min";
+    const h = Math.floor(s / 3600),
+      m = Math.floor((s % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m} min`;
   };
 
-  const formatTimeOfDay = (dateString) => {
-    if (!dateString) return new Date().toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    const date = new Date(dateString);
-    return date.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
+  const formatDate = (str) => {
+    const d = str ? new Date(str) : new Date();
+    return d.toLocaleDateString("en-GB", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
     });
   };
 
+  const formatHour = (str) => {
+    const d = str ? new Date(str) : new Date();
+    return d.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const contentTranslate = contentAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [24, 0],
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      
-      <ScrollView 
-        contentContainerStyle={styles.contentContainer}
+    <SafeAreaView style={s.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FAFAFA" />
+
+      <ScrollView
+        contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* Success Header */}
-        <View style={styles.successHeader}>
-          <View style={styles.checkmarkContainer}>
-            <LinearGradient
-              colors={['#34C759', '#2EBB4F']}
-              style={styles.checkmarkGradient}
+        {/* ── Success hero ── */}
+        <View style={s.hero}>
+          <Animated.View
+            style={[
+              s.checkCircle,
+              { transform: [{ scale: checkScale }], opacity: checkAnim },
+            ]}
+          >
+            <View style={s.checkCircleInner}>
+              <Ionicons name="checkmark" size={52} color="#fff" />
+            </View>
+            {/* Outer ring */}
+            <Animated.View
+              style={[
+                s.checkRing,
+                {
+                  opacity: checkAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 0.25],
+                  }),
+                },
+              ]}
+            />
+          </Animated.View>
+
+          <Animated.View
+            style={{
+              opacity: contentAnim,
+              transform: [{ translateY: contentTranslate }],
+            }}
+          >
+            <Text style={s.heroTitle}>Trip completed!</Text>
+            <Text style={s.heroDate}>
+              {formatDate(tripDetails?.completedAt)}
+            </Text>
+            <Text style={s.heroTime}>
+              at {formatHour(tripDetails?.completedAt)}
+            </Text>
+          </Animated.View>
+        </View>
+
+        <Animated.View
+          style={{
+            opacity: contentAnim,
+            transform: [{ translateY: contentTranslate }],
+          }}
+        >
+          {/* ── Referral bonus banner ── */}
+          {referralBonus && (
+            <Animated.View
+              style={[
+                s.bonusBanner,
+                {
+                  opacity: bonusAnim,
+                  transform: [
+                    {
+                      scale: bonusAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.94, 1],
+                      }),
+                    },
+                    {
+                      translateY: bonusAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [16, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
             >
-              <Ionicons name="checkmark" size={60} color="#FFFFFF" />
-            </LinearGradient>
-          </View>
-          <Text style={styles.successTitle}>Trip Completed!</Text>
-          <Text style={styles.successSubtitle}>
-            {formatDate(tripDetails?.completedAt)}
-          </Text>
-          <Text style={styles.successTime}>
-            at {formatTimeOfDay(tripDetails?.completedAt)}
-          </Text>
-        </View>
+              {/* Decorative circles */}
+              <View style={s.bannerDecorA} />
+              <View style={s.bannerDecorB} />
 
-        {/* Trip Summary Card */}
-        <View style={styles.summaryCard}>
-          <Text style={styles.cardTitle}>Trip Summary</Text>
-          
-          <View style={styles.summaryGrid}>
-            <View style={styles.summaryItem}>
-              <View style={styles.iconCircle}>
-                <Ionicons name="cash" size={22} color="#007AFF" />
+              <View style={s.bonusContent}>
+                <View style={s.bonusGiftWrap}>
+                  <Text style={s.bonusGiftEmoji}>🎁</Text>
+                </View>
+                <View style={s.bonusTextWrap}>
+                  <Text style={s.bonusTitle}>Referral Bonus!</Text>
+                  <Text style={s.bonusSub}>
+                    ₦{referralBonus.amount} added to your wallet
+                  </Text>
+                  {referralBonus.referrerName && (
+                    <Text style={s.bonusNote}>
+                      Your friend gets rewarded too 🙌
+                    </Text>
+                  )}
+                </View>
+                <View style={s.bonusAmountWrap}>
+                  <Text style={s.bonusAmountLabel}>+₦</Text>
+                  <Text style={s.bonusAmountValue}>{referralBonus.amount}</Text>
+                </View>
               </View>
-              <Text style={styles.summaryLabel}>Fare</Text>
-              <Text style={styles.summaryValue}>₦{Number(fare).toLocaleString()}</Text>
-            </View>
-            
-            <View style={styles.summaryItem}>
-              <View style={styles.iconCircle}>
-                <Ionicons name="time" size={22} color="#FF9500" />
-              </View>
-              <Text style={styles.summaryLabel}>Duration</Text>
-              <Text style={styles.summaryValue}>{formatTime(tripDuration)}</Text>
-            </View>
-            
-            <View style={styles.summaryItem}>
-              <View style={styles.iconCircle}>
-                <Ionicons name="speedometer" size={22} color="#34C759" />
-              </View>
-              <Text style={styles.summaryLabel}>Distance</Text>
-              <Text style={styles.summaryValue}>{distanceKm || '0'} km</Text>
-            </View>
-            
-            <View style={styles.summaryItem}>
-              <View style={styles.iconCircle}>
-                <Ionicons name="card" size={22} color="#FF3B30" />
-              </View>
-              <Text style={styles.summaryLabel}>Payment</Text>
-              <Text style={styles.summaryValue}>
-                {paymentMethod === 'cash' ? 'Cash' : 'Wallet'}
-              </Text>
-            </View>
-          </View>
-        </View>
+            </Animated.View>
+          )}
 
-        {/* Route Card */}
-        {(pickupAddress || destinationAddress) && (
-          <View style={styles.routeCard}>
-            <View style={styles.routeItem}>
-              <View style={styles.routeIconContainer}>
-                <View style={styles.pickupDot} />
-              </View>
-              <View style={styles.routeDetails}>
-                <Text style={styles.routeLabel}>PICKUP</Text>
-                <Text style={styles.routeAddress} numberOfLines={2}>
-                  {pickupAddress || 'Pickup location'}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.routeLine} />
-
-            <View style={styles.routeItem}>
-              <View style={styles.routeIconContainer}>
-                <View style={styles.dropoffDot} />
-              </View>
-              <View style={styles.routeDetails}>
-                <Text style={styles.routeLabel}>DROPOFF</Text>
-                <Text style={styles.routeAddress} numberOfLines={2}>
-                  {destinationAddress || 'Destination'}
-                </Text>
-              </View>
-            </View>
-          </View>
-        )}
-
-        {/* Driver Card */}
-        <View style={styles.driverCard}>
-          <Text style={styles.cardTitle}>Your Driver</Text>
-          <View style={styles.driverInfo}>
-            <View style={styles.driverAvatarContainer}>
-              {driverDetails.profilePicUrl ? (
-                <Image 
-                  source={{ uri: driverDetails.profilePicUrl }} 
-                  style={styles.driverAvatarImage}
+          {/* ── Fare hero card ── */}
+          <View style={s.fareCard}>
+            <Text style={s.fareCardLabel}>TRIP FARE</Text>
+            <Text style={s.fareCardValue}>
+              ₦{Number(fare).toLocaleString()}
+            </Text>
+            <View style={s.fareCardMeta}>
+              <View style={s.fareMetaChip}>
+                <Ionicons
+                  name={
+                    paymentMethod === "cash" ? "cash-outline" : "wallet-outline"
+                  }
+                  size={14}
+                  color="#666"
                 />
-              ) : (
-                <View style={styles.driverAvatar}>
-                  <Text style={styles.driverAvatarText}>
-                    {driverDetails.name.charAt(0).toUpperCase()}
+                <Text style={s.fareMetaText}>
+                  {paymentMethod === "cash" ? "Cash" : "Wallet"}
+                </Text>
+              </View>
+              <View style={s.fareMetaChip}>
+                <Ionicons name="car-outline" size={14} color="#666" />
+                <Text style={s.fareMetaText}>
+                  {SERVICE_LABELS[serviceType] || serviceType}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* ── Stats row ── */}
+          <View style={s.statsRow}>
+            <View style={s.statCard}>
+              <View style={s.statIcon}>
+                <Ionicons name="time-outline" size={20} color="#1A1A1A" />
+              </View>
+              <Text style={s.statValue}>{formatTime(tripDuration)}</Text>
+              <Text style={s.statLabel}>Duration</Text>
+            </View>
+            <View style={s.statCard}>
+              <View style={s.statIcon}>
+                <Ionicons name="navigate-outline" size={20} color="#1A1A1A" />
+              </View>
+              <Text style={s.statValue}>{distanceKm || 0} km</Text>
+              <Text style={s.statLabel}>Distance</Text>
+            </View>
+            <View style={s.statCard}>
+              <View style={s.statIcon}>
+                <Ionicons name="star-outline" size={20} color="#1A1A1A" />
+              </View>
+              <Text style={s.statValue}>{driverDetails.rating}</Text>
+              <Text style={s.statLabel}>Rating</Text>
+            </View>
+          </View>
+
+          {/* ── Route card ── */}
+          {(pickupAddress || destinationAddress) && (
+            <View style={s.card}>
+              <Text style={s.cardTitle}>Route</Text>
+              <View style={s.routeRow}>
+                <View style={s.routeTrack}>
+                  <View style={[s.routeDot, { backgroundColor: "#1A1A1A" }]} />
+                  <View style={s.routeLine} />
+                  <View style={[s.routeDot, { backgroundColor: "#EF4444" }]} />
+                </View>
+                <View style={s.routeAddresses}>
+                  <View style={s.addrBlock}>
+                    <Text style={s.addrLabel}>PICKUP</Text>
+                    <Text style={s.addrText} numberOfLines={2}>
+                      {pickupAddress || "Pickup location"}
+                    </Text>
+                  </View>
+                  <View style={s.addrBlock}>
+                    <Text style={s.addrLabel}>DROP-OFF</Text>
+                    <Text style={s.addrText} numberOfLines={2}>
+                      {destinationAddress || "Destination"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* ── Driver card ── */}
+          <View style={s.card}>
+            <Text style={s.cardTitle}>Your Driver</Text>
+            <View style={s.driverRow}>
+              <View style={s.avatarWrap}>
+                {driverDetails.profilePicUrl ? (
+                  <Image
+                    source={{ uri: driverDetails.profilePicUrl }}
+                    style={s.avatarImg}
+                  />
+                ) : (
+                  <View style={s.avatarFallback}>
+                    <Text style={s.avatarLetter}>
+                      {driverDetails.name.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+                <View style={s.verifiedBadge}>
+                  <Ionicons name="checkmark-circle" size={18} color="#10B981" />
+                </View>
+              </View>
+              <View style={s.driverInfo}>
+                <Text style={s.driverName}>{driverDetails.name}</Text>
+                <View style={s.ratingRow}>
+                  <Ionicons name="star" size={14} color="#F59E0B" />
+                  <Text style={s.ratingText}>{driverDetails.rating}</Text>
+                  <Text style={s.ratingCount}>· 500+ trips</Text>
+                </View>
+                <View style={s.vehicleRow}>
+                  <Ionicons name="car-sport-outline" size={14} color="#888" />
+                  <Text style={s.vehicleText}>
+                    {driverDetails.vehicleModel} · {driverDetails.vehiclePlate}
                   </Text>
                 </View>
-              )}
-              <View style={styles.verifiedBadge}>
-                <Ionicons name="checkmark-circle" size={20} color="#34C759" />
-              </View>
-            </View>
-            <View style={styles.driverDetails}>
-              <Text style={styles.driverName}>{driverDetails.name}</Text>
-              <View style={styles.driverStats}>
-                <View style={styles.ratingContainer}>
-                  <Ionicons name="star" size={16} color="#FFD700" />
-                  <Text style={styles.ratingText}>{driverDetails.rating}</Text>
-                  <Text style={styles.ratingCount}>(500+ trips)</Text>
-                </View>
-              </View>
-              <View style={styles.vehicleInfo}>
-                <Ionicons name="car-sport" size={16} color="#666" />
-                <Text style={styles.vehicleText}>
-                  {driverDetails.vehicleModel} • {driverDetails.vehiclePlate}
-                </Text>
               </View>
             </View>
           </View>
-        </View>
 
-        {/* Payment Details */}
-        <View style={styles.paymentCard}>
-          <Text style={styles.cardTitle}>Payment Details</Text>
-          <View style={styles.paymentBreakdown}>
-            <View style={styles.paymentRow}>
-              <Text style={styles.paymentLabel}>Trip Fare</Text>
-              <Text style={styles.paymentValue}>₦{Number(fare).toLocaleString()}</Text>
+          {/* ── Payment breakdown ── */}
+          <View style={s.card}>
+            <Text style={s.cardTitle}>Payment</Text>
+            <View style={s.payRow}>
+              <Text style={s.payLabel}>Trip Fare</Text>
+              <Text style={s.payValue}>₦{Number(fare).toLocaleString()}</Text>
             </View>
-            
-            <View style={styles.divider} />
-            
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Total Paid</Text>
-              <Text style={styles.totalValue}>₦{Number(fare).toLocaleString()}</Text>
+
+            {referralBonus && (
+              <View style={s.payRow}>
+                <View style={s.discountLabelWrap}>
+                  <Text style={s.discountLabel}>Referral Bonus</Text>
+                  <View style={s.appliedBadge}>
+                    <Text style={s.appliedBadgeText}>APPLIED</Text>
+                  </View>
+                </View>
+                <Text style={s.discountValue}>
+                  +₦{referralBonus.amount} to wallet
+                </Text>
+              </View>
+            )}
+
+            <View style={s.payDivider} />
+
+            <View style={s.payRow}>
+              <Text style={s.totalLabel}>Total Paid</Text>
+              <Text style={s.totalValue}>₦{Number(fare).toLocaleString()}</Text>
             </View>
-            
-            <View style={styles.paymentMethodRow}>
-              <Ionicons 
-                name={paymentMethod === 'cash' ? "cash" : "wallet"} 
-                size={16} 
-                color="#666" 
+            <View style={s.payMethodRow}>
+              <Ionicons
+                name={
+                  paymentMethod === "cash" ? "cash-outline" : "wallet-outline"
+                }
+                size={15}
+                color="#888"
               />
-              <Text style={styles.paymentMethodText}>
-                Paid via {paymentMethod === 'cash' ? 'Cash' : 'Wallet'}
+              <Text style={s.payMethodText}>
+                Paid via {paymentMethod === "cash" ? "Cash" : "Wallet"}
               </Text>
             </View>
           </View>
-        </View>
 
-        {/* Return Home Button */}
-        <TouchableOpacity
-          style={styles.homeButton}
-          onPress={() => navigation.navigate('PassengerMain')}
-          activeOpacity={0.8}
-        >
-          <LinearGradient
-            colors={['#007AFF', '#0051D5']}
-            style={styles.homeButtonGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
+          {/* ── Home button ── */}
+          <TouchableOpacity
+            style={s.homeBtn}
+            onPress={() => navigation.navigate("PassengerMain")}
+            activeOpacity={0.88}
           >
-            <Ionicons name="home" size={22} color="#FFFFFF" />
-            <Text style={styles.homeButtonText}>Return to Home</Text>
-          </LinearGradient>
-        </TouchableOpacity>
+            <Ionicons
+              name="home"
+              size={20}
+              color="#fff"
+              style={{ marginRight: 8 }}
+            />
+            <Text style={s.homeBtnText}>Back to Home</Text>
+          </TouchableOpacity>
 
-        {/* Bottom Spacing */}
-        <View style={{ height: 40 }} />
+          <View style={{ height: 40 }} />
+        </Animated.View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F5F5F7',
-  },
-  contentContainer: {
+// ─────────────────────────────────────────────────────────────────────────────
+// STYLES
+// ─────────────────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#FAFAFA" },
+  scroll: {
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 20 : 30,
+    paddingTop: Platform.OS === "ios" ? 20 : 30,
     paddingBottom: 20,
   },
-  successHeader: {
-    alignItems: 'center',
-    marginBottom: 30,
+
+  // Hero
+  hero: { alignItems: "center", marginBottom: 28 },
+  checkCircle: {
+    marginBottom: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    width: 120,
+    height: 120,
   },
-  checkmarkContainer: {
-    marginBottom: 20,
-  },
-  checkmarkGradient: {
+  checkCircleInner: {
     width: 100,
     height: 100,
     borderRadius: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#34C759',
+    backgroundColor: "#10B981",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#10B981",
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 10,
+    shadowOpacity: 0.35,
+    shadowRadius: 20,
+    elevation: 12,
   },
-  successTitle: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#000',
-    marginBottom: 8,
+  checkRing: {
+    position: "absolute",
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 3,
+    borderColor: "#10B981",
   },
-  successSubtitle: {
+  heroTitle: {
+    fontSize: 30,
+    fontWeight: "900",
+    color: "#1A1A1A",
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  heroDate: {
     fontSize: 16,
-    color: '#666',
-    marginBottom: 4,
+    color: "#888",
+    marginBottom: 2,
+    textAlign: "center",
   },
-  successTime: {
-    fontSize: 14,
-    color: '#999',
-  },
-  summaryCard: {
-    backgroundColor: '#FFFFFF',
+  heroTime: { fontSize: 14, color: "#BABABA", textAlign: "center" },
+
+  // Referral bonus banner
+  bonusBanner: {
+    backgroundColor: "#14532D",
     borderRadius: 20,
     padding: 20,
     marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
+    overflow: "hidden",
+    shadowColor: "#14532D",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
     shadowRadius: 12,
-    elevation: 3,
+    elevation: 8,
   },
-  cardTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 20,
+  bannerDecorA: {
+    position: "absolute",
+    left: -30,
+    top: -30,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: "rgba(255,255,255,0.07)",
   },
-  summaryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+  bannerDecorB: {
+    position: "absolute",
+    right: -20,
+    bottom: -20,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "rgba(255,255,255,0.07)",
   },
-  summaryItem: {
-    width: '48%',
-    alignItems: 'center',
-    marginBottom: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 16,
-  },
-  iconCircle: {
+  bonusContent: { flexDirection: "row", alignItems: "center" },
+  bonusGiftWrap: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(255,255,255,0.18)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 14,
+  },
+  bonusGiftEmoji: { fontSize: 24 },
+  bonusTextWrap: { flex: 1, paddingRight: 8 },
+  bonusTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#fff",
+    marginBottom: 3,
+  },
+  bonusSub: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.88)",
+    lineHeight: 17,
+    marginBottom: 2,
+  },
+  bonusNote: { fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 16 },
+  bonusAmountWrap: {
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    alignItems: "center",
+    minWidth: 60,
+  },
+  bonusAmountLabel: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.8)",
+    fontWeight: "600",
+  },
+  bonusAmountValue: { fontSize: 24, fontWeight: "900", color: "#fff" },
+
+  // Fare hero card
+  fareCard: {
+    backgroundColor: "#1A1A1A",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
     marginBottom: 12,
-    shadowColor: '#000',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.14,
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  fareCardLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.5)",
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  fareCardValue: {
+    fontSize: 44,
+    fontWeight: "900",
+    color: "#fff",
+    marginBottom: 14,
+  },
+  fareCardMeta: { flexDirection: "row", gap: 10 },
+  fareMetaChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  fareMetaText: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.7)",
+    fontWeight: "600",
+  },
+
+  // Stats
+  statsRow: { flexDirection: "row", gap: 10, marginBottom: 12 },
+  statCard: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowRadius: 8,
     elevation: 2,
   },
-  summaryLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-    fontWeight: '600',
+  statIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#F5F5F0",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 10,
   },
-  summaryValue: {
+  statValue: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#000',
+    fontWeight: "800",
+    color: "#1A1A1A",
+    marginBottom: 3,
   },
-  routeCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  routeItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  routeIconContainer: {
-    marginRight: 16,
-    paddingTop: 2,
-  },
-  pickupDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#007AFF',
-    borderWidth: 3,
-    borderColor: '#E3F2FD',
-  },
-  dropoffDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#FF3B30',
-    borderWidth: 3,
-    borderColor: '#FFE5E5',
-  },
-  routeDetails: {
-    flex: 1,
-  },
-  routeLabel: {
+  statLabel: {
     fontSize: 11,
-    fontWeight: '600',
-    color: '#666',
-    letterSpacing: 0.5,
-    marginBottom: 4,
+    fontWeight: "600",
+    color: "#BABABA",
+    letterSpacing: 0.4,
   },
-  routeAddress: {
-    fontSize: 15,
-    color: '#000',
-    fontWeight: '500',
-    lineHeight: 20,
-  },
-  routeLine: {
-    width: 2,
-    height: 24,
-    backgroundColor: '#E5E5EA',
-    marginLeft: 7,
-    marginVertical: 8,
-  },
-  driverCard: {
-    backgroundColor: '#FFFFFF',
+
+  // Generic card
+  card: {
+    backgroundColor: "#fff",
     borderRadius: 20,
     padding: 20,
-    marginBottom: 16,
-    shadowColor: '#000',
+    marginBottom: 12,
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
-  driverInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    marginBottom: 16,
   },
-  driverAvatarContainer: {
-    position: 'relative',
-    marginRight: 16,
+
+  // Route
+  routeRow: { flexDirection: "row" },
+  routeTrack: {
+    width: 20,
+    alignItems: "center",
+    marginRight: 14,
+    paddingTop: 4,
   },
-  driverAvatar: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#007AFF',
+  routeDot: { width: 12, height: 12, borderRadius: 6 },
+  routeLine: {
+    flex: 1,
+    width: 2,
+    backgroundColor: "#E5E5E5",
+    marginVertical: 5,
+  },
+  routeAddresses: { flex: 1 },
+  addrBlock: { paddingVertical: 8 },
+  addrLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#BABABA",
+    letterSpacing: 0.8,
+    marginBottom: 3,
+  },
+  addrText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1A1A1A",
+    lineHeight: 19,
+  },
+
+  // Driver
+  driverRow: { flexDirection: "row", alignItems: "center" },
+  avatarWrap: { marginRight: 16, position: "relative" },
+  avatarImg: { width: 66, height: 66, borderRadius: 33 },
+  avatarFallback: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: "#1A1A1A",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 4,
   },
-  driverAvatarImage: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-  },
-  driverAvatarText: {
-    color: '#FFFFFF',
-    fontSize: 28,
-    fontWeight: 'bold',
-  },
+  avatarLetter: { color: "#fff", fontSize: 26, fontWeight: "800" },
   verifiedBadge: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
-    right: 0,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    right: -2,
+    backgroundColor: "#fff",
+    borderRadius: 10,
   },
-  driverDetails: {
-    flex: 1,
-  },
+  driverInfo: { flex: 1 },
   driverName: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 6,
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 5,
   },
-  driverStats: {
-    marginBottom: 8,
-  },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF9E6',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
-  },
+  ratingRow: { flexDirection: "row", alignItems: "center", marginBottom: 5 },
   ratingText: {
     fontSize: 14,
-    color: '#000',
-    marginLeft: 4,
-    fontWeight: '600',
-  },
-  ratingCount: {
-    fontSize: 12,
-    color: '#666',
+    fontWeight: "700",
+    color: "#1A1A1A",
     marginLeft: 4,
   },
-  vehicleInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+  ratingCount: { fontSize: 12, color: "#888", marginLeft: 4 },
+  vehicleRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  vehicleText: { fontSize: 13, color: "#888", fontWeight: "500" },
+
+  // Payment
+  payRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 14,
   },
-  vehicleText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
+  payLabel: { fontSize: 16, color: "#888" },
+  payValue: { fontSize: 16, fontWeight: "600", color: "#1A1A1A" },
+  discountLabelWrap: { flexDirection: "row", alignItems: "center", gap: 8 },
+  discountLabel: { fontSize: 15, color: "#059669", fontWeight: "600" },
+  appliedBadge: {
+    backgroundColor: "#DCFCE7",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
-  paymentCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
+  appliedBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#059669",
+    letterSpacing: 0.5,
   },
-  paymentBreakdown: {
-    paddingHorizontal: 4,
-  },
-  paymentRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  paymentLabel: {
-    fontSize: 16,
-    color: '#666',
-  },
-  paymentValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#E5E5EA',
-    marginVertical: 12,
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  totalLabel: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#000',
-  },
-  totalValue: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#007AFF',
-  },
-  paymentMethodRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  discountValue: { fontSize: 14, color: "#059669", fontWeight: "600" },
+  payDivider: { height: 1, backgroundColor: "#F0F0F0", marginVertical: 8 },
+  totalLabel: { fontSize: 17, fontWeight: "800", color: "#1A1A1A" },
+  totalValue: { fontSize: 22, fontWeight: "900", color: "#1A1A1A" },
+  payMethodRow: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
     marginTop: 8,
   },
-  paymentMethodText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  homeButton: {
-    borderRadius: 16,
-    marginBottom: 16,
-    overflow: 'hidden',
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  homeButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+  payMethodText: { fontSize: 14, color: "#888" },
+
+  // Home button
+  homeBtn: {
+    backgroundColor: "#1A1A1A",
+    borderRadius: 18,
     paddingVertical: 18,
-    gap: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 5,
+    marginTop: 4,
   },
-  homeButtonText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
+  homeBtnText: {
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "800",
+    letterSpacing: 0.2,
   },
 });
