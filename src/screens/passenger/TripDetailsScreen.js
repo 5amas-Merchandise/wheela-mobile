@@ -1,5 +1,5 @@
 // src/screens/TripDetailsScreen.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,100 +10,154 @@ import {
   Linking,
   ActivityIndicator,
   Alert,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
-import { getAuthToken } from '../../utils/auth';
+  Platform,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import { getAuthToken } from "../../utils/auth";
 
-const API_BASE_URL = 'https://wheels-backend-7ydc.onrender.com';
-const GOOGLE_MAPS_API_KEY = 'AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo'; // Replace with your key
+const API_BASE_URL = "https://wheels-backend-7ydc.onrender.com";
+const GOOGLE_API_KEY = "AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo";
+
+const SERVICE_NAMES = {
+  CITY_RIDE: "City Ride",
+  OUTSTATION: "Outstation",
+  RENTAL: "Rental",
+  LUXURY: "Luxury",
+  LUXURY_RENTAL: "Luxury",
+  BIKE: "Bike",
+  DELIVERY_BIKE: "Delivery Bike",
+  KEKE: "Keke",
+};
+
+const STATUS_CONFIG = {
+  completed: {
+    color: "#10B981",
+    bg: "#ECFDF5",
+    icon: "checkmark-circle",
+    label: "COMPLETED",
+  },
+  cancelled: {
+    color: "#EF4444",
+    bg: "#FEF2F2",
+    icon: "close-circle",
+    label: "CANCELLED",
+  },
+  active: {
+    color: "#3B82F6",
+    bg: "#EFF6FF",
+    icon: "time-outline",
+    label: "ACTIVE",
+  },
+  pending: {
+    color: "#8B5CF6",
+    bg: "#F5F3FF",
+    icon: "time-outline",
+    label: "PENDING",
+  },
+};
 
 const formatDate = (dateString) => {
-  if (!dateString) return 'N/A';
-  const date = new Date(dateString);
-  const options = { 
-    month: 'short', 
-    day: 'numeric', 
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true
-  };
-  return date.toLocaleDateString('en-US', options);
+  if (!dateString) return "N/A";
+  return new Date(dateString).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 };
 
-// Google Maps Geocoding function
 const getAddressFromCoordinates = async (coordinates) => {
-  if (!coordinates || !Array.isArray(coordinates) || coordinates.length < 2) {
-    return 'Unknown Location';
-  }
-
+  if (!Array.isArray(coordinates) || coordinates.length < 2)
+    return "Unknown Location";
   try {
     const [lng, lat] = coordinates;
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_MAPS_API_KEY}`;
-    
-    const response = await fetch(url);
-    const data = await response.json();
-    
-    if (data.status === 'OK' && data.results[0]) {
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_API_KEY}`,
+    );
+    const data = await res.json();
+    if (data.status === "OK" && data.results[0])
       return data.results[0].formatted_address;
-    }
-    
-    // Fallback: Return coordinates
-    return `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
-  } catch (error) {
-    console.error('Geocoding error:', error);
-    
-    // Fallback: Return coordinates
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  } catch {
     const [lng, lat] = coordinates;
-    return `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   }
 };
 
+// ── InfoRow helper ─────────────────────────────────────────────────────────
+function InfoRow({ icon, label, value, isLast, valueStyle }) {
+  return (
+    <View style={[r.row, isLast && { borderBottomWidth: 0 }]}>
+      <View style={r.iconWrap}>
+        <Ionicons name={icon} size={16} color="#1A1A1A" />
+      </View>
+      <Text style={r.label}>{label}</Text>
+      <Text style={[r.value, valueStyle]} numberOfLines={1}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+const r = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F5F5F0",
+  },
+  iconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#F5F5F0",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  label: { flex: 1, fontSize: 13, color: "#888" },
+  value: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    maxWidth: "55%",
+    textAlign: "right",
+    textTransform: "capitalize",
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 export default function TripDetailsScreen({ route }) {
   const navigation = useNavigation();
   const { trip: initialTrip, role } = route.params || {};
+
   const [trip, setTrip] = useState(initialTrip);
   const [loading, setLoading] = useState(!initialTrip);
-  const [addresses, setAddresses] = useState({
-    pickup: '',
-    dropoff: ''
-  });
-  const [loadingAddresses, setLoadingAddresses] = useState(false);
+  const [addresses, setAddresses] = useState({ pickup: "", dropoff: "" });
+  const [loadingAddr, setLoadingAddr] = useState(false);
 
   useEffect(() => {
-    if (!initialTrip && route.params?.tripId) {
+    if (!initialTrip && route.params?.tripId)
       fetchTripDetails(route.params.tripId);
-    } else if (initialTrip) {
-      fetchAddresses(initialTrip);
-    }
+    else if (initialTrip) fetchAddresses(initialTrip);
   }, []);
 
   const fetchTripDetails = async (tripId) => {
     try {
       setLoading(true);
       const token = await getAuthToken();
-      
-      const response = await fetch(
-        `${API_BASE_URL}/trips/${tripId}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch trip details');
-      }
-
-      const data = await response.json();
-      const tripData = data.trip;
-      setTrip(tripData);
-      await fetchAddresses(tripData);
-    } catch (err) {
-      Alert.alert('Error', 'Failed to load trip details');
-      console.error('Error fetching trip details:', err);
+      const res = await fetch(`${API_BASE_URL}/trips/${tripId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch trip details");
+      const data = await res.json();
+      setTrip(data.trip);
+      await fetchAddresses(data.trip);
+    } catch {
+      Alert.alert("Error", "Failed to load trip details");
     } finally {
       setLoading(false);
     }
@@ -111,647 +165,603 @@ export default function TripDetailsScreen({ route }) {
 
   const fetchAddresses = async (tripData) => {
     try {
-      setLoadingAddresses(true);
-      
-      let pickupAddress = tripData.pickupAddress || tripData.pickupLocationName || '';
-      let dropoffAddress = tripData.dropoffAddress || tripData.dropoffLocationName || '';
-      
-      // If no stored addresses, fetch from coordinates
-      if (!pickupAddress && tripData.pickupLocation?.coordinates) {
-        pickupAddress = await getAddressFromCoordinates(tripData.pickupLocation.coordinates);
-      }
-      
-      if (!dropoffAddress && tripData.dropoffLocation?.coordinates) {
-        dropoffAddress = await getAddressFromCoordinates(tripData.dropoffLocation.coordinates);
-      }
-      
+      setLoadingAddr(true);
+      let pickup = tripData.pickupAddress || tripData.pickupLocationName || "";
+      let dropoff =
+        tripData.dropoffAddress || tripData.dropoffLocationName || "";
+      if (!pickup && tripData.pickupLocation?.coordinates)
+        pickup = await getAddressFromCoordinates(
+          tripData.pickupLocation.coordinates,
+        );
+      if (!dropoff && tripData.dropoffLocation?.coordinates)
+        dropoff = await getAddressFromCoordinates(
+          tripData.dropoffLocation.coordinates,
+        );
       setAddresses({
-        pickup: pickupAddress || 'Pickup Location',
-        dropoff: dropoffAddress || 'Destination'
+        pickup: pickup || "Pickup Location",
+        dropoff: dropoff || "Destination",
       });
-    } catch (error) {
-      console.error('Error fetching addresses:', error);
-      setAddresses({
-        pickup: 'Pickup Location',
-        dropoff: 'Destination'
-      });
+    } catch {
+      setAddresses({ pickup: "Pickup Location", dropoff: "Destination" });
     } finally {
-      setLoadingAddresses(false);
+      setLoadingAddr(false);
     }
   };
 
+  const openMaps = (coordinates) => {
+    if (!Array.isArray(coordinates) || coordinates.length < 2) return;
+    const [lng, lat] = coordinates;
+    Linking.openURL(
+      `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`,
+    ).catch(() => Alert.alert("Error", "Could not open maps."));
+  };
+
+  // ── Loading ──────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Ionicons name="arrow-back" size={28} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Trip Details</Text>
-          <View style={{ width: 28 }} />
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#00B0F3" />
-          <Text style={styles.loadingText}>Loading trip details...</Text>
+      <SafeAreaView style={s.container}>
+        <TopBar navigation={navigation} />
+        <View style={s.centeredState}>
+          <ActivityIndicator size="large" color="#1A1A1A" />
+          <Text style={s.centeredStateText}>Loading trip…</Text>
         </View>
       </SafeAreaView>
     );
   }
 
+  // ── Error ─────────────────────────────────────────────────────────────────
   if (!trip) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle-outline" size={60} color="#EF4444" />
-          <Text style={styles.errorText}>Trip details not available</Text>
-          <TouchableOpacity 
-            style={styles.backButton}
+      <SafeAreaView style={s.container}>
+        <TopBar navigation={navigation} />
+        <View style={s.centeredState}>
+          <View style={s.emptyIconWrap}>
+            <Ionicons name="alert-circle-outline" size={34} color="#EF4444" />
+          </View>
+          <Text style={[s.centeredStateText, { color: "#EF4444" }]}>
+            Trip details unavailable
+          </Text>
+          <TouchableOpacity
+            style={s.backPill}
             onPress={() => navigation.goBack()}
+            activeOpacity={0.88}
           >
-            <Text style={styles.backButtonText}>Go Back</Text>
+            <Text style={s.backPillText}>Go Back</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  const isCancelled = trip.status === 'cancelled';
-  const isCompleted = trip.status === 'completed';
+  const isCancelled = trip.status === "cancelled";
+  const isCompleted = trip.status === "completed";
   const fareAmount = trip.finalFare || trip.estimatedFare || 0;
-  const driverEarnings = trip.driverEarnings || trip.finalFare || trip.estimatedFare || 0;
+  const driverEarn = trip.driverEarnings || fareAmount;
   const commission = trip.commission || 0;
-
-  const openMaps = (coordinates, label) => {
-    if (!coordinates || !Array.isArray(coordinates) || coordinates.length < 2) {
-      return;
-    }
-    
-    const [lng, lat] = coordinates;
-    const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-    
-    Linking.openURL(url).catch(err => {
-      console.error('Failed to open maps:', err);
-      Alert.alert('Error', 'Could not open maps app');
-    });
-  };
+  const statusCfg = STATUS_CONFIG[trip.status] || STATUS_CONFIG.pending;
+  const serviceName =
+    SERVICE_NAMES[trip.serviceType] ||
+    trip.serviceType?.replace(/_/g, " ") ||
+    "Ride";
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={28} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Trip Details</Text>
-        <View style={{ width: 28 }} />
-      </View>
+    <SafeAreaView style={s.container}>
+      <TopBar navigation={navigation} />
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Status Banner */}
-        <View style={[
-          styles.statusBanner,
-          isCancelled ? styles.statusCancelled : 
-          isCompleted ? styles.statusCompleted :
-          styles.statusActive
-        ]}>
-          <Ionicons 
-            name={isCancelled ? 'close-circle' : 
-                  isCompleted ? 'checkmark-circle' : 
-                  'time-outline'} 
-            size={24} 
-            color={isCancelled ? '#EF4444' : 
-                   isCompleted ? '#10B981' : 
-                   '#3B82F6'} 
-          />
-          <Text style={[
-            styles.statusText,
-            isCancelled ? styles.statusTextCancelled :
-            isCompleted ? styles.statusTextCompleted :
-            styles.statusTextActive
-          ]}>
-            {trip.status.replace(/_/g, ' ').toUpperCase()}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 50 }}
+      >
+        {/* ── STATUS CARD (dark) ── */}
+        <View style={s.statusCard}>
+          <View style={[s.statusBadge, { backgroundColor: statusCfg.bg }]}>
+            <Ionicons name={statusCfg.icon} size={16} color={statusCfg.color} />
+            <Text style={[s.statusBadgeText, { color: statusCfg.color }]}>
+              {statusCfg.label}
+            </Text>
+          </View>
+          <Text style={s.fareHero}>₦{fareAmount.toLocaleString()}</Text>
+          <Text style={s.fareHeroSub}>
+            {serviceName} · {formatDate(trip.completedAt || trip.requestedAt)}
           </Text>
         </View>
 
-        {/* Route Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Route</Text>
-          <View style={styles.routeCard}>
-            <TouchableOpacity 
-              style={styles.routeItem}
-              onPress={() => trip.pickupLocation?.coordinates && openMaps(trip.pickupLocation.coordinates, 'Pickup')}
-              disabled={!trip.pickupLocation?.coordinates}
-            >
-              <View style={styles.routeIconContainer}>
-                <View style={styles.greenDot} />
-              </View>
-              <View style={styles.routeDetails}>
-                <Text style={styles.routeLabel}>Pickup</Text>
-                {loadingAddresses ? (
-                  <ActivityIndicator size="small" color="#64748B" />
-                ) : (
-                  <Text style={styles.routeAddress}>{addresses.pickup}</Text>
-                )}
-              </View>
-              {trip.pickupLocation?.coordinates && (
-                <Ionicons name="open-outline" size={18} color="#64748B" style={styles.mapIcon} />
-              )}
-            </TouchableOpacity>
+        {/* ── ROUTE CARD ── */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Route</Text>
 
-            <View style={styles.routeLine} />
-
-            <TouchableOpacity 
-              style={styles.routeItem}
-              onPress={() => trip.dropoffLocation?.coordinates && openMaps(trip.dropoffLocation.coordinates, 'Dropoff')}
-              disabled={!trip.dropoffLocation?.coordinates}
-            >
-              <View style={styles.routeIconContainer}>
-                <View style={styles.redDot} />
-              </View>
-              <View style={styles.routeDetails}>
-                <Text style={styles.routeLabel}>Dropoff</Text>
-                {loadingAddresses ? (
-                  <ActivityIndicator size="small" color="#64748B" />
-                ) : (
-                  <Text style={styles.routeAddress}>{addresses.dropoff}</Text>
-                )}
-              </View>
-              {trip.dropoffLocation?.coordinates && (
-                <Ionicons name="open-outline" size={18} color="#64748B" style={styles.mapIcon} />
+          {/* Pickup */}
+          <TouchableOpacity
+            style={s.routeRow}
+            onPress={() =>
+              trip.pickupLocation?.coordinates &&
+              openMaps(trip.pickupLocation.coordinates)
+            }
+            disabled={!trip.pickupLocation?.coordinates}
+            activeOpacity={0.75}
+          >
+            <View style={s.routeLeft}>
+              <View style={s.dotGreen} />
+              <View style={s.routeLine} />
+            </View>
+            <View style={s.routeAddrBlock}>
+              <Text style={s.routeAddrLabel}>PICKUP</Text>
+              {loadingAddr ? (
+                <ActivityIndicator
+                  size="small"
+                  color="#1A1A1A"
+                  style={{ alignSelf: "flex-start" }}
+                />
+              ) : (
+                <Text style={s.routeAddrText}>{addresses.pickup}</Text>
               )}
-            </TouchableOpacity>
-          </View>
+            </View>
+            {trip.pickupLocation?.coordinates && (
+              <Ionicons name="open-outline" size={16} color="#ccc" />
+            )}
+          </TouchableOpacity>
+
+          {/* Dropoff */}
+          <TouchableOpacity
+            style={[s.routeRow, { paddingTop: 0 }]}
+            onPress={() =>
+              trip.dropoffLocation?.coordinates &&
+              openMaps(trip.dropoffLocation.coordinates)
+            }
+            disabled={!trip.dropoffLocation?.coordinates}
+            activeOpacity={0.75}
+          >
+            <View style={s.routeLeft}>
+              <View style={s.dotRed} />
+            </View>
+            <View style={s.routeAddrBlock}>
+              <Text style={s.routeAddrLabel}>DESTINATION</Text>
+              {loadingAddr ? (
+                <ActivityIndicator
+                  size="small"
+                  color="#1A1A1A"
+                  style={{ alignSelf: "flex-start" }}
+                />
+              ) : (
+                <Text style={s.routeAddrText}>{addresses.dropoff}</Text>
+              )}
+            </View>
+            {trip.dropoffLocation?.coordinates && (
+              <Ionicons name="open-outline" size={16} color="#ccc" />
+            )}
+          </TouchableOpacity>
         </View>
 
-        {/* Fare Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Fare</Text>
-          <View style={styles.card}>
-            <View style={styles.fareSummary}>
-              <Text style={styles.fareLabel}>Total Fare</Text>
-              <Text style={styles.fareAmount}>₦{fareAmount.toLocaleString()}</Text>
-            </View>
-            
-            {role === 'driver' && isCompleted && (
-              <>
-                <View style={styles.fareBreakdown}>
-                  <Text style={styles.breakdownLabel}>Breakdown</Text>
-                  <View style={styles.breakdownRow}>
-                    <Text style={styles.breakdownText}>Fare</Text>
-                    <Text style={styles.breakdownValue}>₦{fareAmount.toLocaleString()}</Text>
-                  </View>
-                  {commission > 0 && (
-                    <View style={styles.breakdownRow}>
-                      <Text style={styles.breakdownText}>Commission</Text>
-                      <Text style={[styles.breakdownValue, styles.commissionText]}>
-                        -₦{commission.toLocaleString()}
-                      </Text>
-                    </View>
-                  )}
-                  <View style={[styles.breakdownRow, styles.earningsRow]}>
-                    <Text style={[styles.breakdownText, styles.earningsText]}>Your Earnings</Text>
-                    <Text style={[styles.breakdownValue, styles.earningsAmount]}>
-                      ₦{driverEarnings.toLocaleString()}
-                    </Text>
-                  </View>
-                </View>
-              </>
-            )}
-            
-            <View style={styles.paymentMethod}>
-              <Ionicons 
-                name={trip.paymentMethod === 'cash' ? 'cash-outline' : 'wallet-outline'} 
-                size={18} 
-                color="#64748B" 
+        {/* ── FARE CARD ── */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Fare</Text>
+
+          <View style={s.fareCenterRow}>
+            <Text style={s.fareBig}>₦{fareAmount.toLocaleString()}</Text>
+            <View style={s.paymentChip}>
+              <Ionicons
+                name={
+                  trip.paymentMethod === "cash"
+                    ? "cash-outline"
+                    : "wallet-outline"
+                }
+                size={13}
+                color="#666"
               />
-              <Text style={styles.paymentMethodText}>
-                Paid with {trip.paymentMethod === 'cash' ? 'Cash' : 'Wallet'}
+              <Text style={s.paymentChipText}>
+                {trip.paymentMethod === "cash" ? "Cash" : "Wallet"}
               </Text>
             </View>
           </View>
-        </View>
 
-        {/* Trip Info */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Trip Information</Text>
-          <View style={styles.card}>
-            <InfoRow 
-              icon="calendar-outline" 
-              label="Requested" 
-              value={formatDate(trip.requestedAt)} 
-            />
-            {trip.startedAt && (
-              <InfoRow 
-                icon="play-outline" 
-                label="Started" 
-                value={formatDate(trip.startedAt)} 
-              />
-            )}
-            {trip.completedAt && (
-              <InfoRow 
-                icon="checkmark-outline" 
-                label="Completed" 
-                value={formatDate(trip.completedAt)} 
-              />
-            )}
-            {trip.cancelledAt && (
-              <InfoRow 
-                icon="close-outline" 
-                label="Cancelled" 
-                value={formatDate(trip.cancelledAt)} 
-              />
-            )}
-            <InfoRow 
-              icon="car-outline" 
-              label="Service Type" 
-              value={trip.serviceType.replace(/_/g, ' ')} 
-            />
-            {trip.distanceKm > 0 && (
-              <InfoRow 
-                icon="navigate-outline" 
-                label="Distance" 
-                value={`${trip.distanceKm.toFixed(1)} km`} 
-              />
-            )}
-            {trip.durationMinutes > 0 && (
-              <InfoRow 
-                icon="time-outline" 
-                label="Duration" 
-                value={`${trip.durationMinutes} minutes`} 
-              />
-            )}
-          </View>
-        </View>
-
-        {/* Cancellation Info */}
-        {isCancelled && trip.cancellationReason && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Cancellation Details</Text>
-            <View style={[styles.card, styles.cancellationCard]}>
-              <View style={styles.cancellationRow}>
-                <Ionicons name="alert-circle-outline" size={20} color="#EF4444" />
-                <Text style={styles.cancellationReason}>
-                  {trip.cancellationReason.replace(/_/g, ' ')}
+          {/* Driver breakdown */}
+          {role === "driver" && isCompleted && (
+            <View style={s.breakdownSection}>
+              <View style={s.breakdownRow}>
+                <Text style={s.breakdownLabel}>Fare</Text>
+                <Text style={s.breakdownValue}>
+                  ₦{fareAmount.toLocaleString()}
+                </Text>
+              </View>
+              {commission > 0 && (
+                <View style={s.breakdownRow}>
+                  <Text style={s.breakdownLabel}>Commission</Text>
+                  <Text style={[s.breakdownValue, { color: "#EF4444" }]}>
+                    -₦{commission.toLocaleString()}
+                  </Text>
+                </View>
+              )}
+              <View style={[s.breakdownRow, s.breakdownTotal]}>
+                <Text style={s.breakdownTotalLabel}>Your Earnings</Text>
+                <Text style={s.breakdownTotalValue}>
+                  ₦{driverEarn.toLocaleString()}
                 </Text>
               </View>
             </View>
+          )}
+        </View>
+
+        {/* ── TRIP INFO CARD ── */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Trip Info</Text>
+          <InfoRow
+            icon="calendar-outline"
+            label="Requested"
+            value={formatDate(trip.requestedAt)}
+          />
+          {trip.startedAt && (
+            <InfoRow
+              icon="play-outline"
+              label="Started"
+              value={formatDate(trip.startedAt)}
+            />
+          )}
+          {trip.completedAt && (
+            <InfoRow
+              icon="checkmark-outline"
+              label="Completed"
+              value={formatDate(trip.completedAt)}
+            />
+          )}
+          {trip.cancelledAt && (
+            <InfoRow
+              icon="close-outline"
+              label="Cancelled"
+              value={formatDate(trip.cancelledAt)}
+            />
+          )}
+          <InfoRow icon="car-sport" label="Service" value={serviceName} />
+          {trip.distanceKm > 0 && (
+            <InfoRow
+              icon="navigate-outline"
+              label="Distance"
+              value={`${trip.distanceKm.toFixed(1)} km`}
+            />
+          )}
+          {trip.durationMinutes > 0 && (
+            <InfoRow
+              icon="time-outline"
+              label="Duration"
+              value={`${trip.durationMinutes} min`}
+              isLast
+            />
+          )}
+        </View>
+
+        {/* ── CANCELLATION CARD ── */}
+        {isCancelled && trip.cancellationReason && (
+          <View style={[s.card, s.cancelCard]}>
+            <View style={s.cancelCardHeader}>
+              <View style={s.cancelIconWrap}>
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={18}
+                  color="#EF4444"
+                />
+              </View>
+              <Text style={s.cancelCardTitle}>Cancellation Reason</Text>
+            </View>
+            <Text style={s.cancelCardReason}>
+              {trip.cancellationReason.replace(/_/g, " ")}
+            </Text>
           </View>
         )}
 
-        {/* Cash Payment Info */}
-        {isCompleted && trip.paymentMethod === 'cash' && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Payment Confirmation</Text>
-            <View style={[styles.card, styles.paymentConfirmationCard]}>
-              <View style={styles.paymentConfirmationRow}>
-                <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-                <Text style={styles.paymentConfirmationText}>
-                  Cash payment confirmed
-                </Text>
+        {/* ── CASH CONFIRMED CARD ── */}
+        {isCompleted && trip.paymentMethod === "cash" && (
+          <View style={[s.card, s.cashConfirmCard]}>
+            <View style={s.cashConfirmRow}>
+              <View style={s.cashConfirmIconWrap}>
+                <Ionicons name="checkmark-circle" size={18} color="#10B981" />
               </View>
-              {trip.cashReceivedAt && (
-                <Text style={styles.cashDateText}>
-                  Received on {formatDate(trip.cashReceivedAt)}
-                </Text>
-              )}
-              {trip.cashAmount && (
-                <Text style={styles.cashAmountText}>
-                  Amount: ₦{trip.cashAmount.toLocaleString()}
-                </Text>
-              )}
+              <Text style={s.cashConfirmTitle}>Cash Payment Confirmed</Text>
             </View>
+            {trip.cashReceivedAt && (
+              <Text style={s.cashConfirmSub}>
+                Received on {formatDate(trip.cashReceivedAt)}
+              </Text>
+            )}
+            {trip.cashAmount && (
+              <Text style={s.cashConfirmAmount}>
+                ₦{trip.cashAmount.toLocaleString()}
+              </Text>
+            )}
           </View>
         )}
 
         {/* Trip ID */}
-        <View style={styles.section}>
-          <Text style={styles.tripId}>Trip ID: {trip._id || trip.id}</Text>
-        </View>
-
-        {/* Bottom Spacing */}
-        <View style={{ height: 32 }} />
+        <Text style={s.tripId}>Trip ID: {trip._id || trip.id}</Text>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// Helper Components
-const InfoRow = ({ icon, label, value }) => (
-  <View style={styles.infoRow}>
-    <View style={styles.infoLeft}>
-      <Ionicons name={icon} size={20} color="#64748B" />
-      <Text style={styles.infoLabel}>{label}</Text>
+// ── Shared top bar ─────────────────────────────────────────────────────────
+function TopBar({ navigation }) {
+  return (
+    <View style={s.topBar}>
+      <TouchableOpacity
+        style={s.topBarBtn}
+        onPress={() => navigation.goBack()}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="arrow-back" size={20} color="#1A1A1A" />
+      </TouchableOpacity>
+      <Text style={s.topBarTitle}>Trip Details</Text>
+      <View style={{ width: 44 }} />
     </View>
-    <Text style={styles.infoValue}>{value}</Text>
-  </View>
-);
+  );
+}
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+// ─────────────────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F5F5F0" },
+
+  // ── Top bar ──
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    paddingTop: Platform.OS === "ios" ? 12 : 44,
+    paddingBottom: 14,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#0A2540',
+  topBarBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  content: {
-    flex: 1,
+  topBarTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    letterSpacing: -0.3,
   },
-  statusBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
+
+  // ── Status card ──
+  statusCard: {
+    backgroundColor: "#1A1A1A",
     marginHorizontal: 16,
-    marginTop: 16,
-    borderRadius: 12,
-  },
-  statusActive: {
-    backgroundColor: '#EFF6FF',
-  },
-  statusCompleted: {
-    backgroundColor: '#ECFDF5',
-  },
-  statusCancelled: {
-    backgroundColor: '#FEF2F2',
-  },
-  statusText: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  statusTextActive: {
-    color: '#3B82F6',
-  },
-  statusTextCompleted: {
-    color: '#10B981',
-  },
-  statusTextCancelled: {
-    color: '#EF4444',
-  },
-  section: {
-    marginTop: 24,
-    paddingHorizontal: 16,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#64748B',
     marginBottom: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    borderRadius: 22,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 7,
   },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 14,
+    marginBottom: 16,
+  },
+  statusBadgeText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.7 },
+  fareHero: {
+    fontSize: 36,
+    fontWeight: "900",
+    color: "#fff",
+    letterSpacing: -1,
+    marginBottom: 6,
+  },
+  fareHeroSub: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.45)",
+    textAlign: "center",
+  },
+
+  // ── Generic card ──
   card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    backgroundColor: "#fff",
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 20,
+    padding: 18,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 5,
   },
-  routeCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+  cardTitle: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#aaa",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    marginBottom: 14,
   },
-  routeItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+
+  // ── Route ──
+  routeRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingBottom: 6,
   },
-  routeIconContainer: {
-    marginRight: 16,
-    alignItems: 'center',
-  },
-  greenDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#10B981',
-  },
-  redDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#EF4444',
+  routeLeft: { alignItems: "center", marginRight: 14, paddingTop: 3 },
+  dotGreen: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#10B981",
   },
   routeLine: {
     width: 2,
-    height: 32,
-    backgroundColor: '#E2E8F0',
-    marginLeft: 7,
-    marginVertical: 8,
+    height: 28,
+    backgroundColor: "#EBEBEB",
+    marginVertical: 4,
   },
-  routeDetails: {
-    flex: 1,
+  dotRed: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#EF4444",
   },
-  routeLabel: {
-    fontSize: 12,
-    color: '#64748B',
-    marginBottom: 4,
-    fontWeight: '500',
+  routeAddrBlock: { flex: 1, paddingBottom: 8 },
+  routeAddrLabel: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#aaa",
+    letterSpacing: 0.7,
+    marginBottom: 5,
   },
-  routeAddress: {
-    fontSize: 16,
-    color: '#0A2540',
-    fontWeight: '600',
-    lineHeight: 22,
-  },
-  mapIcon: {
-    marginLeft: 8,
-    marginTop: 2,
-  },
-  fareSummary: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  fareLabel: {
+  routeAddrText: {
     fontSize: 14,
-    color: '#64748B',
-    marginBottom: 4,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    lineHeight: 20,
   },
-  fareAmount: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#00B0F3',
-  },
-  fareBreakdown: {
-    marginBottom: 16,
-  },
-  breakdownLabel: {
-    fontSize: 12,
-    color: '#64748B',
-    fontWeight: '600',
+
+  // ── Fare ──
+  fareCenterRow: { alignItems: "center", marginBottom: 4 },
+  fareBig: {
+    fontSize: 30,
+    fontWeight: "900",
+    color: "#1A1A1A",
+    letterSpacing: -1,
     marginBottom: 8,
+  },
+  paymentChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#F5F5F0",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  paymentChipText: { fontSize: 12, fontWeight: "600", color: "#666" },
+  breakdownSection: {
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#F5F5F0",
+    paddingTop: 14,
   },
   breakdownRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: "#F5F5F0",
   },
-  earningsRow: {
-    borderTopWidth: 2,
-    borderTopColor: '#E2E8F0',
+  breakdownLabel: { fontSize: 13, color: "#888" },
+  breakdownValue: { fontSize: 13, fontWeight: "700", color: "#1A1A1A" },
+  breakdownTotal: {
     borderBottomWidth: 0,
-    marginTop: 8,
-    paddingTop: 12,
+    borderTopWidth: 2,
+    borderTopColor: "#EBEBEB",
+    marginTop: 6,
+    paddingTop: 14,
   },
-  breakdownText: {
-    fontSize: 14,
-    color: '#64748B',
-  },
-  breakdownValue: {
-    fontSize: 14,
-    color: '#0A2540',
-    fontWeight: '600',
-  },
-  commissionText: {
-    color: '#EF4444',
-  },
-  earningsText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0A2540',
-  },
-  earningsAmount: {
+  breakdownTotalLabel: { fontSize: 15, fontWeight: "800", color: "#1A1A1A" },
+  breakdownTotalValue: {
     fontSize: 18,
-    color: '#10B981',
-    fontWeight: '700',
+    fontWeight: "900",
+    color: "#10B981",
+    letterSpacing: -0.5,
   },
-  paymentMethod: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F8FAFC',
-    padding: 12,
-    borderRadius: 8,
-  },
-  paymentMethodText: {
-    fontSize: 14,
-    color: '#64748B',
-    marginLeft: 8,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  infoLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  infoLabel: {
-    fontSize: 15,
-    color: '#64748B',
-    marginLeft: 12,
-  },
-  infoValue: {
-    fontSize: 15,
-    color: '#0A2540',
-    fontWeight: '600',
-    textTransform: 'capitalize',
-  },
-  cancellationCard: {
-    backgroundColor: '#FEF2F2',
-  },
-  cancellationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  cancellationReason: {
-    fontSize: 15,
-    color: '#EF4444',
-    marginLeft: 8,
-    textTransform: 'capitalize',
-    fontWeight: '500',
-  },
-  paymentConfirmationCard: {
-    backgroundColor: '#ECFDF5',
-  },
-  paymentConfirmationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+
+  // ── Cancel card ──
+  cancelCard: { borderWidth: 1.5, borderColor: "#FEE2E2" },
+  cancelCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
     marginBottom: 8,
   },
-  paymentConfirmationText: {
-    fontSize: 15,
-    color: '#10B981',
-    fontWeight: '600',
-    marginLeft: 8,
+  cancelIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#FEF2F2",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  cashDateText: {
-    fontSize: 14,
-    color: '#059669',
-    marginLeft: 28,
-    marginBottom: 4,
+  cancelCardTitle: { fontSize: 14, fontWeight: "800", color: "#EF4444" },
+  cancelCardReason: {
+    fontSize: 13,
+    color: "#EF4444",
+    opacity: 0.8,
+    textTransform: "capitalize",
+    lineHeight: 19,
   },
-  cashAmountText: {
-    fontSize: 16,
-    color: '#059669',
-    fontWeight: '700',
-    marginLeft: 28,
+
+  // ── Cash confirm card ──
+  cashConfirmCard: { borderWidth: 1.5, borderColor: "#D1FAE5" },
+  cashConfirmRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 6,
   },
+  cashConfirmIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#ECFDF5",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  cashConfirmTitle: { fontSize: 14, fontWeight: "800", color: "#065F46" },
+  cashConfirmSub: { fontSize: 12, color: "#059669", marginBottom: 4 },
+  cashConfirmAmount: { fontSize: 17, fontWeight: "800", color: "#059669" },
+
+  // ── Trip ID ──
   tripId: {
-    fontSize: 12,
-    color: '#94A3B8',
-    textAlign: 'center',
+    fontSize: 11,
+    color: "#ccc",
+    textAlign: "center",
+    marginTop: 4,
+    fontFamily: Platform.OS === "ios" ? "Courier New" : "monospace",
   },
-  loadingContainer: {
+
+  // ── Centered states ──
+  centeredState: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 40,
   },
-  loadingText: {
-    fontSize: 16,
-    color: '#64748B',
-    marginTop: 12,
+  centeredStateText: {
+    fontSize: 14,
+    color: "#aaa",
+    fontWeight: "600",
+    marginTop: 14,
   },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 5,
   },
-  errorText: {
-    fontSize: 16,
-    color: '#EF4444',
-    textAlign: 'center',
-    marginTop: 16,
-    marginBottom: 24,
-  },
-  backButton: {
-    backgroundColor: '#00B0F3',
+  backPill: {
+    backgroundColor: "#1A1A1A",
+    borderRadius: 14,
+    paddingVertical: 13,
     paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
+    marginTop: 20,
   },
-  backButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  backPillText: { color: "#fff", fontWeight: "800", fontSize: 14 },
 });

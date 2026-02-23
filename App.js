@@ -22,6 +22,7 @@ import TripInProgressScreen from './src/screens/passenger/TripInProgressScreen';
 import TripCompletedScreen from './src/screens/passenger/TripCompletedScreen';
 import NotificationScreen from './src/screens/passenger/NotificationScreen';
 import TripTrackingScreen from './src/screens/passenger/TripTrackingScreen';
+import WalletScreen2 from './src/screens/passenger/WalletScreen';
 
 // Intercity Screens (City to City)
 import CityToCityScreen from './src/screens/passenger/CityToCityScreen'; // Renamed from CityToCityScreen
@@ -109,6 +110,7 @@ export default function App() {
         <Stack.Screen name="TripInProgress" component={TripInProgressScreen} />
         <Stack.Screen name="TripCompleted" component={TripCompletedScreen} />
         <Stack.Screen name="TripTracking" component={TripTrackingScreen} />
+        <Stack.Screen name="PassWallet" component={WalletScreen2} />
 
         {/* Intercity Booking Flow Screens (Full-screen modals) */}
         <Stack.Screen 

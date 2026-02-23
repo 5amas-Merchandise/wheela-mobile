@@ -1,5 +1,5 @@
 // src/screens/passenger/PromotionsScreen.js
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -12,77 +12,102 @@ import {
   ActivityIndicator,
   Share,
   RefreshControl,
-  Clipboard,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
-import { getAuthToken } from '../../utils/auth';
+  Platform,
+} from "react-native";
+import * as Clipboard from "expo-clipboard";
+import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import { getAuthToken } from "../../utils/auth";
 
-const BASE_URL = 'https://wheels-backend-7ydc.onrender.com';
+const BASE_URL = "https://wheels-backend-7ydc.onrender.com";
+
+// ─── pure helpers ────────────────────────────────────────────────────────────
+
+const statusColor = (s) =>
+  s === "rewarded" ? "#10B981" : s === "expired" ? "#EF4444" : "#F59E0B";
+
+const statusBg = (s) =>
+  s === "rewarded" ? "#ECFDF5" : s === "expired" ? "#FEF2F2" : "#FFFBEB";
+
+const statusLabel = (s) =>
+  s === "rewarded" ? "Rewarded" : s === "expired" ? "Expired" : "Pending";
+
+const fmtDate = (d) =>
+  d
+    ? new Date(d).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "";
+
+const HOW_IT_WORKS = [
+  {
+    num: "1",
+    text: "Share your code with friends who haven't joined Wheela yet.",
+  },
+  { num: "2", text: "They enter your code when signing up." },
+  { num: "3", text: "After their first ride — you earn ₦500, they get ₦300." },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function PromotionsScreen() {
   const navigation = useNavigation();
 
-  // ── Promo code state ──
-  const [promoCode, setPromoCode] = useState('');
-
-  // ── Referral state ──
-  const [referralCode, setReferralCode] = useState(null);
-  const [referralStats, setReferralStats] = useState(null);
-  const [referralHistory, setReferralHistory] = useState([]);
-  const [loadingReferral, setLoadingReferral] = useState(true);
+  const [promoCode, setPromoCode] = useState("");
+  const [referralCode, setReferralCode] = useState("");
+  const [stats, setStats] = useState(null);
+  const [history, setHistory] = useState([]); // people I referred (I am referrer)
+  const [myBonus, setMyBonus] = useState(null); // my sign-up bonus (I am referee)
+  const [loadingCode, setLoadingCode] = useState(true);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [loadingBonus, setLoadingBonus] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [shareLoading, setShareLoading] = useState(false);
 
   useEffect(() => {
-    loadAllReferralData();
+    loadAll();
   }, []);
 
-  const loadAllReferralData = async () => {
-    await Promise.all([fetchReferralCode(), fetchReferralHistory()]);
+  // ── data loading ────────────────────────────────────────────────────────────
+
+  const loadAll = async () => {
+    await Promise.all([loadCode(), loadHistoryAndStats(), loadMyBonus()]);
   };
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadAllReferralData();
+    await loadAll();
     setRefreshing(false);
   }, []);
 
-  // ── Fetch user's referral code + stats ───────────────────────────────────
-
-  const fetchReferralCode = async () => {
+  const loadCode = async () => {
     try {
-      setLoadingReferral(true);
+      setLoadingCode(true);
       const token = await getAuthToken();
       if (!token) return;
-
       const res = await fetch(`${BASE_URL}/referrals/my-code`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
-      if (res.ok) {
-        const data = await res.json();
-        setReferralCode(data.referralCode);
-        setReferralStats(data.rewards);
-      }
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.referralCode) setReferralCode(data.referralCode);
     } catch (err) {
-      console.warn('Failed to fetch referral code:', err);
+      console.warn("loadCode error:", err.message);
     } finally {
-      setLoadingReferral(false);
+      setLoadingCode(false);
     }
   };
 
-  // ── Fetch history of people this user referred ───────────────────────────
-
-  const fetchReferralHistory = async () => {
+  const loadHistoryAndStats = async () => {
     try {
       setLoadingHistory(true);
       const token = await getAuthToken();
       if (!token) return;
 
-      // Also fetch stats at the same time
-      const [historyRes, statsRes] = await Promise.all([
+      const [histRes, statRes] = await Promise.all([
         fetch(`${BASE_URL}/referrals/history?limit=20`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
@@ -91,332 +116,442 @@ export default function PromotionsScreen() {
         }),
       ]);
 
-      if (historyRes.ok) {
-        const data = await historyRes.json();
-        setReferralHistory(data.referrals || []);
+      if (histRes.ok) {
+        const d = await histRes.json();
+        setHistory(d.referrals || []);
       }
-
-      if (statsRes.ok) {
-        const data = await statsRes.json();
-        // Merge into referralStats
-        setReferralStats(prev => ({
-          ...prev,
-          totalReferrals: data.stats?.totalReferrals ?? 0,
-          rewardedReferrals: data.stats?.rewardedReferrals ?? 0,
-          pendingReferrals: data.stats?.pendingReferrals ?? 0,
-          totalEarnedNaira: data.stats?.totalEarnedNaira ?? '0.00',
-        }));
+      if (statRes.ok) {
+        const d = await statRes.json();
+        setStats({
+          totalReferrals: d.stats?.totalReferrals ?? 0,
+          rewardedReferrals: d.stats?.rewardedReferrals ?? 0,
+          pendingReferrals: d.stats?.pendingReferrals ?? 0,
+          totalEarnedNaira: d.stats?.totalEarnedNaira ?? "0.00",
+        });
       }
     } catch (err) {
-      console.warn('Failed to fetch referral history:', err);
+      console.warn("loadHistoryAndStats error:", err.message);
     } finally {
       setLoadingHistory(false);
     }
   };
 
-  // ── Copy code to clipboard ────────────────────────────────────────────────
+  /**
+   * GET /referrals/my-bonus
+   * Returns the referral where the current user is the REFEREE —
+   * i.e. they signed up using someone else's code.
+   *
+   * Expected response shape:
+   * {
+   *   found: true,
+   *   bonus: {
+   *     status: 'pending' | 'rewarded' | 'expired',
+   *     refereeReward: 30000,        // kobo
+   *     code: 'ABC12345',
+   *     referrerName: 'Adaeze',
+   *     rewardedAt: ISO string | null,
+   *     expiresAt: ISO string
+   *   }
+   * }
+   *
+   * Add the backend route below (see comment at bottom of file).
+   */
+  const loadMyBonus = async () => {
+    try {
+      setLoadingBonus(true);
+      const token = await getAuthToken();
+      if (!token) return;
+      const res = await fetch(`${BASE_URL}/referrals/my-bonus`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setMyBonus(data.found && data.bonus ? data.bonus : null);
+    } catch (err) {
+      console.warn("loadMyBonus error:", err.message);
+    } finally {
+      setLoadingBonus(false);
+    }
+  };
 
-  const handleCopyCode = () => {
+  // ── copy ─────────────────────────────────────────────────────────────────────
+
+  const handleCopy = async () => {
     if (!referralCode) return;
-    Clipboard.setString(referralCode);
+    try {
+      await Clipboard.setStringAsync(referralCode);
+    } catch {
+      try {
+        Clipboard.setString?.(referralCode);
+      } catch {}
+    }
     setCodeCopied(true);
     setTimeout(() => setCodeCopied(false), 2500);
   };
 
-  // ── Share code via native share sheet ────────────────────────────────────
+  // ── share ─────────────────────────────────────────────────────────────────────
 
   const handleShare = async () => {
-    if (!referralCode) return;
+    if (!referralCode || shareLoading) return;
+    setShareLoading(true);
     try {
-      await Share.share({
-        message:
-          `Join me on Wheela! Use my referral code ${referralCode} when you sign up ` +
-          `and get ₦300 off your first ride. I'll get ₦500 too! 🚗\n\n` +
-          `Download Wheela: https://wheela.ng`,
-        title: 'Join Wheela with my referral code',
-      });
+      const message =
+        `🚗 Join me on Wheela!\n\n` +
+        `Use my referral code when you sign up:\n\n` +
+        `👉 ${referralCode}\n\n` +
+        `You'll get ₦300 off your first ride and I'll earn ₦500. ` +
+        `Download here: https://wheela.ng`;
+      const result = await Share.share({ message });
+      if (result.action === Share.sharedAction)
+        console.log("Shared successfully");
     } catch (err) {
-      console.warn('Share error:', err);
+      console.warn("Share dismissed:", err.message);
+    } finally {
+      setShareLoading(false);
     }
   };
 
-  // ── Promo code apply (placeholder — no backend yet) ───────────────────────
+  // ── promo code ─────────────────────────────────────────────────────────────
 
-  const handleApplyCode = () => {
+  const handleApplyPromo = () => {
     if (!promoCode.trim()) {
-      Alert.alert('Error', 'Please enter a promo code');
+      Alert.alert("Error", "Please enter a promo code.");
       return;
     }
     Alert.alert(
-      'Success! 🎉',
-      `Promo code "${promoCode}" applied! You'll get a discount on your next ride.`,
-      [{ text: 'OK' }]
+      "Applied! 🎉",
+      `Code "${promoCode}" will be applied to your next ride.`,
+      [{ text: "OK" }],
     );
-    setPromoCode('');
+    setPromoCode("");
   };
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  const formatDate = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
-
-  const statusColor = (status) => {
-    if (status === 'rewarded') return '#15803D';
-    if (status === 'expired')  return '#EF4444';
-    return '#F59E0B'; // pending
-  };
-
-  const statusBg = (status) => {
-    if (status === 'rewarded') return '#DCFCE7';
-    if (status === 'expired')  return '#FEE2E2';
-    return '#FEF3C7';
-  };
-
-  const statusLabel = (status) => {
-    if (status === 'rewarded') return '✓ Rewarded';
-    if (status === 'expired')  return '✕ Expired';
-    return '⏳ Pending';
-  };
+  // ── render ──────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.7}>
-          <Ionicons name="arrow-back" size={28} color="#000" />
+    <SafeAreaView style={s.container}>
+      {/* TOP BAR */}
+      <View style={s.topBar}>
+        <TouchableOpacity
+          style={s.topBarBtn}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="arrow-back" size={20} color="#1A1A1A" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Promotions & Referrals</Text>
-        <View style={{ width: 28 }} />
+        <Text style={s.topBarTitle}>Promotions</Text>
+        <View style={{ width: 44 }} />
       </View>
 
       <ScrollView
-        contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={s.content}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#00B0F3" />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#1A1A1A"
+            colors={["#1A1A1A"]}
+          />
         }
       >
-
-        {/* ══════════════════════════════════════════
-            YOUR REFERRAL CODE CARD
-        ══════════════════════════════════════════ */}
-        <View style={styles.referralCard}>
-          {/* Top gradient strip */}
-          <View style={styles.referralCardTop}>
-            <View style={styles.referralCardTopLeft}>
-              <View style={styles.giftIconCircle}>
-                <Ionicons name="gift" size={26} color="#FFFFFF" />
-              </View>
-              <View>
-                <Text style={styles.referralCardTopTitle}>Your Referral Code</Text>
-                <Text style={styles.referralCardTopSubtitle}>
-                  Share and earn ₦500 per friend
-                </Text>
-              </View>
+        {/* ══ HERO CARD ══ */}
+        <View style={s.heroCard}>
+          <View style={s.heroHeader}>
+            <View style={s.heroIconWrap}>
+              <Ionicons name="gift" size={26} color="#fff" />
+            </View>
+            <View>
+              <Text style={s.heroTitle}>Refer & Earn</Text>
+              <Text style={s.heroSub}>Get ₦500 for every friend you bring</Text>
             </View>
           </View>
 
-          {/* Code display */}
-          <View style={styles.referralCodeSection}>
-            {loadingReferral ? (
-              <ActivityIndicator color="#00B0F3" size="small" style={{ marginVertical: 16 }} />
+          {/* Code box */}
+          <View style={s.codeSection}>
+            {loadingCode ? (
+              <ActivityIndicator
+                color="#1A1A1A"
+                size="small"
+                style={{ marginVertical: 24 }}
+              />
             ) : (
               <>
+                <Text style={s.codeLabel}>YOUR REFERRAL CODE</Text>
+
                 <TouchableOpacity
-                  style={styles.codeBox}
-                  onPress={handleCopyCode}
-                  activeOpacity={0.7}
+                  style={s.codeBox}
+                  onPress={handleCopy}
+                  activeOpacity={0.75}
                 >
-                  <Text style={styles.codeText}>{referralCode || '—'}</Text>
-                  <View style={styles.copyBadge}>
+                  <Text style={s.codeText} numberOfLines={1}>
+                    {referralCode || "No code yet"}
+                  </Text>
+                  <View style={[s.copyPill, codeCopied && s.copyPillDone]}>
                     <Ionicons
-                      name={codeCopied ? 'checkmark' : 'copy-outline'}
-                      size={16}
-                      color={codeCopied ? '#15803D' : '#00B0F3'}
+                      name={codeCopied ? "checkmark" : "copy-outline"}
+                      size={14}
+                      color={codeCopied ? "#fff" : "#1A1A1A"}
                     />
-                    <Text style={[styles.copyText, codeCopied && styles.copiedText]}>
-                      {codeCopied ? 'Copied!' : 'Copy'}
+                    <Text
+                      style={[s.copyPillText, codeCopied && s.copyPillTextDone]}
+                    >
+                      {codeCopied ? "Copied!" : "Copy"}
                     </Text>
                   </View>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.shareButton}
+                  style={[s.shareBtn, shareLoading && s.shareBtnLoading]}
                   onPress={handleShare}
-                  activeOpacity={0.8}
+                  activeOpacity={0.75}
+                  disabled={shareLoading || !referralCode}
                 >
-                  <Ionicons name="share-social" size={18} color="#FFFFFF" />
-                  <Text style={styles.shareButtonText}>Share Your Code</Text>
+                  {shareLoading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons name="share-social" size={18} color="#fff" />
+                      <Text style={s.shareBtnText}>Share Your Code</Text>
+                    </>
+                  )}
                 </TouchableOpacity>
+
+                <Text style={s.tapHint}>
+                  Tap the code box to copy to clipboard
+                </Text>
               </>
             )}
           </View>
 
           {/* How it works */}
-          <View style={styles.howItWorks}>
-            <Text style={styles.howTitle}>How it works</Text>
-            <View style={styles.stepRow}>
-              <View style={styles.stepCircle}><Text style={styles.stepNum}>1</Text></View>
-              <Text style={styles.stepText}>
-                Share your code with friends who haven't used Wheela yet
-              </Text>
-            </View>
-            <View style={styles.stepRow}>
-              <View style={styles.stepCircle}><Text style={styles.stepNum}>2</Text></View>
-              <Text style={styles.stepText}>
-                They enter your code when signing up
-              </Text>
-            </View>
-            <View style={styles.stepRow}>
-              <View style={styles.stepCircle}><Text style={styles.stepNum}>3</Text></View>
-              <Text style={styles.stepText}>
-                When they complete their first ride — you get{' '}
-                <Text style={styles.boldBlue}>₦500</Text>, they get{' '}
-                <Text style={styles.boldBlue}>₦300</Text> in their wallets
-              </Text>
-            </View>
+          <View style={s.howSection}>
+            <Text style={s.howLabel}>HOW IT WORKS</Text>
+            {HOW_IT_WORKS.map((step) => (
+              <View key={step.num} style={s.stepRow}>
+                <View style={s.stepNumBox}>
+                  <Text style={s.stepNumText}>{step.num}</Text>
+                </View>
+                <Text style={s.stepText}>{step.text}</Text>
+              </View>
+            ))}
           </View>
         </View>
 
-        {/* ══════════════════════════════════════════
-            REFERRAL STATS ROW
-        ══════════════════════════════════════════ */}
-        {!loadingReferral && referralStats && (
-          <View style={styles.statsRow}>
-            <View style={styles.statBox}>
-              <Text style={styles.statValue}>
-                {referralStats.totalReferrals ?? 0}
-              </Text>
-              <Text style={styles.statLabel}>Total{'\n'}Referred</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statBox}>
-              <Text style={styles.statValue}>
-                {referralStats.rewardedReferrals ?? 0}
-              </Text>
-              <Text style={styles.statLabel}>Rewards{'\n'}Earned</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statBox}>
-              <Text style={[styles.statValue, styles.statValueGreen]}>
-                ₦{referralStats.totalEarnedNaira ?? '0.00'}
-              </Text>
-              <Text style={styles.statLabel}>Total{'\n'}Earned</Text>
+        {/* ══ STATS BAR ══ */}
+        {stats && (
+          <View style={s.statsBar}>
+            <StatItem value={stats.totalReferrals} label="Referred" />
+            <View style={s.statsDivider} />
+            <StatItem value={stats.rewardedReferrals} label="Rewarded" />
+            <View style={s.statsDivider} />
+            <StatItem
+              value={`₦${stats.totalEarnedNaira}`}
+              label="Earned"
+              highlight
+            />
+          </View>
+        )}
+
+        {/* ══ MY SIGN-UP BONUS — shown when user signed up with someone's code ══ */}
+        {!loadingBonus && myBonus && (
+          <View style={s.section}>
+            <Text style={s.sectionLabel}>YOUR SIGN-UP BONUS</Text>
+            <View style={s.card}>
+              <View style={s.bonusRow}>
+                {/* Icon */}
+                <View style={s.bonusIconWrap}>
+                  <Ionicons name="star" size={20} color="#fff" />
+                </View>
+
+                {/* Info */}
+                <View style={s.bonusInfo}>
+                  <Text style={s.bonusTitle}>
+                    Welcome bonus
+                    {myBonus.referrerName
+                      ? ` · via ${myBonus.referrerName}`
+                      : ""}
+                  </Text>
+                  {myBonus.code ? (
+                    <Text style={s.bonusSub}>
+                      Code used: <Text style={s.bonusCode}>{myBonus.code}</Text>
+                    </Text>
+                  ) : null}
+                  {myBonus.status === "rewarded" && myBonus.rewardedAt ? (
+                    <Text style={s.bonusSub}>
+                      Credited {fmtDate(myBonus.rewardedAt)}
+                    </Text>
+                  ) : myBonus.status === "pending" ? (
+                    <Text style={s.bonusSub}>
+                      Credited after your first ride
+                    </Text>
+                  ) : myBonus.expiresAt ? (
+                    <Text style={s.bonusSub}>
+                      Expired {fmtDate(myBonus.expiresAt)}
+                    </Text>
+                  ) : null}
+                </View>
+
+                {/* Right: status pill + amount */}
+                <View style={s.bonusRight}>
+                  <View
+                    style={[
+                      s.statusPill,
+                      { backgroundColor: statusBg(myBonus.status) },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        s.statusPillText,
+                        { color: statusColor(myBonus.status) },
+                      ]}
+                    >
+                      {statusLabel(myBonus.status)}
+                    </Text>
+                  </View>
+                  {myBonus.status !== "expired" ? (
+                    <Text
+                      style={[
+                        s.bonusAmt,
+                        myBonus.status === "rewarded"
+                          ? s.bonusAmtGreen
+                          : s.bonusAmtPending,
+                      ]}
+                    >
+                      +₦
+                      {myBonus.refereeReward
+                        ? (myBonus.refereeReward / 100).toFixed(0)
+                        : "300"}
+                    </Text>
+                  ) : (
+                    <Text style={[s.bonusAmt, s.bonusAmtExpired]}>—</Text>
+                  )}
+                  {myBonus.status === "pending" && (
+                    <Text style={s.pendingNote}>Awaiting first ride</Text>
+                  )}
+                </View>
+              </View>
             </View>
           </View>
         )}
 
-        {/* ══════════════════════════════════════════
-            REFERRAL HISTORY
-        ══════════════════════════════════════════ */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>People You've Referred</Text>
+        {/* ══ REFERRAL HISTORY — people I referred ══ */}
+        <View style={s.section}>
+          <Text style={s.sectionLabel}>PEOPLE YOU'VE REFERRED</Text>
 
           {loadingHistory ? (
-            <View style={styles.historyLoading}>
-              <ActivityIndicator color="#00B0F3" />
-              <Text style={styles.historyLoadingText}>Loading history…</Text>
+            <View style={s.card}>
+              <ActivityIndicator
+                color="#1A1A1A"
+                style={{ marginVertical: 28 }}
+              />
             </View>
-          ) : referralHistory.length === 0 ? (
-            <View style={styles.emptyHistory}>
-              <Ionicons name="people-outline" size={48} color="#CBD5E1" />
-              <Text style={styles.emptyHistoryTitle}>No referrals yet</Text>
-              <Text style={styles.emptyHistoryText}>
-                Share your code above and your friends will appear here once they sign up
+          ) : history.length === 0 ? (
+            <View style={s.emptyCard}>
+              <View style={s.emptyIconWrap}>
+                <Ionicons name="people-outline" size={34} color="#1A1A1A" />
+              </View>
+              <Text style={s.emptyTitle}>No referrals yet</Text>
+              <Text style={s.emptySub}>
+                Share your code — your friends will appear here once they join.
               </Text>
             </View>
           ) : (
-            referralHistory.map((item, index) => (
-              <View key={item.id || index} style={styles.historyItem}>
-                {/* Avatar */}
-                <View style={styles.historyAvatar}>
-                  <Text style={styles.historyAvatarText}>
-                    {(item.referee?.name || 'U').charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-
-                {/* Info */}
-                <View style={styles.historyInfo}>
-                  <Text style={styles.historyName}>
-                    {item.referee?.name || 'Wheela User'}
-                  </Text>
-                  {item.referee?.phone && (
-                    <Text style={styles.historyPhone}>{item.referee.phone}</Text>
-                  )}
-                  <Text style={styles.historyDate}>
-                    Joined {formatDate(item.createdAt)}
-                  </Text>
-                </View>
-
-                {/* Status + reward */}
-                <View style={styles.historyRight}>
-                  <View style={[
-                    styles.statusPill,
-                    { backgroundColor: statusBg(item.status) }
-                  ]}>
-                    <Text style={[
-                      styles.statusPillText,
-                      { color: statusColor(item.status) }
-                    ]}>
-                      {statusLabel(item.status)}
+            <View style={s.card}>
+              {history.map((item, i) => (
+                <View
+                  key={item.id || i}
+                  style={[
+                    s.histRow,
+                    i === history.length - 1 && { borderBottomWidth: 0 },
+                  ]}
+                >
+                  <View style={s.histAvatar}>
+                    <Text style={s.histAvatarText}>
+                      {(item.referee?.name || "U").charAt(0).toUpperCase()}
                     </Text>
                   </View>
-                  {item.status === 'rewarded' && (
-                    <Text style={styles.historyRewardAmount}>
-                      +₦{item.rewardEarned
-                        ? (item.rewardEarned / 100).toFixed(0)
-                        : '500'}
+
+                  <View style={s.histInfo}>
+                    <Text style={s.histName}>
+                      {item.referee?.name || "Wheela User"}
                     </Text>
-                  )}
-                  {item.status === 'pending' && (
-                    <Text style={styles.historyPendingNote}>
-                      Awaiting first ride
+                    {item.referee?.phone ? (
+                      <Text style={s.histSub}>{item.referee.phone}</Text>
+                    ) : null}
+                    <Text style={s.histSub}>
+                      Joined {fmtDate(item.createdAt)}
                     </Text>
-                  )}
+                  </View>
+
+                  <View style={s.histRight}>
+                    <View
+                      style={[
+                        s.statusPill,
+                        { backgroundColor: statusBg(item.status) },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          s.statusPillText,
+                          { color: statusColor(item.status) },
+                        ]}
+                      >
+                        {statusLabel(item.status)}
+                      </Text>
+                    </View>
+                    {item.status === "rewarded" && (
+                      <Text style={s.rewardAmt}>
+                        +₦
+                        {item.rewardEarned
+                          ? (item.rewardEarned / 100).toFixed(0)
+                          : "500"}
+                      </Text>
+                    )}
+                    {item.status === "pending" && (
+                      <Text style={s.pendingNote}>Awaiting first ride</Text>
+                    )}
+                  </View>
                 </View>
-              </View>
-            ))
+              ))}
+            </View>
           )}
         </View>
 
-        {/* ══════════════════════════════════════════
-            PROMO CODE SECTION (existing)
-        ══════════════════════════════════════════ */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Enter a Promo Code</Text>
-          <View style={styles.promoCard}>
-            <Text style={styles.promoHint}>
-              Have a special discount code from Wheela? Enter it below.
+        {/* ══ PROMO CODE ══ */}
+        <View style={s.section}>
+          <Text style={s.sectionLabel}>PROMO CODE</Text>
+          <View style={s.card}>
+            <Text style={s.promoHint}>
+              Have a special discount code from Wheela? Apply it below.
             </Text>
-            <View style={styles.inputContainer}>
+            <View style={s.promoRow}>
               <TextInput
-                style={styles.input}
+                style={s.promoInput}
                 value={promoCode}
                 onChangeText={setPromoCode}
-                placeholder="e.g., WHEELA20OFF"
-                placeholderTextColor="#AAA"
+                placeholder="e.g. WHEELA20OFF"
+                placeholderTextColor="#bbb"
                 autoCapitalize="characters"
+                returnKeyType="done"
+                onSubmitEditing={handleApplyPromo}
               />
-              <TouchableOpacity style={styles.applyButton} onPress={handleApplyCode} activeOpacity={0.8}>
-                <Text style={styles.applyButtonText}>Apply</Text>
+              <TouchableOpacity
+                style={s.applyBtn}
+                onPress={handleApplyPromo}
+                activeOpacity={0.8}
+              >
+                <Text style={s.applyBtnText}>Apply</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
 
-        {/* ══════════════════════════════════════════
-            TERMS NOTE
-        ══════════════════════════════════════════ */}
-        <Text style={styles.termsNote}>
-          Referral rewards are credited to your Wheela wallet after your friend completes their first ride.
-          Rewards expire 90 days after sign-up. One referral reward per new user.
+        {/* ══ TERMS ══ */}
+        <Text style={s.terms}>
+          Referral rewards are credited to your Wheela wallet after your friend
+          completes their first ride. Rewards expire 90 days after sign-up. One
+          reward per new user.
         </Text>
 
         <View style={{ height: 40 }} />
@@ -425,385 +560,373 @@ export default function PromotionsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#0A2540',
-  },
-  content: {
-    padding: 16,
-  },
+// ── Sub-component ────────────────────────────────────────────────────────────
 
-  // ── Referral Card ──
-  referralCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    marginBottom: 16,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
+function StatItem({ value, label, highlight }) {
+  return (
+    <View style={s.statItem}>
+      <Text style={[s.statValue, highlight && s.statValueGreen]}>{value}</Text>
+      <Text style={s.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+// ── Styles ───────────────────────────────────────────────────────────────────
+
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F5F5F0" },
+
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === "ios" ? 12 : 44,
+    paddingBottom: 14,
+  },
+  topBarBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
     elevation: 4,
   },
-  referralCardTop: {
-    backgroundColor: '#0A2540',
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  referralCardTopLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  giftIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#00B0F3',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  referralCardTopTitle: {
+  topBarTitle: {
     fontSize: 17,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 2,
-  },
-  referralCardTopSubtitle: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.65)',
+    fontWeight: "800",
+    color: "#1A1A1A",
+    letterSpacing: -0.3,
   },
 
-  referralCodeSection: {
+  content: { paddingHorizontal: 16 },
+
+  heroCard: {
+    backgroundColor: "#fff",
+    borderRadius: 22,
+    marginBottom: 12,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.09,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  heroHeader: {
+    backgroundColor: "#1A1A1A",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+  },
+  heroIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  heroTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#fff",
+    marginBottom: 3,
+  },
+  heroSub: { fontSize: 12, color: "rgba(255,255,255,0.45)" },
+
+  codeSection: {
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: "#F5F5F0",
+  },
+  codeLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#aaa",
+    letterSpacing: 0.8,
+    marginBottom: 10,
   },
   codeBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#F0F9FF',
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: '#BAE6FD',
-    borderStyle: 'dashed',
-    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#F5F5F0",
+    borderRadius: 16,
+    paddingHorizontal: 18,
     paddingVertical: 16,
-    marginBottom: 14,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: "#E0E0E0",
+    borderStyle: "dashed",
   },
   codeText: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: '#0A2540',
-    letterSpacing: 4,
+    fontSize: 26,
+    fontWeight: "900",
+    color: "#1A1A1A",
+    letterSpacing: 5,
+    fontFamily: Platform.OS === "ios" ? "Courier New" : "monospace",
+    flexShrink: 1,
+    marginRight: 8,
   },
-  copyBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    paddingHorizontal: 10,
+  copyPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    paddingHorizontal: 12,
     paddingVertical: 6,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    gap: 4,
-  },
-  copyText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#00B0F3',
-  },
-  copiedText: {
-    color: '#15803D',
-  },
-  shareButton: {
-    backgroundColor: '#00B0F3',
-    borderRadius: 12,
-    paddingVertical: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    shadowColor: '#00B0F3',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  shareButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-
-  howItWorks: {
-    padding: 20,
-  },
-  howTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#64748B',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 16,
-  },
-  stepRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 14,
-    gap: 12,
-  },
-  stepCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#EFF6FF',
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderColor: "#E0E0E0",
     flexShrink: 0,
   },
-  stepNum: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#00B0F3',
-  },
-  stepText: {
-    fontSize: 14,
-    color: '#475569',
-    lineHeight: 20,
-    flex: 1,
-  },
-  boldBlue: {
-    fontWeight: '700',
-    color: '#00B0F3',
-  },
-
-  // ── Stats Row ──
-  statsRow: {
-    backgroundColor: '#FFFFFF',
+  copyPillDone: { backgroundColor: "#10B981", borderColor: "#10B981" },
+  copyPillText: { fontSize: 12, fontWeight: "700", color: "#1A1A1A" },
+  copyPillTextDone: { color: "#fff" },
+  shareBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#1A1A1A",
     borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 20,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    paddingVertical: 15,
   },
-  statBox: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: '#E2E8F0',
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#0A2540',
-    marginBottom: 4,
-  },
-  statValueGreen: {
-    color: '#15803D',
-    fontSize: 20,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#94A3B8',
-    textAlign: 'center',
-    lineHeight: 16,
-  },
+  shareBtnLoading: { opacity: 0.6 },
+  shareBtnText: { fontSize: 15, fontWeight: "800", color: "#fff" },
+  tapHint: { fontSize: 11, color: "#bbb", textAlign: "center", marginTop: 10 },
 
-  // ── Sections ──
-  section: {
-    marginBottom: 16,
+  howSection: { padding: 20 },
+  howLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#aaa",
+    letterSpacing: 0.8,
+    marginBottom: 14,
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0A2540',
+  stepRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 14,
     marginBottom: 12,
-    paddingHorizontal: 2,
+  },
+  stepNumBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: "#F5F5F0",
+    justifyContent: "center",
+    alignItems: "center",
+    flexShrink: 0,
+  },
+  stepNumText: { fontSize: 13, fontWeight: "800", color: "#1A1A1A" },
+  stepText: {
+    flex: 1,
+    fontSize: 13,
+    color: "#666",
+    lineHeight: 20,
+    paddingTop: 4,
   },
 
-  // ── History ──
-  historyLoading: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 32,
-    alignItems: 'center',
-    gap: 12,
+  statsBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1A1A1A",
+    borderRadius: 18,
+    paddingVertical: 18,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 6,
   },
-  historyLoadingText: {
-    fontSize: 14,
-    color: '#94A3B8',
-  },
-  emptyHistory: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 32,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  emptyHistoryTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#0A2540',
-    marginTop: 14,
-    marginBottom: 8,
-  },
-  emptyHistoryText: {
-    fontSize: 14,
-    color: '#94A3B8',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  historyItem: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  historyAvatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: '#0A2540',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  historyAvatarText: {
-    color: '#FFFFFF',
+  statItem: { flex: 1, alignItems: "center" },
+  statValue: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: "800",
+    color: "#fff",
+    marginBottom: 3,
+    letterSpacing: -0.3,
   },
-  historyInfo: {
-    flex: 1,
+  statValueGreen: { color: "#10B981" },
+  statLabel: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.4)",
+    letterSpacing: 0.5,
   },
-  historyName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0A2540',
-    marginBottom: 2,
-  },
-  historyPhone: {
-    fontSize: 12,
-    color: '#94A3B8',
-    marginBottom: 2,
-  },
-  historyDate: {
-    fontSize: 12,
-    color: '#94A3B8',
-  },
-  historyRight: {
-    alignItems: 'flex-end',
-    gap: 4,
-  },
-  statusPill: {
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  statusPillText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  historyRewardAmount: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#15803D',
-  },
-  historyPendingNote: {
-    fontSize: 11,
-    color: '#F59E0B',
-    fontWeight: '500',
+  statsDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: "rgba(255,255,255,0.12)",
   },
 
-  // ── Promo Code Card ──
-  promoCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+  section: { marginBottom: 12 },
+  sectionLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#aaa",
+    letterSpacing: 0.8,
+    marginBottom: 10,
+    marginLeft: 2,
   },
-  promoHint: {
-    fontSize: 14,
-    color: '#64748B',
-    marginBottom: 16,
-    lineHeight: 20,
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 5,
   },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  input: {
-    flex: 1,
-    padding: 16,
-    fontSize: 16,
-    color: '#0A2540',
-  },
-  applyButton: {
-    backgroundColor: '#00B0F3',
-    paddingHorizontal: 24,
+
+  // ── sign-up bonus ──
+  bonusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 18,
     paddingVertical: 16,
   },
-  applyButtonText: {
-    color: '#FFFFFF',
+  bonusIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: "#F59E0B",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+    flexShrink: 0,
+  },
+  bonusInfo: { flex: 1 },
+  bonusTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 3,
+  },
+  bonusSub: { fontSize: 11, color: "#aaa", marginBottom: 1 },
+  bonusCode: { fontWeight: "800", color: "#1A1A1A", letterSpacing: 1 },
+  bonusRight: { alignItems: "flex-end", gap: 4, flexShrink: 0, marginLeft: 8 },
+  bonusAmt: { fontSize: 16, fontWeight: "800", marginTop: 4 },
+  bonusAmtGreen: { color: "#10B981" },
+  bonusAmtPending: { color: "#F59E0B" },
+  bonusAmtExpired: { color: "#ccc" },
+
+  // ── history rows ──
+  histRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F5F5F0",
+  },
+  histAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: "#1A1A1A",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+    flexShrink: 0,
+  },
+  histAvatarText: { color: "#fff", fontSize: 16, fontWeight: "800" },
+  histInfo: { flex: 1 },
+  histName: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 2,
+  },
+  histSub: { fontSize: 11, color: "#aaa", marginBottom: 1 },
+  histRight: { alignItems: "flex-end", gap: 4, flexShrink: 0, marginLeft: 8 },
+  statusPill: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
+  statusPillText: { fontSize: 10, fontWeight: "800" },
+  rewardAmt: { fontSize: 14, fontWeight: "800", color: "#10B981" },
+  pendingNote: { fontSize: 10, color: "#F59E0B", fontWeight: "600" },
+
+  // ── empty state ──
+  emptyCard: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 36,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  emptyIconWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 20,
+    backgroundColor: "#F5F5F0",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  emptyTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "800",
+    color: "#1A1A1A",
+    marginBottom: 6,
+  },
+  emptySub: {
+    fontSize: 13,
+    color: "#aaa",
+    textAlign: "center",
+    lineHeight: 19,
   },
 
-  // ── Terms ──
-  termsNote: {
-    fontSize: 12,
-    color: '#94A3B8',
-    textAlign: 'center',
-    lineHeight: 18,
-    paddingHorizontal: 8,
+  // ── promo code ──
+  promoHint: {
+    fontSize: 13,
+    color: "#888",
+    lineHeight: 19,
+    padding: 18,
+    paddingBottom: 10,
+  },
+  promoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 18,
+    marginBottom: 18,
+    backgroundColor: "#F5F5F0",
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  promoInput: {
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1A1A1A",
+  },
+  applyBtn: {
+    backgroundColor: "#1A1A1A",
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  applyBtnText: { color: "#fff", fontSize: 14, fontWeight: "800" },
+
+  terms: {
+    fontSize: 11,
+    color: "#bbb",
+    textAlign: "center",
+    lineHeight: 17,
+    paddingHorizontal: 16,
     marginBottom: 8,
   },
 });

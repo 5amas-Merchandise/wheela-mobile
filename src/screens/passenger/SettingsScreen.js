@@ -1,5 +1,5 @@
 // src/screens/passenger/SettingsScreen.js
-import React from 'react';
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -8,137 +8,235 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+  Platform,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
 
+// ── Reusable setting row ───────────────────────────────────────────────────
+function SettingRow({ icon, label, sub, onPress, rightElement, isLast }) {
+  const Inner = (
+    <View style={[r.row, isLast && { borderBottomWidth: 0 }]}>
+      <View style={r.iconWrap}>
+        <Ionicons name={icon} size={18} color="#1A1A1A" />
+      </View>
+      <View style={r.labelWrap}>
+        <Text style={r.label}>{label}</Text>
+        {sub ? <Text style={r.sub}>{sub}</Text> : null}
+      </View>
+      {rightElement || (
+        <Ionicons name="chevron-forward" size={16} color="#ccc" />
+      )}
+    </View>
+  );
+
+  if (onPress) {
+    return (
+      <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
+        {Inner}
+      </TouchableOpacity>
+    );
+  }
+  return Inner;
+}
+
+const r = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F5F5F0",
+  },
+  iconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#F5F5F0",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 14,
+  },
+  labelWrap: { flex: 1 },
+  label: { fontSize: 14, fontWeight: "700", color: "#1A1A1A" },
+  sub: { fontSize: 11, color: "#aaa", marginTop: 2 },
+});
+
+// ── Section wrapper ────────────────────────────────────────────────────────
+function Section({ title, children }) {
+  return (
+    <View style={s.section}>
+      <Text style={s.sectionTitle}>{title}</Text>
+      <View style={s.sectionCard}>{children}</View>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 export default function SettingsScreen() {
   const navigation = useNavigation();
-  const [notifications, setNotifications] = React.useState(true);
-  const [locationAlways, setLocationAlways] = React.useState(false);
+  const [notifications, setNotifications] = useState(true);
+  const [locationAlways, setLocationAlways] = useState(false);
+
+  const Toggle = ({ value, onChange }) => (
+    <Switch
+      value={value}
+      onValueChange={onChange}
+      trackColor={{ false: "#E0E0E0", true: "#1A1A1A" }}
+      thumbColor="#fff"
+      ios_backgroundColor="#E0E0E0"
+    />
+  );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={28} color="#000" />
+    <SafeAreaView style={s.container}>
+      {/* ── TOP BAR ── */}
+      <View style={s.topBar}>
+        <TouchableOpacity
+          style={s.topBarBtn}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="arrow-back" size={20} color="#1A1A1A" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
-        <View style={{ width: 28 }} />
+        <Text style={s.topBarTitle}>Settings</Text>
+        <View style={{ width: 44 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        {/* Account Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Account</Text>
-          <TouchableOpacity style={styles.settingItem} onPress={() => navigation.navigate('Profile')}>
-            <Ionicons name="person-outline" size={24} color="#64748B" />
-            <Text style={styles.settingText}>Personal Information</Text>
-            <Ionicons name="chevron-forward" size={20} color="#CBD5E1" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.settingItem}>
-            <Ionicons name="lock-closed-outline" size={24} color="#64748B" />
-            <Text style={styles.settingText}>Change Password</Text>
-            <Ionicons name="chevron-forward" size={20} color="#CBD5E1" />
-          </TouchableOpacity>
-        </View>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={s.content}
+      >
+        {/* ── ACCOUNT ── */}
+        <Section title="Account">
+          <SettingRow
+            icon="person-outline"
+            label="Personal Information"
+            onPress={() => navigation.navigate("Profile")}
+          />
+          <SettingRow
+            icon="lock-closed-outline"
+            label="Change Password"
+            onPress={() => {}}
+            isLast
+          />
+        </Section>
 
-        {/* Preferences */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Preferences</Text>
-          <View style={styles.settingItem}>
-            <Ionicons name="notifications-outline" size={24} color="#64748B" />
-            <View style={styles.settingLabel}>
-              <Text style={styles.settingText}>Push Notifications</Text>
-              <Text style={styles.settingSub}>Ride updates, promotions, and alerts</Text>
-            </View>
-            <Switch value={notifications} onValueChange={setNotifications} />
-          </View>
-          <View style={styles.settingItem}>
-            <Ionicons name="location-outline" size={24} color="#64748B" />
-            <View style={styles.settingLabel}>
-              <Text style={styles.settingText}>Location Access</Text>
-              <Text style={styles.settingSub}>Allow always for better pickup</Text>
-            </View>
-            <Switch value={locationAlways} onValueChange={setLocationAlways} />
-          </View>
-        </View>
+        {/* ── PREFERENCES ── */}
+        <Section title="Preferences">
+          <SettingRow
+            icon="notifications-outline"
+            label="Push Notifications"
+            sub="Ride updates, promos, alerts"
+            rightElement={
+              <Toggle value={notifications} onChange={setNotifications} />
+            }
+          />
+          <SettingRow
+            icon="location-outline"
+            label="Location Access"
+            sub="Allow always for better pickup"
+            rightElement={
+              <Toggle value={locationAlways} onChange={setLocationAlways} />
+            }
+            isLast
+          />
+        </Section>
 
-        {/* Support & Legal */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Support & Legal</Text>
-          <TouchableOpacity style={styles.settingItem} onPress={() => navigation.navigate('Help')}>
-            <Ionicons name="help-circle-outline" size={24} color="#64748B" />
-            <Text style={styles.settingText}>Help & Support</Text>
-            <Ionicons name="chevron-forward" size={20} color="#CBD5E1" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.settingItem}>
-            <Ionicons name="document-text-outline" size={24} color="#64748B" />
-            <Text style={styles.settingText}>Terms of Service</Text>
-            <Ionicons name="chevron-forward" size={20} color="#CBD5E1" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.settingItem}>
-            <Ionicons name="shield-checkmark-outline" size={24} color="#64748B" />
-            <Text style={styles.settingText}>Privacy Policy</Text>
-            <Ionicons name="chevron-forward" size={20} color="#CBD5E1" />
-          </TouchableOpacity>
-        </View>
+        {/* ── SUPPORT & LEGAL ── */}
+        <Section title="Support & Legal">
+          <SettingRow
+            icon="help-circle-outline"
+            label="Help & Support"
+            onPress={() => navigation.navigate("Help")}
+          />
+          <SettingRow
+            icon="document-text-outline"
+            label="Terms of Service"
+            onPress={() => {}}
+          />
+          <SettingRow
+            icon="shield-checkmark-outline"
+            label="Privacy Policy"
+            onPress={() => {}}
+            isLast
+          />
+        </Section>
 
-        {/* App Info */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>About</Text>
-          <View style={styles.settingItem}>
-            <Ionicons name="information-circle-outline" size={24} color="#64748B" />
-            <Text style={styles.settingText}>App Version</Text>
-            <Text style={styles.versionText}>Wheela v1.2.0</Text>
-          </View>
-        </View>
+        {/* ── ABOUT ── */}
+        <Section title="About">
+          <SettingRow
+            icon="information-circle-outline"
+            label="App Version"
+            rightElement={<Text style={s.versionText}>v1.2.0</Text>}
+            isLast
+          />
+        </Section>
+
+        <View style={{ height: 30 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+// ─────────────────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F5F5F0" },
+
+  // ── Top bar ──
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    paddingTop: Platform.OS === "ios" ? 12 : 44,
+    paddingBottom: 14,
   },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: '#0A2540' },
-  content: { padding: 16 },
-  section: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
+  topBarBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 4,
   },
+  topBarTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    letterSpacing: -0.3,
+  },
+
+  content: { paddingHorizontal: 16 },
+
+  // ── Section ──
+  section: { marginBottom: 12 },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#64748B',
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#aaa",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
     marginBottom: 8,
+    marginLeft: 4,
   },
-  settingItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+  sectionCard: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 5,
   },
-  settingLabel: { flex: 1, marginLeft: 16 },
-  settingText: { fontSize: 16, color: '#0A2540' },
-  settingSub: { fontSize: 13, color: '#64748B', marginTop: 4 },
-  versionText: { fontSize: 16, color: '#64748B' },
+
+  // ── Version text ──
+  versionText: { fontSize: 13, fontWeight: "700", color: "#aaa" },
 });

@@ -1,5 +1,5 @@
 // src/screens/passenger/TripHistoryScreen.js
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,98 +10,120 @@ import {
   RefreshControl,
   ActivityIndicator,
   Alert,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
-import { getAuthToken } from '../../utils/auth';
+  Platform,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import { getAuthToken } from "../../utils/auth";
 
-const API_BASE_URL = 'https://wheels-backend-7ydc.onrender.com';
-const GOOGLE_MAPS_API_KEY = 'AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo'; // Replace with your key
+const API_BASE_URL = "https://wheels-backend-7ydc.onrender.com";
+const GOOGLE_API_KEY = "AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo";
+const LIMIT = 20;
 
-// Service type icon mapping
 const SERVICE_ICONS = {
-  'CITY_RIDE': 'car-outline',
-  'OUTSTATION': 'airplane-outline',
-  'RENTAL': 'time-outline',
-  'LUXURY': 'car-sport-outline',
-  'BIKE': 'bicycle-outline',
-  'KEKE': 'triangle-outline',
+  CITY_RIDE: "car-sport",
+  OUTSTATION: "airplane-outline",
+  RENTAL: "time-outline",
+  LUXURY: "diamond",
+  LUXURY_RENTAL: "diamond",
+  BIKE: "bicycle",
+  DELIVERY_BIKE: "bicycle",
+  KEKE: "triangle",
 };
 
-// Service type display names
 const SERVICE_NAMES = {
-  'CITY_RIDE': 'City Ride',
-  'OUTSTATION': 'Outstation',
-  'RENTAL': 'Rental',
-  'LUXURY': 'Luxury',
-  'BIKE': 'Bike',
-  'KEKE': 'Keke',
+  CITY_RIDE: "City Ride",
+  OUTSTATION: "Outstation",
+  RENTAL: "Rental",
+  LUXURY: "Luxury",
+  LUXURY_RENTAL: "Luxury",
+  BIKE: "Bike",
+  DELIVERY_BIKE: "Delivery Bike",
+  KEKE: "Keke",
 };
 
-// Format date to readable format
+const SERVICE_COLORS = {
+  CITY_RIDE: "#1A1A1A",
+  OUTSTATION: "#3B82F6",
+  RENTAL: "#8B5CF6",
+  LUXURY: "#7C3AED",
+  LUXURY_RENTAL: "#7C3AED",
+  BIKE: "#059669",
+  DELIVERY_BIKE: "#059669",
+  KEKE: "#D97706",
+};
+
+const SERVICE_BG = {
+  CITY_RIDE: "#F5F5F0",
+  OUTSTATION: "#EFF6FF",
+  RENTAL: "#F5F3FF",
+  LUXURY: "#F5F3FF",
+  LUXURY_RENTAL: "#F5F3FF",
+  BIKE: "#ECFDF5",
+  DELIVERY_BIKE: "#ECFDF5",
+  KEKE: "#FFFBEB",
+};
+
+const STATUS_CONFIG = {
+  completed: { color: "#10B981", bg: "#ECFDF5", label: "COMPLETED" },
+  cancelled: { color: "#EF4444", bg: "#FEF2F2", label: "CANCELLED" },
+  active: { color: "#3B82F6", bg: "#EFF6FF", label: "ACTIVE" },
+  pending: { color: "#8B5CF6", bg: "#F5F3FF", label: "PENDING" },
+};
+
 const formatDate = (dateString) => {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  const options = { month: 'short', day: 'numeric', year: 'numeric' };
-  return date.toLocaleDateString('en-US', options);
+  if (!dateString) return "";
+  return new Date(dateString).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 };
 
-// Format time to readable format
 const formatTime = (dateString) => {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  const options = { hour: 'numeric', minute: '2-digit', hour12: true };
-  return date.toLocaleTimeString('en-US', options);
+  if (!dateString) return "";
+  return new Date(dateString).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 };
 
-// Google Maps Geocoding function
 const getAddressFromCoordinates = async (coordinates) => {
-  if (!coordinates || !Array.isArray(coordinates) || coordinates.length < 2) {
-    return 'Unknown Location';
-  }
-
+  if (!Array.isArray(coordinates) || coordinates.length < 2)
+    return "Unknown Location";
   try {
     const [lng, lat] = coordinates;
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_MAPS_API_KEY}`;
-    
-    const response = await fetch(url);
-    const data = await response.json();
-    
-    if (data.status === 'OK' && data.results[0]) {
-      // Get a shorter, more readable address
-      const address = data.results[0].formatted_address;
-      
-      // For Lagos addresses, try to extract neighborhood
-      if (address.includes('Lagos')) {
-        // Try to get a more specific location name
-        for (const component of data.results[0].address_components) {
-          if (component.types.includes('neighborhood') || 
-              component.types.includes('sublocality') ||
-              component.types.includes('locality')) {
-            return `${component.long_name}, Lagos`;
-          }
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_API_KEY}`,
+    );
+    const data = await res.json();
+    if (data.status === "OK" && data.results[0]) {
+      const addr = data.results[0].formatted_address;
+      if (addr.includes("Lagos")) {
+        for (const c of data.results[0].address_components) {
+          if (
+            c.types.includes("neighborhood") ||
+            c.types.includes("sublocality") ||
+            c.types.includes("locality")
+          )
+            return `${c.long_name}, Lagos`;
         }
       }
-      
-      // Return first 40 characters to keep it readable
-      return address.length > 40 ? address.substring(0, 40) + '...' : address;
+      return addr.length > 40 ? addr.substring(0, 40) + "…" : addr;
     }
-    
-    // Fallback: Return coordinates
-    return `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
-  } catch (error) {
-    console.error('Geocoding error:', error);
-    
-    // Fallback: Return coordinates
+    const [l, a] = coordinates;
+    return `${a.toFixed(4)}, ${l.toFixed(4)}`;
+  } catch {
     const [lng, lat] = coordinates;
-    return `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   }
 };
 
 export default function TripHistoryScreen({ route }) {
   const navigation = useNavigation();
-  const role = route?.params?.role || 'passenger';
-  
+  const role = route?.params?.role || "passenger";
+
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -110,98 +132,77 @@ export default function TripHistoryScreen({ route }) {
   const [hasMore, setHasMore] = useState(true);
   const [offset, setOffset] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [addresses, setAddresses] = useState({}); // Cache for addresses
 
-  const LIMIT = 20;
-
-  // Fetch trip history from API
   const fetchTripHistory = async (isRefresh = false, loadMore = false) => {
     try {
       const currentOffset = loadMore ? offset : 0;
-      
-      if (loadMore) {
-        setLoadingMore(true);
-      } else if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-      
+      if (loadMore) setLoadingMore(true);
+      else if (isRefresh) setRefreshing(true);
+      else setLoading(true);
       setError(null);
 
-      // Get auth token
       const token = await getAuthToken();
-      if (!token) {
-        throw new Error('Not authenticated. Please login again.');
-      }
+      if (!token) throw new Error("Not authenticated. Please login again.");
 
-      // Use the correct endpoint from your backend
-      const response = await fetch(
+      const res = await fetch(
         `${API_BASE_URL}/trips?role=${role}&limit=${LIMIT}&offset=${currentOffset}`,
         {
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
-        }
+        },
       );
+      if (!res.ok) throw new Error("Failed to fetch trip history");
+      const data = await res.json();
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API Error:', errorText);
-        throw new Error('Failed to fetch trip history');
-      }
-
-      const data = await response.json();
-      console.log('Trip history data:', data);
-
-      let tripsData = data.trips || [];
-      
-      // Process trips: fetch addresses for each trip
-      const processedTrips = await Promise.all(
-        tripsData.map(async (trip) => {
-          // Try to get addresses from stored fields first
-          let pickupAddress = trip.pickupAddress || trip.pickupLocationName || '';
-          let dropoffAddress = trip.dropoffAddress || trip.dropoffLocationName || '';
-          
-          // If no stored addresses, try geocoding
-          if (!pickupAddress && trip.pickupLocation?.coordinates) {
-            pickupAddress = await getAddressFromCoordinates(trip.pickupLocation.coordinates);
-          }
-          
-          if (!dropoffAddress && trip.dropoffLocation?.coordinates) {
-            dropoffAddress = await getAddressFromCoordinates(trip.dropoffLocation.coordinates);
-          }
-          
+      const processed = await Promise.all(
+        (data.trips || []).map(async (trip) => {
+          let pickupAddress =
+            trip.pickupAddress || trip.pickupLocationName || "";
+          let dropoffAddress =
+            trip.dropoffAddress || trip.dropoffLocationName || "";
+          if (!pickupAddress && trip.pickupLocation?.coordinates)
+            pickupAddress = await getAddressFromCoordinates(
+              trip.pickupLocation.coordinates,
+            );
+          if (!dropoffAddress && trip.dropoffLocation?.coordinates)
+            dropoffAddress = await getAddressFromCoordinates(
+              trip.dropoffLocation.coordinates,
+            );
           return {
             ...trip,
-            pickupDisplayAddress: pickupAddress || 'Pickup Location',
-            dropoffDisplayAddress: dropoffAddress || 'Destination'
+            pickupDisplayAddress: pickupAddress || "Pickup Location",
+            dropoffDisplayAddress: dropoffAddress || "Destination",
           };
-        })
+        }),
       );
 
       if (loadMore) {
-        setTrips(prev => [...prev, ...processedTrips]);
+        setTrips((prev) => [...prev, ...processed]);
         setOffset(currentOffset + LIMIT);
       } else {
-        setTrips(processedTrips);
+        setTrips(processed);
         setOffset(LIMIT);
       }
 
-      // Calculate simple stats from trips
-      calculateStats(processedTrips);
-      setHasMore(processedTrips.length === LIMIT);
-
+      const completed = processed.filter((t) => t.status === "completed");
+      const totalSpent = completed.reduce(
+        (s, t) => s + (t.finalFare || t.estimatedFare || 0),
+        0,
+      );
+      setStats({
+        totalTrips: processed.length,
+        completedTrips: completed.length,
+        totalSpent,
+      });
+      setHasMore(processed.length === LIMIT);
     } catch (err) {
-      console.error('Error fetching trip history:', err);
       setError(err.message);
-      
-      if (err.message.includes('Not authenticated')) {
-        Alert.alert('Session Expired', 'Please log in again', [
-          { text: 'OK', onPress: () => navigation.navigate('Login') }
+      if (err.message.includes("Not authenticated"))
+        Alert.alert("Session Expired", "Please log in again.", [
+          { text: "OK", onPress: () => navigation.navigate("Login") },
         ]);
-      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -209,137 +210,114 @@ export default function TripHistoryScreen({ route }) {
     }
   };
 
-  // Calculate stats from trips
-  const calculateStats = (tripList) => {
-    const completedTrips = tripList.filter(trip => trip.status === 'completed');
-    const totalSpent = completedTrips.reduce((sum, trip) => sum + (trip.finalFare || trip.estimatedFare || 0), 0);
-    
-    setStats({
-      totalTrips: tripList.length,
-      completedTrips: completedTrips.length,
-      totalSpent: totalSpent // Keep as exact amount
-    });
-  };
-
-  // Initial load
   useEffect(() => {
     fetchTripHistory();
   }, [role]);
-
-  // Pull to refresh
-  const onRefresh = useCallback(() => {
-    fetchTripHistory(true);
-  }, [role]);
-
-  // Load more trips
+  const onRefresh = useCallback(() => fetchTripHistory(true), [role]);
   const loadMoreTrips = () => {
-    if (!loadingMore && hasMore && trips.length > 0) {
+    if (!loadingMore && hasMore && trips.length > 0)
       fetchTripHistory(false, true);
-    }
   };
 
-  // Navigate to trip details
   const viewTripDetails = (trip) => {
-    navigation.navigate('TripDetails', { 
+    navigation.navigate("TripDetails", {
       trip: {
         ...trip,
         id: trip._id,
         fareAmount: trip.finalFare || trip.estimatedFare || 0,
         pickupAddress: trip.pickupDisplayAddress,
         dropoffAddress: trip.dropoffDisplayAddress,
-        completedAt: trip.completedAt || trip.requestedAt
-      }, 
-      role 
+        completedAt: trip.completedAt || trip.requestedAt,
+      },
+      role,
     });
   };
 
-  // Render single trip card
   const renderTripItem = ({ item }) => {
-    const isCancelled = item.status === 'cancelled';
-    const isCompleted = item.status === 'completed';
-    const displayDate = item.completedAt || item.cancelledAt || item.requestedAt;
-    const serviceIcon = SERVICE_ICONS[item.serviceType] || 'car-outline';
+    const isCancelled = item.status === "cancelled";
+    const isCompleted = item.status === "completed";
+    const displayDate =
+      item.completedAt || item.cancelledAt || item.requestedAt;
+    const serviceIcon = SERVICE_ICONS[item.serviceType] || "car-sport";
     const serviceName = SERVICE_NAMES[item.serviceType] || item.serviceType;
+    const serviceColor = SERVICE_COLORS[item.serviceType] || "#1A1A1A";
+    const serviceBg = SERVICE_BG[item.serviceType] || "#F5F5F0";
     const fareAmount = item.finalFare || item.estimatedFare || 0;
+    const statusCfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.pending;
 
     return (
       <TouchableOpacity
-        style={[styles.tripCard, isCancelled && styles.tripCardCancelled]}
+        style={[s.tripCard, isCancelled && s.tripCardCancelled]}
         onPress={() => viewTripDetails(item)}
+        activeOpacity={0.85}
       >
-        {/* Header: Date and Price */}
-        <View style={styles.tripHeader}>
-          <Text style={styles.tripDate}>{formatDate(displayDate)}</Text>
-          <Text style={[styles.tripPrice, isCancelled && styles.cancelledText]}>
-            {isCancelled ? 'Cancelled' : `₦${fareAmount.toLocaleString()}`}
-          </Text>
-        </View>
-
-        {/* Body: Route and Icon */}
-        <View style={styles.tripBody}>
-          <View style={styles.routeContainer}>
-            {/* Dot and Line */}
-            <View style={styles.dotLine}>
-              <View style={styles.greenDot} />
-              <View style={styles.line} />
-              <View style={styles.redDot} />
-            </View>
-
-            {/* Addresses */}
-            <View style={styles.addresses}>
-              <Text style={styles.pickupText} numberOfLines={1}>
-                {item.pickupDisplayAddress || 'Pickup location'}
-              </Text>
-              <Text style={styles.dropoffText} numberOfLines={1}>
-                {item.dropoffDisplayAddress || 'Destination'}
-              </Text>
-            </View>
-
-            {/* Service Type Icon */}
-            <View style={styles.rideTypeIcon}>
-              <Ionicons 
-                name={serviceIcon} 
-                size={28} 
-                color={isCancelled ? '#94A3B8' : '#00B0F3'} 
-              />
-            </View>
+        {/* Top row: date + status */}
+        <View style={s.tripCardTop}>
+          <View style={s.tripDateRow}>
+            <Text style={s.tripDate}>{formatDate(displayDate)}</Text>
+            <Text style={s.tripTime}>{formatTime(displayDate)}</Text>
           </View>
-
-          {/* Footer: Time, Service Type, Distance */}
-          <View style={styles.tripFooter}>
-            <Text style={styles.tripTime}>{formatTime(displayDate)}</Text>
-            <Text style={styles.tripType}>{serviceName}</Text>
-            {item.distanceKm > 0 && (
-              <Text style={styles.tripDistance}>
-                {item.distanceKm.toFixed(1)} km
-              </Text>
-            )}
+          <View style={[s.statusPill, { backgroundColor: statusCfg.bg }]}>
+            <Text style={[s.statusPillText, { color: statusCfg.color }]}>
+              {statusCfg.label}
+            </Text>
           </View>
         </View>
 
-        {/* Status badge */}
-        <View style={[
-          styles.statusBadge,
-          isCancelled ? styles.statusCancelled : 
-          isCompleted ? styles.statusCompleted : 
-          styles.statusActive
-        ]}>
-          <Text style={[
-            styles.statusBadgeText,
-            isCancelled ? styles.statusBadgeTextCancelled :
-            isCompleted ? styles.statusBadgeTextCompleted :
-            styles.statusBadgeTextActive
-          ]}>
-            {item.status.replace(/_/g, ' ').toUpperCase()}
+        {/* Route */}
+        <View style={s.routeBlock}>
+          <View style={s.routeLeft}>
+            <View style={s.dotGreen} />
+            <View style={s.routeLine} />
+            <View style={s.dotRed} />
+          </View>
+          <View style={s.routeAddresses}>
+            <Text style={s.pickupText} numberOfLines={1}>
+              {item.pickupDisplayAddress}
+            </Text>
+            <View style={{ flex: 1 }} />
+            <Text style={s.dropoffText} numberOfLines={1}>
+              {item.dropoffDisplayAddress}
+            </Text>
+          </View>
+          {/* Service icon */}
+          <View style={[s.serviceIconWrap, { backgroundColor: serviceBg }]}>
+            <Ionicons name={serviceIcon} size={22} color={serviceColor} />
+          </View>
+        </View>
+
+        {/* Footer row: type · distance · fare */}
+        <View style={s.tripFooter}>
+          <View style={s.tripChip}>
+            <Text style={s.tripChipText}>{serviceName}</Text>
+          </View>
+          {item.distanceKm > 0 && (
+            <>
+              <View style={s.tripChipDivider} />
+              <View style={s.tripChip}>
+                <Ionicons name="navigate-outline" size={11} color="#888" />
+                <Text style={s.tripChipText}>
+                  {item.distanceKm.toFixed(1)} km
+                </Text>
+              </View>
+            </>
+          )}
+          <View style={{ flex: 1 }} />
+          <Text style={[s.fareText, isCancelled && s.fareTextCancelled]}>
+            {isCancelled ? "Cancelled" : `₦${fareAmount.toLocaleString()}`}
           </Text>
         </View>
 
-        {/* Cancellation reason if cancelled */}
+        {/* Cancellation reason */}
         {isCancelled && item.cancellationReason && (
-          <View style={styles.cancellationBanner}>
-            <Ionicons name="information-circle-outline" size={16} color="#EF4444" />
-            <Text style={styles.cancellationText}>
-              {item.cancellationReason.replace(/_/g, ' ')}
+          <View style={s.cancelBanner}>
+            <Ionicons
+              name="information-circle-outline"
+              size={14}
+              color="#EF4444"
+            />
+            <Text style={s.cancelBannerText}>
+              {item.cancellationReason.replace(/_/g, " ")}
             </Text>
           </View>
         )}
@@ -347,118 +325,93 @@ export default function TripHistoryScreen({ route }) {
     );
   };
 
-  // Loading state
+  // ── Loading ──────────────────────────────────────────────────────────────
   if (loading && !refreshing) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Ionicons name="arrow-back" size={28} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>
-            {role === 'driver' ? 'Driver History' : 'Trip History'}
-          </Text>
-          <View style={{ width: 28 }} />
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#00B0F3" />
-          <Text style={styles.loadingText}>Loading trips...</Text>
+      <SafeAreaView style={s.container}>
+        <TopBar navigation={navigation} role={role} />
+        <View style={s.centeredState}>
+          <ActivityIndicator size="large" color="#1A1A1A" />
+          <Text style={s.centeredStateText}>Loading trips…</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  // Error state
+  // ── Error ─────────────────────────────────────────────────────────────────
   if (error && trips.length === 0) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Ionicons name="arrow-back" size={28} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>
-            {role === 'driver' ? 'Driver History' : 'Trip History'}
+      <SafeAreaView style={s.container}>
+        <TopBar navigation={navigation} role={role} />
+        <View style={s.centeredState}>
+          <View style={s.emptyIconWrap}>
+            <Ionicons name="alert-circle-outline" size={36} color="#EF4444" />
+          </View>
+          <Text style={[s.centeredStateText, { color: "#EF4444" }]}>
+            {error}
           </Text>
-          <View style={{ width: 28 }} />
-        </View>
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle-outline" size={60} color="#EF4444" />
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity 
-            style={styles.retryButton}
+          <TouchableOpacity
+            style={s.retryBtn}
             onPress={() => fetchTripHistory()}
+            activeOpacity={0.88}
           >
-            <Text style={styles.retryButtonText}>Retry</Text>
+            <Text style={s.retryBtnText}>Try Again</Text>
+            <Ionicons name="arrow-forward" size={16} color="#fff" />
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  // Main render
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={28} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {role === 'driver' ? 'Driver History' : 'Trip History'}
-        </Text>
-        <View style={{ width: 28 }} />
-      </View>
+    <SafeAreaView style={s.container}>
+      <TopBar navigation={navigation} role={role} />
 
-      {/* Stats Summary */}
+      {/* ── STATS BAR ── */}
       {stats && trips.length > 0 && (
-        <View style={styles.statsContainer}>
-          <View style={styles.statBox}>
-            <Text style={styles.statValue}>{stats.totalTrips}</Text>
-            <Text style={styles.statLabel}>Total Trips</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statBox}>
-            <Text style={styles.statValue}>{stats.completedTrips}</Text>
-            <Text style={styles.statLabel}>Completed</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statBox}>
-            <Text style={styles.statValue}>₦{stats.totalSpent.toLocaleString()}</Text>
-            <Text style={styles.statLabel}>Total</Text>
-          </View>
+        <View style={s.statsBar}>
+          <StatItem value={stats.totalTrips} label="Total" />
+          <View style={s.statsDivider} />
+          <StatItem value={stats.completedTrips} label="Done" />
+          <View style={s.statsDivider} />
+          <StatItem
+            value={`₦${stats.totalSpent.toLocaleString()}`}
+            label="Spent"
+          />
         </View>
       )}
 
-      {/* Trip List */}
+      {/* ── LIST ── */}
       <FlatList
         data={trips}
         keyExtractor={(item) => item._id || item.id}
         renderItem={renderTripItem}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={s.listContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
-            onRefresh={onRefresh} 
-            colors={['#00B0F3']} 
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#1A1A1A"
+            colors={["#1A1A1A"]}
           />
         }
         onEndReached={loadMoreTrips}
         onEndReachedThreshold={0.5}
-        ListFooterComponent={() => (
+        ListFooterComponent={() =>
           loadingMore ? (
-            <View style={styles.loadingMoreContainer}>
-              <ActivityIndicator size="small" color="#00B0F3" />
+            <View style={s.loadingMoreRow}>
+              <ActivityIndicator size="small" color="#1A1A1A" />
             </View>
           ) : null
-        )}
+        }
         ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons name="car-outline" size={80} color="#CCC" />
-            <Text style={styles.emptyText}>No trips yet</Text>
-            <Text style={styles.emptySubtext}>
-              Your trip history will appear here
-            </Text>
+          <View style={s.emptyState}>
+            <View style={s.emptyIconWrap}>
+              <Ionicons name="car-sport" size={36} color="#1A1A1A" />
+            </View>
+            <Text style={s.emptyTitle}>No trips yet</Text>
+            <Text style={s.emptySub}>Your ride history will appear here</Text>
           </View>
         }
       />
@@ -466,262 +419,266 @@ export default function TripHistoryScreen({ route }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+// ── Sub-components ─────────────────────────────────────────────────────────
+function TopBar({ navigation, role }) {
+  return (
+    <View style={s.topBar}>
+      <TouchableOpacity
+        style={s.topBarBtn}
+        onPress={() => navigation.goBack()}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="arrow-back" size={20} color="#1A1A1A" />
+      </TouchableOpacity>
+      <Text style={s.topBarTitle}>
+        {role === "driver" ? "Driver History" : "Ride History"}
+      </Text>
+      <View style={{ width: 44 }} />
+    </View>
+  );
+}
+
+function StatItem({ value, label }) {
+  return (
+    <View style={s.statItem}>
+      <Text style={s.statValue}>{value}</Text>
+      <Text style={s.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F5F5F0" },
+
+  // ── Top bar ──
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    paddingTop: Platform.OS === "ios" ? 12 : 44,
+    paddingBottom: 14,
+    backgroundColor: "#F5F5F0",
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#0A2540',
+  topBarBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  statsContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+  topBarTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    letterSpacing: -0.3,
+  },
+
+  // ── Stats bar ──
+  statsBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1A1A1A",
     marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 8,
-    padding: 16,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    marginBottom: 14,
+    borderRadius: 18,
+    paddingVertical: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 6,
   },
-  statBox: {
-    flex: 1,
-    alignItems: 'center',
-  },
+  statItem: { flex: 1, alignItems: "center" },
   statValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0A2540',
-    marginBottom: 4,
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: -0.3,
+    marginBottom: 3,
   },
   statLabel: {
-    fontSize: 12,
-    color: '#64748B',
+    fontSize: 11,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.45)",
+    letterSpacing: 0.5,
   },
-  statDivider: {
+  statsDivider: {
     width: 1,
-    backgroundColor: '#E2E8F0',
-    marginHorizontal: 8,
+    height: 28,
+    backgroundColor: "rgba(255,255,255,0.12)",
   },
-  listContent: {
-    padding: 16,
-  },
+
+  // ── List ──
+  listContent: { paddingHorizontal: 16, paddingBottom: 40 },
+
+  // ── Trip card ──
   tripCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 18,
     marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-    position: 'relative',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 5,
   },
   tripCardCancelled: {
-    opacity: 0.7,
-    borderWidth: 1,
-    borderColor: '#FEE2E2',
+    opacity: 0.75,
+    borderWidth: 1.5,
+    borderColor: "#FEE2E2",
   },
-  tripHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+
+  tripCardTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 16,
   },
+  tripDateRow: {},
   tripDate: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0A2540',
-  },
-  tripPrice: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#00B0F3',
-  },
-  cancelledText: {
-    color: '#EF4444',
-    fontSize: 16,
-  },
-  tripBody: {
-    flexDirection: 'column',
-  },
-  routeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  dotLine: {
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  greenDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#10B981',
-  },
-  line: {
-    width: 2,
-    height: 32,
-    backgroundColor: '#E2E8F0',
-    marginVertical: 4,
-  },
-  redDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#EF4444',
-  },
-  addresses: {
-    flex: 1,
-  },
-  pickupText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0A2540',
-    marginBottom: 8,
-  },
-  dropoffText: {
-    fontSize: 15,
-    color: '#64748B',
-  },
-  rideTypeIcon: {
-    marginLeft: 16,
-  },
-  tripFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 16,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-  },
-  tripTime: {
     fontSize: 14,
-    color: '#64748B',
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 2,
   },
-  tripType: {
-    fontSize: 14,
-    color: '#00B0F3',
-    fontWeight: '600',
-  },
-  tripDistance: {
-    fontSize: 14,
-    color: '#64748B',
-  },
-  statusBadge: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    paddingHorizontal: 8,
+  tripTime: { fontSize: 12, color: "#aaa", fontWeight: "500" },
+
+  statusPill: {
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 10,
   },
-  statusActive: {
-    backgroundColor: '#EFF6FF',
+  statusPillText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.6 },
+
+  // Route block
+  routeBlock: { flexDirection: "row", alignItems: "stretch", marginBottom: 14 },
+  routeLeft: { alignItems: "center", marginRight: 12, paddingVertical: 2 },
+  dotGreen: {
+    width: 11,
+    height: 11,
+    borderRadius: 5.5,
+    backgroundColor: "#10B981",
   },
-  statusCompleted: {
-    backgroundColor: '#ECFDF5',
-  },
-  statusCancelled: {
-    backgroundColor: '#FEF2F2',
-  },
-  statusBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  statusBadgeTextActive: {
-    color: '#3B82F6',
-  },
-  statusBadgeTextCompleted: {
-    color: '#10B981',
-  },
-  statusBadgeTextCancelled: {
-    color: '#EF4444',
-  },
-  cancellationBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEF2F2',
-    padding: 8,
-    borderRadius: 8,
-    marginTop: 12,
-  },
-  cancellationText: {
-    fontSize: 13,
-    color: '#EF4444',
-    marginLeft: 6,
-    textTransform: 'capitalize',
-  },
-  loadingContainer: {
+  routeLine: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 2,
+    backgroundColor: "#EBEBEB",
+    marginVertical: 4,
+    minHeight: 22,
   },
-  loadingText: {
-    marginTop: 12,
+  dotRed: {
+    width: 11,
+    height: 11,
+    borderRadius: 5.5,
+    backgroundColor: "#EF4444",
+  },
+  routeAddresses: { flex: 1, justifyContent: "space-between", minHeight: 50 },
+  pickupText: { fontSize: 14, fontWeight: "700", color: "#1A1A1A" },
+  dropoffText: { fontSize: 13, fontWeight: "600", color: "#888" },
+
+  serviceIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 12,
+  },
+
+  // Footer row
+  tripFooter: { flexDirection: "row", alignItems: "center" },
+  tripChip: { flexDirection: "row", alignItems: "center", gap: 4 },
+  tripChipText: { fontSize: 12, fontWeight: "600", color: "#888" },
+  tripChipDivider: {
+    width: 1,
+    height: 12,
+    backgroundColor: "#E0E0E0",
+    marginHorizontal: 8,
+  },
+  fareText: {
     fontSize: 16,
-    color: '#64748B',
+    fontWeight: "800",
+    color: "#1A1A1A",
+    letterSpacing: -0.3,
   },
-  loadingMoreContainer: {
-    paddingVertical: 20,
-    alignItems: 'center',
+  fareTextCancelled: { color: "#EF4444", fontWeight: "700", fontSize: 14 },
+
+  // Cancel banner
+  cancelBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FEF2F2",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginTop: 10,
   },
-  errorContainer: {
+  cancelBannerText: {
+    fontSize: 12,
+    color: "#EF4444",
+    textTransform: "capitalize",
+    fontWeight: "500",
+  },
+
+  // ── Centered states ──
+  centeredState: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 40,
   },
-  errorText: {
-    fontSize: 16,
-    color: '#EF4444',
-    textAlign: 'center',
-    marginTop: 16,
-    marginBottom: 24,
-  },
-  retryButton: {
-    backgroundColor: '#00B0F3',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 100,
-  },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#94A3B8',
-    marginTop: 16,
-  },
-  emptySubtext: {
+  centeredStateText: {
     fontSize: 14,
-    color: '#94A3B8',
-    marginTop: 8,
+    color: "#aaa",
+    fontWeight: "600",
+    marginTop: 14,
   },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  retryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#1A1A1A",
+    borderRadius: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 24,
+    marginTop: 20,
+  },
+  retryBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+
+  // ── Empty state ──
+  emptyState: { alignItems: "center", paddingTop: 60, paddingHorizontal: 40 },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    marginBottom: 6,
+  },
+  emptySub: { fontSize: 13, color: "#aaa", textAlign: "center" },
+
+  // ── Load more ──
+  loadingMoreRow: { paddingVertical: 20, alignItems: "center" },
 });

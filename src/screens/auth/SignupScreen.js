@@ -20,7 +20,7 @@ import axios from 'axios';
 const WHEELA_LOGO = require('../../../assets/logo3.png');
 const { width, height } = Dimensions.get('window');
 
-const BASE_URL = "https://wheels-backend.vercel.app";
+const BASE_URL = "https://wheels-backend-7ydc.onrender.com";
 
 export default function SignupScreen() {
   const navigation = useNavigation();
@@ -32,18 +32,17 @@ export default function SignupScreen() {
   const [phone, setPhone] = useState('+234');
   const [password, setPassword] = useState('');
   const [referralCode, setReferralCode] = useState(
-    route.params?.referralCode || '' // Pre-fill if passed via deep link / invite
+    route.params?.referralCode || ''
   );
-  const [referralValid, setReferralValid] = useState(null);   // null | true | false
+  const [referralValid, setReferralValid] = useState(null);
   const [referralChecking, setReferralChecking] = useState(false);
-  const [referralName, setReferralName] = useState('');       // Name of the referrer
+  const [referralName, setReferralName] = useState('');
   const [loading, setLoading] = useState(false);
   const [successModalVisible, setSuccessModalVisible] = useState(false);
   const [errorModalVisible, setErrorModalVisible] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
 
-  // Shake animation for invalid referral code
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
   const triggerShake = () => {
@@ -82,7 +81,10 @@ export default function SignupScreen() {
 
     setReferralChecking(true);
     try {
+      console.log('[Referral] Validating code:', code);
       const res = await axios.post(`${BASE_URL}/referrals/validate`, { code });
+      console.log('[Referral] Validate response:', JSON.stringify(res.data, null, 2));
+
       if (res.data.valid) {
         setReferralValid(true);
         setReferralName(res.data.referrerName || 'your friend');
@@ -91,7 +93,10 @@ export default function SignupScreen() {
         setReferralName('');
         triggerShake();
       }
-    } catch {
+    } catch (err) {
+      console.error('[Referral] Validate error status:', err.response?.status);
+      console.error('[Referral] Validate error data:', JSON.stringify(err.response?.data, null, 2));
+      console.error('[Referral] Validate error message:', err.message);
       setReferralValid(false);
       setReferralName('');
       triggerShake();
@@ -101,7 +106,6 @@ export default function SignupScreen() {
   };
 
   const handleReferralChange = (text) => {
-    // Reset validation state when user types again
     setReferralCode(text.toUpperCase());
     setReferralValid(null);
     setReferralName('');
@@ -136,7 +140,9 @@ export default function SignupScreen() {
     if (code && referralValid === null) {
       setReferralChecking(true);
       try {
+        console.log('[Signup] Pre-validating referral code:', code);
         const res = await axios.post(`${BASE_URL}/referrals/validate`, { code });
+        console.log('[Signup] Pre-validate response:', JSON.stringify(res.data, null, 2));
         setReferralValid(res.data.valid);
         if (!res.data.valid) {
           setReferralChecking(false);
@@ -145,7 +151,10 @@ export default function SignupScreen() {
           return;
         }
         setReferralName(res.data.referrerName || '');
-      } catch {
+      } catch (err) {
+        console.error('[Signup] Pre-validate error status:', err.response?.status);
+        console.error('[Signup] Pre-validate error data:', JSON.stringify(err.response?.data, null, 2));
+        console.error('[Signup] Pre-validate error message:', err.message);
         setReferralChecking(false);
         setErrorMessage('Could not verify referral code. Check your connection and try again.');
         setErrorModalVisible(true);
@@ -169,23 +178,49 @@ export default function SignupScreen() {
         phone: phone.trim(),
         password,
       };
-      if (email.trim())   payload.email        = email.trim();
-      if (role === 'driver') payload.role       = 'driver';
-      if (code)           payload.referralCode  = code;
+      if (email.trim())      payload.email        = email.trim();
+      if (role === 'driver') payload.role          = 'driver';
+      if (code)              payload.referralCode  = code;
 
-      await axios.post(`${BASE_URL}/auth/signup`, payload);
+      console.log('[Signup] Sending payload:', JSON.stringify(payload, null, 2));
+
+      const res = await axios.post(`${BASE_URL}/auth/signup`, payload);
+
+      console.log('[Signup] Success response status:', res.status);
+      console.log('[Signup] Success response data:', JSON.stringify(res.data, null, 2));
+
       setSuccessModalVisible(true);
     } catch (err) {
+      // ── Full error dump to console ──────────────────────────────────────
+      console.error('======= SIGNUP ERROR =======');
+      console.error('[Signup] HTTP status:', err.response?.status);
+      console.error('[Signup] Response headers:', JSON.stringify(err.response?.headers, null, 2));
+      console.error('[Signup] Response data:', JSON.stringify(err.response?.data, null, 2));
+      console.error('[Signup] Request config url:', err.config?.url);
+      console.error('[Signup] Request config data:', err.config?.data);
+      console.error('[Signup] Error message:', err.message);
+      console.error('[Signup] Full error:', err);
+      console.error('============================');
+
+      // ── User-facing error message ───────────────────────────────────────
       let errMsg = 'Signup failed. Please try again.';
       if (err.response?.data?.error?.message) {
         const msg = err.response.data.error.message;
-        if (msg.includes('phone already in use'))      errMsg = 'This phone number is already registered.';
-        else if (msg.includes('Invalid phone format')) errMsg = 'Invalid phone format. Use +234 format.';
-        else if (msg.includes('Invalid referral code'))errMsg = 'That referral code is not valid.';
+        if (msg.includes('phone already in use'))       errMsg = 'This phone number is already registered.';
+        else if (msg.includes('Invalid phone format'))  errMsg = 'Invalid phone format. Use +234 format.';
+        else if (msg.includes('Invalid referral code')) errMsg = 'That referral code is not valid.';
         else errMsg = msg;
+      } else if (err.response?.data?.message) {
+        // Some servers return { message: '...' } instead of { error: { message: '...' } }
+        errMsg = err.response.data.message;
       } else if (err.message === 'Network Error') {
         errMsg = 'Cannot connect to server. Check your internet.';
+      } else if (err.response?.status === 500) {
+        errMsg = 'Server error. Please try again in a moment.';
+      } else if (err.response?.status === 422) {
+        errMsg = 'Invalid data submitted. Please check your inputs.';
       }
+
       setErrorMessage(errMsg);
       setErrorModalVisible(true);
     } finally {
@@ -333,7 +368,6 @@ export default function SignupScreen() {
                 {referralHint}
               </Text>
 
-              {/* Reward banner — shows when code is valid */}
               {referralValid === true && (
                 <View style={styles.rewardBanner}>
                   <Text style={styles.rewardBannerText}>
@@ -522,7 +556,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  // ── Password row (input + eye toggle) ──
   passwordRow: {
     position: 'relative',
     marginBottom: 14,
@@ -542,7 +575,6 @@ const styles = StyleSheet.create({
   eyeIcon: {
     fontSize: 18,
   },
-  // ── Referral section ──
   referralSection: {
     marginBottom: 24,
     marginTop: 4,
@@ -572,7 +604,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     paddingVertical: 14,
     color: '#0A2540',
-    letterSpacing: 1.5,   // Spaced out so the code is easy to read
+    letterSpacing: 1.5,
     fontWeight: '600',
   },
   referralIcon: {
@@ -603,7 +635,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#15803D',
   },
-  // ── Button ──
   button: {
     backgroundColor: '#00B0F3',
     paddingVertical: 18,
@@ -624,7 +655,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
   },
-  // ── Divider ──
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -640,7 +670,6 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 14,
   },
-  // ── Login link ──
   loginContainer: {
     alignItems: 'center',
   },
@@ -652,7 +681,6 @@ const styles = StyleSheet.create({
     color: '#00B0F3',
     fontWeight: '600',
   },
-  // ── Modals ──
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',

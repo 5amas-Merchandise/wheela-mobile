@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+// src/screens/passenger/IntercityBookingDetailsScreen.js
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,52 +12,47 @@ import {
   StatusBar,
   Share,
   Linking,
-} from 'react-native';
-import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import axios from 'axios';
-import * as Auth from '../../utils/auth';
+  Platform,
+} from "react-native";
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
+import { useNavigation, useRoute } from "@react-navigation/native";
+import axios from "axios";
+import * as Auth from "../../utils/auth";
 
-// REPLACE WITH YOUR ACTUAL API URL
-const API_URL = 'https://wheels-backend-7ydc.onrender.com';
+const API_URL = "https://wheels-backend-7ydc.onrender.com";
 
 const STATUS_CONFIG = {
-  confirmed: { 
-    color: '#10B981', 
-    bg: '#D1FAE5',
-    label: 'CONFIRMED', 
-    icon: 'checkmark-circle',
+  confirmed: {
+    color: "#10B981",
+    bg: "#ECFDF5",
+    label: "CONFIRMED",
+    icon: "checkmark-circle",
   },
-  checked_in: { 
-    color: '#00B0F3', 
-    bg: '#DBEAFE',
-    label: 'CHECKED IN', 
-    icon: 'log-in',
+  checked_in: {
+    color: "#3B82F6",
+    bg: "#EFF6FF",
+    label: "CHECKED IN",
+    icon: "log-in",
   },
-  completed: { 
-    color: '#64748B', 
-    bg: '#F1F5F9',
-    label: 'COMPLETED', 
-    icon: 'checkmark-done',
+  completed: {
+    color: "#888",
+    bg: "#F5F5F0",
+    label: "COMPLETED",
+    icon: "checkmark-done",
   },
-  cancelled: { 
-    color: '#EF4444', 
-    bg: '#FEE2E2',
-    label: 'CANCELLED', 
-    icon: 'close-circle',
+  cancelled: {
+    color: "#EF4444",
+    bg: "#FEF2F2",
+    label: "CANCELLED",
+    icon: "close-circle",
   },
-  no_show: { 
-    color: '#F59E0B', 
-    bg: '#FEF3C7',
-    label: 'NO SHOW', 
-    icon: 'time',
-  },
+  no_show: { color: "#F59E0B", bg: "#FFFBEB", label: "NO SHOW", icon: "time" },
   pending: {
-    color: '#8B5CF6',
-    bg: '#EDE9FE',
-    label: 'PENDING',
-    icon: 'time-outline',
-  }
+    color: "#8B5CF6",
+    bg: "#F5F3FF",
+    label: "PENDING",
+    icon: "time-outline",
+  },
 };
 
 export default function IntercityBookingDetailsScreen() {
@@ -75,27 +71,21 @@ export default function IntercityBookingDetailsScreen() {
     try {
       setLoading(true);
       const token = await Auth.getAuthToken();
-      
       const response = await axios.get(
         `${API_URL}/intercity/bookings/${bookingId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
       );
-
-      console.log('✅ Booking details fetched:', response.data);
-
-      if (response.data.success) {
-        setBooking(response.data.booking);
-      } else {
-        Alert.alert('Error', 'Failed to load booking details');
+      if (response.data.success) setBooking(response.data.booking);
+      else {
+        Alert.alert("Error", "Failed to load booking details");
         navigation.goBack();
       }
-    } catch (error) {
-      console.error('❌ Fetch booking details error:', error);
-      Alert.alert(
-        'Error', 
-        'Unable to load booking details. Please try again.',
-        [{ text: 'OK', onPress: () => navigation.goBack() }]
-      );
+    } catch {
+      Alert.alert("Error", "Unable to load booking details.", [
+        { text: "OK", onPress: () => navigation.goBack() },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -103,16 +93,16 @@ export default function IntercityBookingDetailsScreen() {
 
   const handleCancelBooking = () => {
     Alert.alert(
-      'Cancel Booking',
-      `Are you sure you want to cancel ${booking.bookingReference}?\n\nRefund will be processed within 5-7 business days.`,
+      "Cancel Booking",
+      `Cancel ${booking.bookingReference}? Refund in 5-7 business days.`,
       [
-        { text: 'No, Keep Booking', style: 'cancel' },
+        { text: "Keep Booking", style: "cancel" },
         {
-          text: 'Yes, Cancel',
-          style: 'destructive',
-          onPress: () => cancelBooking()
-        }
-      ]
+          text: "Cancel Booking",
+          style: "destructive",
+          onPress: cancelBooking,
+        },
+      ],
     );
   };
 
@@ -121,246 +111,293 @@ export default function IntercityBookingDetailsScreen() {
       const token = await Auth.getAuthToken();
       const response = await axios.post(
         `${API_URL}/intercity/bookings/${bookingId}/cancel`,
-        { reason: 'Cancelled by passenger' },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { reason: "Cancelled by passenger" },
+        { headers: { Authorization: `Bearer ${token}` } },
       );
-
       if (response.data.success) {
         Alert.alert(
-          'Cancellation Successful',
-          'Your booking has been cancelled. Refund will be processed within 5-7 business days.',
-          [{ text: 'OK', onPress: () => navigation.goBack() }]
+          "Cancelled",
+          "Refund will be processed within 5-7 business days.",
+          [{ text: "OK", onPress: () => navigation.goBack() }],
         );
       }
     } catch (error) {
-      console.error('❌ Cancel error:', error);
-      const errorMsg = error.response?.data?.error?.message || 'Unable to cancel booking.';
-      Alert.alert('Cancellation Failed', errorMsg);
+      Alert.alert(
+        "Failed",
+        error.response?.data?.error?.message || "Unable to cancel booking.",
+      );
     }
   };
 
   const handleShare = async () => {
     try {
-      const message = `🚌 Trip Booking Confirmation\n\n` +
-        `Booking Reference: ${booking.bookingReference}\n` +
-        `From: ${booking.route.from}\n` +
-        `To: ${booking.route.to}\n` +
-        `Date: ${formatDate(booking.departure.date)}\n` +
-        `Time: ${formatTime(booking.departure.time)}\n` +
-        `Seats: ${booking.numberOfSeats}\n` +
-        `Amount: ₦${parseFloat(booking.totalAmountInNaira).toLocaleString()}\n\n` +
-        `Company: ${booking.company.name}\n` +
-        `Status: ${booking.status.toUpperCase()}`;
-
-      await Share.share({ message });
-    } catch (error) {
-      console.error('Share error:', error);
-    }
-  };
-
-  const handleCallCompany = () => {
-    if (booking?.company?.phone) {
-      Linking.openURL(`tel:${booking.company.phone}`);
-    }
+      await Share.share({
+        message:
+          `🚌 Booking: ${booking.bookingReference}\n` +
+          `${booking.route.from.split(",")[0]} → ${booking.route.to.split(",")[0]}\n` +
+          `${formatDate(booking.departure.date)} at ${formatTime(booking.departure.time)}\n` +
+          `${booking.numberOfSeats} seat(s) · ₦${parseFloat(booking.totalAmountInNaira).toLocaleString()}`,
+      });
+    } catch {}
   };
 
   const formatDate = (date) => {
-    if (!date) return 'N/A';
-    const d = new Date(date);
-    return d.toLocaleDateString('en-US', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
+    if (!date) return "N/A";
+    return new Date(date).toLocaleDateString("en-US", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
     });
   };
 
   const formatTime = (time) => {
-    if (!time) return 'N/A';
-    const [hours, minutes] = time.split(':');
-    const h = parseInt(hours);
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    const displayHour = h % 12 || 12;
-    return `${displayHour}:${minutes} ${ampm}`;
+    if (!time) return "N/A";
+    const [h, m] = time.split(":");
+    const hr = parseInt(h);
+    return `${hr % 12 || 12}:${m} ${hr >= 12 ? "PM" : "AM"}`;
   };
 
-  const getDuration = (duration) => {
-    if (!duration) return 'N/A';
-    const hours = Math.floor(duration / 60);
-    const minutes = duration % 60;
-    return `${hours}h ${minutes}m`;
+  const getDuration = (d) => {
+    if (!d) return "N/A";
+    return `${Math.floor(d / 60)}h ${d % 60}m`;
   };
 
-  const canCancel = () => {
-    if (!booking) return false;
-    const upcoming = new Date(booking.departure?.date) > new Date();
-    return upcoming && ['confirmed', 'pending'].includes(booking.status);
-  };
+  const canCancel = () =>
+    booking &&
+    new Date(booking.departure?.date) > new Date() &&
+    ["confirmed", "pending"].includes(booking.status);
 
+  // ── Loading ──────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#00B0F3" />
-          <Text style={styles.loadingText}>Loading booking details...</Text>
+      <SafeAreaView style={s.container}>
+        <View style={s.centeredState}>
+          <ActivityIndicator size="large" color="#1A1A1A" />
+          <Text style={s.centeredStateText}>Loading booking…</Text>
         </View>
       </SafeAreaView>
     );
   }
 
+  // ── Error ─────────────────────────────────────────────────────────────────
   if (!booking) {
     return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle-outline" size={64} color="#EF4444" />
-          <Text style={styles.errorText}>Booking not found</Text>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Text style={styles.backButtonText}>Go Back</Text>
+      <SafeAreaView style={s.container}>
+        <View style={s.centeredState}>
+          <View style={s.emptyIconWrap}>
+            <Ionicons name="alert-circle-outline" size={36} color="#EF4444" />
+          </View>
+          <Text style={[s.centeredStateText, { color: "#EF4444" }]}>
+            Booking not found
+          </Text>
+          <TouchableOpacity
+            style={s.backPill}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={s.backPillText}>Go Back</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  const statusConfig = STATUS_CONFIG[booking.status] || STATUS_CONFIG.pending;
+  const statusCfg = STATUS_CONFIG[booking.status] || STATUS_CONFIG.pending;
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backBtn}
+    <SafeAreaView style={s.container}>
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="transparent"
+        translucent
+      />
+
+      {/* ── TOP BAR ── */}
+      <View style={s.topBar}>
+        <TouchableOpacity
+          style={s.topBarBtn}
           onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
         >
-          <Ionicons name="arrow-back" size={24} color="#0A2540" />
+          <Ionicons name="arrow-back" size={20} color="#1A1A1A" />
         </TouchableOpacity>
-        
-        <Text style={styles.headerTitle}>Booking Details</Text>
-        
-        <TouchableOpacity 
-          style={styles.shareBtn}
+        <Text style={s.topBarTitle}>Booking Details</Text>
+        <TouchableOpacity
+          style={s.topBarBtn}
           onPress={handleShare}
+          activeOpacity={0.8}
         >
-          <Ionicons name="share-outline" size={22} color="#00B0F3" />
+          <Ionicons name="share-outline" size={20} color="#1A1A1A" />
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        
-        {/* Status Card */}
-        <View style={styles.statusCard}>
-          <View style={[styles.statusBadge, { backgroundColor: statusConfig.bg }]}>
-            <Ionicons name={statusConfig.icon} size={24} color={statusConfig.color} />
-            <Text style={[styles.statusLabel, { color: statusConfig.color }]}>
-              {statusConfig.label}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 120 }}
+      >
+        {/* ── STATUS CARD ── */}
+        <View style={s.statusCard}>
+          <View style={[s.statusBadge, { backgroundColor: statusCfg.bg }]}>
+            <Ionicons name={statusCfg.icon} size={18} color={statusCfg.color} />
+            <Text style={[s.statusLabel, { color: statusCfg.color }]}>
+              {statusCfg.label}
             </Text>
           </View>
-          <Text style={styles.bookingRef}>{booking.bookingReference}</Text>
-          <Text style={styles.bookingDate}>
-            Booked on {formatDate(booking.bookingDate)}
+          <Text style={s.bookingRef}>{booking.bookingReference}</Text>
+          <Text style={s.bookingDateText}>
+            Booked {formatDate(booking.bookingDate)}
           </Text>
         </View>
 
-        {/* Journey Card */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Journey Details</Text>
-          
-          <View style={styles.journeyContainer}>
-            <View style={styles.journeyRow}>
-              <View style={styles.journeyTime}>
-                <Text style={styles.timeText}>{formatTime(booking.departure.time)}</Text>
-                <Text style={styles.dateText}>{formatDate(booking.departure.date)}</Text>
-              </View>
-              <View style={styles.journeyLine}>
-                <View style={styles.circleFilled} />
-                <View style={styles.verticalLine} />
-                <Ionicons name="location" size={20} color="#00B0F3" style={styles.locationIcon} />
-              </View>
-              <View style={styles.journeyLocation}>
-                <Text style={styles.cityText}>{booking.route.from.split(',')[0]}</Text>
-                <Text style={styles.terminalText}>{booking.departure.terminal || 'Main Terminal'}</Text>
-              </View>
-            </View>
+        {/* ── JOURNEY CARD ── */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Journey</Text>
 
-            <View style={styles.durationContainer}>
-              <Ionicons name="time-outline" size={16} color="#64748B" />
-              <Text style={styles.durationLabel}>
-                {getDuration(booking.route.duration)} • {booking.route.distance} km
+          {/* Route visual */}
+          <View style={s.routeRow}>
+            <View style={s.routeTimeBlock}>
+              <Text style={s.routeTime}>
+                {formatTime(booking.departure.time)}
+              </Text>
+              <Text style={s.routeCity}>
+                {booking.route.from.split(",")[0]}
+              </Text>
+              <Text style={s.routeTerminal}>
+                {booking.departure.terminal || "Main Terminal"}
               </Text>
             </View>
-
-            <View style={styles.journeyRow}>
-              <View style={styles.journeyTime}>
-                <Text style={styles.timeText}>{formatTime(booking.arrival.time)}</Text>
-                <Text style={styles.dateText}>Arrival</Text>
+            <View style={s.routeCenter}>
+              <View style={s.routeDot} />
+              <View style={s.routeDash} />
+              <View style={s.routeDurationWrap}>
+                <Ionicons name="time-outline" size={12} color="#888" />
+                <Text style={s.routeDuration}>
+                  {getDuration(booking.route.duration)}
+                </Text>
               </View>
-              <View style={styles.journeyLine}>
-                <View style={styles.circle} />
-              </View>
-              <View style={styles.journeyLocation}>
-                <Text style={styles.cityText}>{booking.route.to.split(',')[0]}</Text>
-                <Text style={styles.terminalText}>{booking.arrival.terminal || 'Main Terminal'}</Text>
-              </View>
+              <View style={s.routeDash} />
+              <View style={[s.routeDot, { backgroundColor: "#EF4444" }]} />
+            </View>
+            <View style={[s.routeTimeBlock, { alignItems: "flex-end" }]}>
+              <Text style={s.routeTime}>
+                {formatTime(booking.arrival.time)}
+              </Text>
+              <Text style={s.routeCity}>{booking.route.to.split(",")[0]}</Text>
+              <Text style={s.routeTerminal}>
+                {booking.arrival.terminal || "Main Terminal"}
+              </Text>
             </View>
           </View>
-        </View>
 
-        {/* Passenger Info */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Passenger Information</Text>
-          <View style={styles.infoRow}>
-            <Ionicons name="person-outline" size={20} color="#64748B" />
-            <Text style={styles.infoLabel}>Full Name</Text>
-            <Text style={styles.infoValue}>{booking.passenger.fullName}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Ionicons name="call-outline" size={20} color="#64748B" />
-            <Text style={styles.infoLabel}>Phone</Text>
-            <Text style={styles.infoValue}>{booking.passenger.phone}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Ionicons name="mail-outline" size={20} color="#64748B" />
-            <Text style={styles.infoLabel}>Email</Text>
-            <Text style={styles.infoValue}>{booking.passenger.email}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Ionicons name="people-outline" size={20} color="#64748B" />
-            <Text style={styles.infoLabel}>Seats</Text>
-            <Text style={styles.infoValue}>
-              {booking.numberOfSeats} seat{booking.numberOfSeats > 1 ? 's' : ''}
-              {booking.seatNumbers?.length > 0 && ` (${booking.seatNumbers.join(', ')})`}
-            </Text>
+          {/* Date chip */}
+          <View style={s.dateChipRow}>
+            <View style={s.dateChip}>
+              <Ionicons name="calendar-outline" size={13} color="#666" />
+              <Text style={s.dateChipText}>
+                {formatDate(booking.departure.date)}
+              </Text>
+            </View>
+            {booking.route.distance && (
+              <View style={s.dateChip}>
+                <Ionicons name="navigate-outline" size={13} color="#666" />
+                <Text style={s.dateChipText}>{booking.route.distance} km</Text>
+              </View>
+            )}
           </View>
         </View>
 
-        {/* Vehicle & Amenities */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Vehicle Information</Text>
-          <View style={styles.infoRow}>
-            <MaterialIcons name="directions-bus" size={20} color="#64748B" />
-            <Text style={styles.infoLabel}>Vehicle Type</Text>
-            <Text style={styles.infoValue}>
-              {booking.vehicle.type.replace('_', ' ').toUpperCase()}
-            </Text>
-          </View>
-          <View style={styles.infoRow}>
-            <MaterialIcons name="confirmation-number" size={20} color="#64748B" />
-            <Text style={styles.infoLabel}>Vehicle Number</Text>
-            <Text style={styles.infoValue}>{booking.vehicle.number || 'TBA'}</Text>
-          </View>
-          
+        {/* ── PASSENGER CARD ── */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Passenger</Text>
+          {[
+            {
+              icon: "person-outline",
+              label: "Full Name",
+              value: booking.passenger.fullName,
+            },
+            {
+              icon: "call-outline",
+              label: "Phone",
+              value: booking.passenger.phone,
+            },
+            {
+              icon: "mail-outline",
+              label: "Email",
+              value: booking.passenger.email,
+            },
+            {
+              icon: "people-outline",
+              label: "Seats",
+              value:
+                `${booking.numberOfSeats} seat${booking.numberOfSeats > 1 ? "s" : ""}` +
+                (booking.seatNumbers?.length
+                  ? ` (${booking.seatNumbers.join(", ")})`
+                  : ""),
+            },
+          ].map((row, i, arr) => (
+            <View
+              key={row.label}
+              style={[
+                s.infoRow,
+                i === arr.length - 1 && { borderBottomWidth: 0 },
+              ]}
+            >
+              <View style={s.infoIconWrap}>
+                <Ionicons name={row.icon} size={16} color="#1A1A1A" />
+              </View>
+              <Text style={s.infoLabel}>{row.label}</Text>
+              <Text style={s.infoValue} numberOfLines={1}>
+                {row.value}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        {/* ── VEHICLE CARD ── */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Vehicle</Text>
+          {[
+            {
+              icon: "bus-outline",
+              label: "Type",
+              value: booking.vehicle.type.replace("_", " ").toUpperCase(),
+            },
+            {
+              icon: "card-outline",
+              label: "Number",
+              value: booking.vehicle.number || "TBA",
+            },
+          ].map((row, i) => (
+            <View
+              key={row.label}
+              style={[
+                s.infoRow,
+                i === 1 &&
+                  !booking.vehicle.amenities?.length && {
+                    borderBottomWidth: 0,
+                  },
+              ]}
+            >
+              <View style={s.infoIconWrap}>
+                <Ionicons name={row.icon} size={16} color="#1A1A1A" />
+              </View>
+              <Text style={s.infoLabel}>{row.label}</Text>
+              <Text style={s.infoValue}>{row.value}</Text>
+            </View>
+          ))}
+
           {booking.vehicle.amenities?.length > 0 && (
-            <View style={styles.amenitiesContainer}>
-              <Text style={styles.amenitiesTitle}>Amenities</Text>
-              <View style={styles.amenitiesList}>
-                {booking.vehicle.amenities.map((amenity, index) => (
-                  <View key={index} style={styles.amenityChip}>
-                    <Ionicons name="checkmark-circle" size={14} color="#10B981" />
-                    <Text style={styles.amenityText}>{amenity}</Text>
+            <View style={s.amenitiesSection}>
+              <Text style={s.amenitiesSectionLabel}>Amenities</Text>
+              <View style={s.amenitiesWrap}>
+                {booking.vehicle.amenities.map((a, i) => (
+                  <View key={i} style={s.amenityChip}>
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={12}
+                      color="#10B981"
+                    />
+                    <Text style={s.amenityChipText}>{a}</Text>
                   </View>
                 ))}
               </View>
@@ -368,496 +405,448 @@ export default function IntercityBookingDetailsScreen() {
           )}
         </View>
 
-        {/* Company Info */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Transport Company</Text>
-          <View style={styles.companyHeader}>
-            <View style={styles.companyIcon}>
-              <MaterialIcons name="business" size={24} color="#00B0F3" />
+        {/* ── COMPANY CARD ── */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Transport Company</Text>
+          <View style={s.companyRow}>
+            <View style={s.companyIconWrap}>
+              <MaterialIcons name="directions-bus" size={24} color="#1A1A1A" />
             </View>
-            <View style={styles.companyInfo}>
-              <Text style={styles.companyName}>{booking.company.name}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={s.companyName}>{booking.company.name}</Text>
               {booking.company.phone && (
-                <TouchableOpacity onPress={handleCallCompany}>
-                  <Text style={styles.companyPhone}>
-                    📞 {booking.company.phone}
-                  </Text>
+                <TouchableOpacity
+                  onPress={() =>
+                    Linking.openURL(`tel:${booking.company.phone}`)
+                  }
+                >
+                  <Text style={s.companyPhone}>📞 {booking.company.phone}</Text>
                 </TouchableOpacity>
               )}
             </View>
           </View>
         </View>
 
-        {/* Payment Info */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Payment Information</Text>
-          <View style={styles.paymentRow}>
-            <Text style={styles.paymentLabel}>Total Amount</Text>
-            <Text style={styles.paymentAmount}>
+        {/* ── PAYMENT CARD ── */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Payment</Text>
+          <View style={s.paymentRow}>
+            <Text style={s.paymentLabel}>Total Amount</Text>
+            <Text style={s.paymentAmount}>
               ₦{parseFloat(booking.totalAmountInNaira).toLocaleString()}
             </Text>
           </View>
-          <View style={styles.paymentRow}>
-            <Text style={styles.paymentLabel}>Payment Status</Text>
-            <View style={styles.paymentStatusBadge}>
-              <Text style={styles.paymentStatusText}>PAID</Text>
+          <View style={[s.paymentRow, { borderBottomWidth: 0 }]}>
+            <Text style={s.paymentLabel}>Status</Text>
+            <View style={s.paidBadge}>
+              <Text style={s.paidBadgeText}>PAID</Text>
             </View>
           </View>
         </View>
 
-        {/* Special Requests */}
+        {/* ── SPECIAL REQUESTS ── */}
         {booking.specialRequests && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Special Requests</Text>
-            <Text style={styles.specialRequestsText}>{booking.specialRequests}</Text>
+          <View style={s.card}>
+            <Text style={s.cardTitle}>Special Requests</Text>
+            <Text style={s.specialRequestsText}>{booking.specialRequests}</Text>
           </View>
         )}
 
-        {/* Cancellation Info */}
-        {booking.status === 'cancelled' && (
-          <View style={[styles.card, styles.cancelCard]}>
-            <View style={styles.cancelHeader}>
-              <Ionicons name="alert-circle" size={24} color="#EF4444" />
-              <Text style={styles.cancelTitle}>Booking Cancelled</Text>
+        {/* ── CANCELLATION CARD ── */}
+        {booking.status === "cancelled" && (
+          <View style={[s.card, s.cancelCard]}>
+            <View style={s.cancelCardHeader}>
+              <Ionicons name="alert-circle" size={20} color="#EF4444" />
+              <Text style={s.cancelCardTitle}>Booking Cancelled</Text>
             </View>
             {booking.cancellationDate && (
-              <Text style={styles.cancelDate}>
+              <Text style={s.cancelCardSub}>
                 Cancelled on {formatDate(booking.cancellationDate)}
               </Text>
             )}
             {booking.cancellationReason && (
-              <Text style={styles.cancelReason}>
+              <Text style={s.cancelCardReason}>
                 Reason: {booking.cancellationReason}
               </Text>
             )}
           </View>
         )}
-
-        <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Action Buttons */}
-      {canCancel() && (
-        <View style={styles.actionBar}>
-          <TouchableOpacity
-            style={styles.cancelButton}
-            onPress={handleCancelBooking}
-          >
-            <Ionicons name="close-circle" size={20} color="#FFFFFF" />
-            <Text style={styles.cancelButtonText}>Cancel Booking</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {booking.status === 'confirmed' && new Date(booking.departure?.date) > new Date() && (
-        <View style={styles.actionBar}>
-          <TouchableOpacity
-            style={styles.checkInButton}
-            onPress={() => Alert.alert('Check-In', 'Check-in feature coming soon!')}
-          >
-            <Ionicons name="qr-code" size={20} color="#FFFFFF" />
-            <Text style={styles.checkInButtonText}>Check In</Text>
-          </TouchableOpacity>
+      {/* ── ACTION BAR ── */}
+      {(canCancel() ||
+        (booking.status === "confirmed" &&
+          new Date(booking.departure?.date) > new Date())) && (
+        <View style={s.actionBar}>
+          {canCancel() && (
+            <TouchableOpacity
+              style={s.cancelActionBtn}
+              onPress={handleCancelBooking}
+              activeOpacity={0.88}
+            >
+              <Ionicons name="close-circle" size={18} color="#EF4444" />
+              <Text style={s.cancelActionBtnText}>Cancel Booking</Text>
+            </TouchableOpacity>
+          )}
+          {booking.status === "confirmed" &&
+            new Date(booking.departure?.date) > new Date() && (
+              <TouchableOpacity
+                style={s.checkInActionBtn}
+                onPress={() =>
+                  Alert.alert("Check-In", "Check-in feature coming soon!")
+                }
+                activeOpacity={0.88}
+              >
+                <Ionicons name="qr-code" size={18} color="#fff" />
+                <Text style={s.checkInActionBtnText}>Check In</Text>
+              </TouchableOpacity>
+            )}
         </View>
       )}
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
+// ─────────────────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F5F5F0" },
+
+  // ── Top bar ──
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === "ios" ? 12 : 44,
+    paddingBottom: 14,
+    backgroundColor: "#F5F5F0",
   },
-  
-  // Header
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  backBtn: {
+  topBarBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0A2540',
-  },
-  shareBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
+  topBarTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    letterSpacing: -0.3,
   },
 
-  // Content
-  content: {
-    flex: 1,
-  },
-
-  // Status Card
+  // ── Status card ──
   statusCard: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginTop: 20,
+    backgroundColor: "#1A1A1A",
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 22,
     padding: 24,
-    borderRadius: 16,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
+    alignItems: "center",
   },
   statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 12,
-    gap: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
     marginBottom: 16,
   },
-  statusLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
+  statusLabel: { fontSize: 13, fontWeight: "800", letterSpacing: 0.8 },
   bookingRef: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#0A2540',
-    fontFamily: 'monospace',
-    marginBottom: 8,
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#fff",
+    fontFamily: Platform.OS === "ios" ? "Courier New" : "monospace",
+    letterSpacing: 1,
+    marginBottom: 6,
   },
-  bookingDate: {
-    fontSize: 14,
-    color: '#64748B',
-  },
+  bookingDateText: { fontSize: 13, color: "rgba(255,255,255,0.5)" },
 
-  // Card
+  // ── Generic card ──
   card: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginTop: 16,
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
+    backgroundColor: "#fff",
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 20,
+    padding: 18,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 5,
   },
   cardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0A2540',
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#aaa",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
     marginBottom: 16,
   },
 
-  // Journey
-  journeyContainer: {
-    paddingVertical: 8,
-  },
-  journeyRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  journeyTime: {
-    width: 80,
-  },
-  timeText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0A2540',
-  },
-  dateText: {
-    fontSize: 12,
-    color: '#64748B',
-    marginTop: 4,
-  },
-  journeyLine: {
-    alignItems: 'center',
-    marginHorizontal: 16,
-  },
-  circleFilled: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#00B0F3',
-  },
-  circle: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#00B0F3',
-  },
-  verticalLine: {
-    width: 2,
-    height: 60,
-    backgroundColor: '#CBD5E1',
-    marginVertical: 4,
-  },
-  locationIcon: {
-    marginTop: -10,
-  },
-  journeyLocation: {
-    flex: 1,
-  },
-  cityText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0A2540',
-  },
-  terminalText: {
-    fontSize: 13,
-    color: '#64748B',
-    marginTop: 4,
-  },
-  durationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingLeft: 96,
-    gap: 6,
-    marginVertical: 8,
-  },
-  durationLabel: {
-    fontSize: 13,
-    color: '#64748B',
-    fontWeight: '500',
-  },
-
-  // Info Row
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  infoLabel: {
-    fontSize: 14,
-    color: '#64748B',
-    marginLeft: 12,
-    flex: 1,
-  },
-  infoValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0A2540',
-  },
-
-  // Amenities
-  amenitiesContainer: {
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-  },
-  amenitiesTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0A2540',
+  // ── Route ──
+  routeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F5F5F0",
+    borderRadius: 14,
+    padding: 14,
     marginBottom: 12,
   },
-  amenitiesList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+  routeTimeBlock: { flex: 1 },
+  routeTime: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    letterSpacing: -0.5,
+    marginBottom: 3,
   },
-  amenityChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0FDF4',
-    paddingHorizontal: 12,
+  routeCity: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1A1A1A",
+    marginBottom: 2,
+  },
+  routeTerminal: { fontSize: 11, color: "#aaa" },
+  routeCenter: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+  },
+  routeDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: "#10B981",
+  },
+  routeDash: {
+    width: 14,
+    height: 2,
+    backgroundColor: "#DCDCDC",
+    marginHorizontal: 3,
+  },
+  routeDurationWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 4,
+  },
+  routeDuration: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#aaa",
+    letterSpacing: 0.3,
+  },
+  dateChipRow: { flexDirection: "row", gap: 8 },
+  dateChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#F5F5F0",
+    borderRadius: 10,
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 12,
-    gap: 6,
   },
-  amenityText: {
-    fontSize: 12,
-    color: '#10B981',
-    fontWeight: '500',
-  },
+  dateChipText: { fontSize: 12, fontWeight: "600", color: "#555" },
 
-  // Company
-  companyHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  // ── Info rows ──
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F5F5F0",
   },
-  companyIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#EFF6FF',
-    alignItems: 'center',
-    justifyContent: 'center',
+  infoIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#F5F5F0",
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: 12,
   },
-  companyInfo: {
-    flex: 1,
+  infoLabel: { fontSize: 13, color: "#888", flex: 1 },
+  infoValue: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    maxWidth: "55%",
+    textAlign: "right",
+  },
+
+  // ── Amenities ──
+  amenitiesSection: { paddingTop: 14, marginTop: 2 },
+  amenitiesSectionLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#aaa",
+    letterSpacing: 0.6,
+    marginBottom: 10,
+  },
+  amenitiesWrap: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  amenityChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#ECFDF5",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  amenityChipText: { fontSize: 11, color: "#059669", fontWeight: "600" },
+
+  // ── Company ──
+  companyRow: { flexDirection: "row", alignItems: "center" },
+  companyIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "#F5F5F0",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 14,
   },
   companyName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0A2540',
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    marginBottom: 4,
   },
-  companyPhone: {
-    fontSize: 14,
-    color: '#00B0F3',
-    marginTop: 4,
-  },
+  companyPhone: { fontSize: 13, color: "#3B82F6", fontWeight: "600" },
 
-  // Payment
+  // ── Payment ──
   paymentRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 13,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: "#F5F5F0",
   },
-  paymentLabel: {
-    fontSize: 14,
-    color: '#64748B',
-  },
+  paymentLabel: { fontSize: 13, color: "#888" },
   paymentAmount: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#0A2540',
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    letterSpacing: -0.5,
   },
-  paymentStatusBadge: {
-    backgroundColor: '#D1FAE5',
+  paidBadge: {
+    backgroundColor: "#ECFDF5",
+    borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingVertical: 5,
   },
-  paymentStatusText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#10B981',
-  },
-
-  // Special Requests
-  specialRequestsText: {
-    fontSize: 14,
-    color: '#64748B',
-    lineHeight: 20,
+  paidBadgeText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#10B981",
+    letterSpacing: 0.5,
   },
 
-  // Cancel Card
+  // ── Special requests ──
+  specialRequestsText: { fontSize: 14, color: "#666", lineHeight: 22 },
+
+  // ── Cancel card ──
   cancelCard: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FEE2E2',
+    borderWidth: 1.5,
+    borderColor: "#FEE2E2",
+    backgroundColor: "#FEF2F2",
   },
-  cancelHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 12,
+  cancelCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
   },
-  cancelTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#EF4444',
-  },
-  cancelDate: {
-    fontSize: 14,
-    color: '#B91C1C',
-    marginBottom: 8,
-  },
-  cancelReason: {
-    fontSize: 14,
-    color: '#DC2626',
-    fontStyle: 'italic',
-  },
+  cancelCardTitle: { fontSize: 15, fontWeight: "800", color: "#EF4444" },
+  cancelCardSub: { fontSize: 13, color: "#B91C1C", marginBottom: 4 },
+  cancelCardReason: { fontSize: 13, color: "#DC2626", fontStyle: "italic" },
 
-  // Action Bar
+  // ── Action bar ──
   actionBar: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 20,
+    backgroundColor: "#fff",
+    paddingHorizontal: 16,
     paddingVertical: 16,
+    paddingBottom: Platform.OS === "ios" ? 32 : 16,
+    flexDirection: "row",
+    gap: 10,
     borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 8,
+    borderTopColor: "#EBEBEB",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 10,
   },
-  cancelButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EF4444',
-    paddingVertical: 16,
-    borderRadius: 12,
+  cancelActionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
+    borderWidth: 1.5,
+    borderColor: "#FEE2E2",
+    borderRadius: 16,
+    paddingVertical: 15,
   },
-  cancelButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  checkInButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#10B981',
-    paddingVertical: 16,
-    borderRadius: 12,
+  cancelActionBtnText: { fontSize: 15, fontWeight: "800", color: "#EF4444" },
+  checkInActionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
+    backgroundColor: "#1A1A1A",
+    borderRadius: 16,
+    paddingVertical: 15,
   },
-  checkInButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
+  checkInActionBtnText: { fontSize: 15, fontWeight: "800", color: "#fff" },
 
-  // Loading & Error
-  loadingContainer: {
+  // ── Centered states ──
+  centeredState: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 40,
   },
-  loadingText: {
+  centeredStateText: {
     fontSize: 16,
-    color: '#64748B',
-    marginTop: 16,
+    fontWeight: "600",
+    color: "#888",
+    marginTop: 14,
   },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 5,
   },
-  errorText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#EF4444',
-    marginTop: 16,
-    marginBottom: 24,
+  backPill: {
+    marginTop: 20,
+    backgroundColor: "#1A1A1A",
+    borderRadius: 14,
+    paddingHorizontal: 24,
+    paddingVertical: 13,
   },
-  backButton: {
-    backgroundColor: '#00B0F3',
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 12,
-  },
-  backButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
+  backPillText: { color: "#fff", fontWeight: "800", fontSize: 14 },
 });

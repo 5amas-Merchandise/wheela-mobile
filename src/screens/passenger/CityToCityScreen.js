@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+// src/screens/passenger/CityToCityScreen.js
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -12,33 +13,63 @@ import {
   TextInput,
   Modal,
   FlatList,
-} from 'react-native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
-import axios from 'axios';
-import * as Auth from '../../utils/auth';
+  Platform,
+  Animated,
+} from "react-native";
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import axios from "axios";
 
-// REPLACE WITH YOUR ACTUAL API URL
-const API_URL = 'https://wheels-backend-7ydc.onrender.com';
+const API_URL = "https://wheels-backend-7ydc.onrender.com";
 
 const NIGERIA_STATES = [
-  'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa',
-  'Benue', 'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo',
-  'Ekiti', 'Enugu', 'FCT', 'Gombe', 'Imo', 'Jigawa',
-  'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara',
-  'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun',
-  'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'
+  "Abia",
+  "Adamawa",
+  "Akwa Ibom",
+  "Anambra",
+  "Bauchi",
+  "Bayelsa",
+  "Benue",
+  "Borno",
+  "Cross River",
+  "Delta",
+  "Ebonyi",
+  "Edo",
+  "Ekiti",
+  "Enugu",
+  "FCT",
+  "Gombe",
+  "Imo",
+  "Jigawa",
+  "Kaduna",
+  "Kano",
+  "Katsina",
+  "Kebbi",
+  "Kogi",
+  "Kwara",
+  "Lagos",
+  "Nasarawa",
+  "Niger",
+  "Ogun",
+  "Ondo",
+  "Osun",
+  "Oyo",
+  "Plateau",
+  "Rivers",
+  "Sokoto",
+  "Taraba",
+  "Yobe",
+  "Zamfara",
 ];
 
 export default function CityToCityScreen() {
   const navigation = useNavigation();
-  
-  // Search Parameters
-  const [departureState, setDepartureState] = useState('');
-  const [arrivalState, setArrivalState] = useState('');
-  const [travelDate, setTravelDate] = useState(new Date().toISOString().split('T')[0]);
-  
-  // UI State
+
+  const [departureState, setDepartureState] = useState("");
+  const [arrivalState, setArrivalState] = useState("");
+  const [travelDate, setTravelDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
   const [showDepartureModal, setShowDepartureModal] = useState(false);
   const [showArrivalModal, setShowArrivalModal] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -47,45 +78,42 @@ export default function CityToCityScreen() {
 
   const handleSearch = async () => {
     if (!departureState || !arrivalState) {
-      Alert.alert('Missing Information', 'Please select both departure and arrival states.');
+      Alert.alert(
+        "Missing Info",
+        "Please select both departure and arrival states.",
+      );
       return;
     }
-
     if (departureState === arrivalState) {
-      Alert.alert('Invalid Route', 'Departure and arrival states cannot be the same.');
+      Alert.alert(
+        "Invalid Route",
+        "Departure and arrival cannot be the same state.",
+      );
       return;
     }
-
     try {
       setSearching(true);
       setHasSearched(true);
-
       const response = await axios.get(`${API_URL}/intercity/search`, {
-        params: {
-          departureState,
-          arrivalState,
-          date: travelDate
-        }
+        params: { departureState, arrivalState, date: travelDate },
       });
-
-      console.log('✅ Search results:', response.data);
-
       if (response.data.success) {
         setTrips(response.data.trips || []);
-        if (response.data.trips.length === 0) {
-          Alert.alert('No Trips Found', 'No available trips for the selected route and date.');
+        if (!response.data.trips.length) {
+          Alert.alert(
+            "No Trips Found",
+            "No trips available for this route and date.",
+          );
         }
       }
-    } catch (error) {
-      console.error('❌ Search error:', error);
-      Alert.alert('Search Failed', 'Unable to search for trips. Please try again.');
+    } catch {
+      Alert.alert(
+        "Search Failed",
+        "Unable to search for trips. Please try again.",
+      );
     } finally {
       setSearching(false);
     }
-  };
-
-  const handleBookTrip = (trip) => {
-    navigation.navigate('IntercityBookingForm', { trip });
   };
 
   const swapLocations = () => {
@@ -95,213 +123,309 @@ export default function CityToCityScreen() {
   };
 
   const formatTime = (time) => {
-    if (!time) return 'N/A';
-    const [hours, minutes] = time.split(':');
+    if (!time) return "N/A";
+    const [hours, minutes] = time.split(":");
     const h = parseInt(hours);
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    const displayHour = h % 12 || 12;
-    return `${displayHour}:${minutes} ${ampm}`;
+    return `${h % 12 || 12}:${minutes} ${h >= 12 ? "PM" : "AM"}`;
   };
 
   const getDuration = (duration) => {
-    if (!duration) return 'N/A';
-    const hours = Math.floor(duration / 60);
-    const minutes = duration % 60;
-    return `${hours}h ${minutes}m`;
+    if (!duration) return "N/A";
+    const h = Math.floor(duration / 60);
+    const m = duration % 60;
+    return `${h}h ${m}m`;
   };
 
   const renderTripCard = ({ item }) => (
-    <View style={styles.tripCard}>
-      {/* Company Header */}
-      <View style={styles.tripHeader}>
-        <View style={styles.companyLogo}>
-          <MaterialIcons name="directions-bus" size={24} color="#00B0F3" />
+    <View style={s.tripCard}>
+      {/* Company row */}
+      <View style={s.tripCompanyRow}>
+        <View style={s.tripCompanyIconWrap}>
+          <MaterialIcons name="directions-bus" size={22} color="#1A1A1A" />
         </View>
-        <View style={styles.companyInfo}>
-          <Text style={styles.companyName}>{item.company.name}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={s.tripCompanyName}>{item.company.name}</Text>
           {item.company.rating > 0 && (
-            <View style={styles.ratingContainer}>
-              <Ionicons name="star" size={14} color="#F59E0B" />
-              <Text style={styles.ratingText}>
-                {item.company.rating.toFixed(1)} ({item.company.totalReviews})
+            <View style={s.tripRatingRow}>
+              <Ionicons name="star" size={12} color="#F59E0B" />
+              <Text style={s.tripRatingText}>
+                {item.company.rating.toFixed(1)} · {item.company.totalReviews}{" "}
+                reviews
               </Text>
             </View>
           )}
         </View>
+        <View style={s.seatsChip}>
+          <Ionicons name="people-outline" size={12} color="#1A1A1A" />
+          <Text style={s.seatsChipText}>
+            {item.availability.availableSeats} seats
+          </Text>
+        </View>
       </View>
 
-      {/* Route Information */}
-      <View style={styles.routeContainer}>
-        <View style={styles.routeColumn}>
-          <Text style={styles.timeText}>{formatTime(item.departure.time)}</Text>
-          <Text style={styles.locationText} numberOfLines={1}>
-            {item.route.from.split(',')[0]}
+      {/* Route */}
+      <View style={s.routeRow}>
+        <View style={s.routeTimeBlock}>
+          <Text style={s.routeTime}>{formatTime(item.departure.time)}</Text>
+          <Text style={s.routeCity} numberOfLines={1}>
+            {item.route.from.split(",")[0]}
           </Text>
         </View>
 
-        <View style={styles.routeCenter}>
-          <View style={styles.routeLine}>
-            <View style={styles.routeDot} />
-            <View style={styles.routeDash} />
-            <View style={styles.routeDot} />
+        <View style={s.routeCenter}>
+          <View style={s.routeDot} />
+          <View style={s.routeDash} />
+          <Text style={s.routeDuration}>
+            {getDuration(item.route.duration)}
+          </Text>
+          <View style={s.routeDash} />
+          <View style={[s.routeDot, { backgroundColor: "#EF4444" }]} />
+        </View>
+
+        <View style={[s.routeTimeBlock, { alignItems: "flex-end" }]}>
+          <Text style={s.routeTime}>{formatTime(item.arrival.time)}</Text>
+          <Text style={s.routeCity} numberOfLines={1}>
+            {item.route.to.split(",")[0]}
+          </Text>
+        </View>
+      </View>
+
+      {/* Chips row */}
+      <View style={s.tripChipsRow}>
+        <View style={s.tripChip}>
+          <Ionicons name="car-outline" size={13} color="#666" />
+          <Text style={s.tripChipText}>
+            {item.vehicle.type.replace("_", " ")}
+          </Text>
+        </View>
+        {item.vehicle.amenities?.slice(0, 3).map((a, i) => (
+          <View key={i} style={[s.tripChip, { backgroundColor: "#ECFDF5" }]}>
+            <Text style={[s.tripChipText, { color: "#059669" }]}>{a}</Text>
           </View>
-          <Text style={styles.durationText}>{getDuration(item.route.duration)}</Text>
-        </View>
-
-        <View style={[styles.routeColumn, { alignItems: 'flex-end' }]}>
-          <Text style={styles.timeText}>{formatTime(item.arrival.time)}</Text>
-          <Text style={styles.locationText} numberOfLines={1}>
-            {item.route.to.split(',')[0]}
-          </Text>
-        </View>
+        ))}
+        {item.vehicle.amenities?.length > 3 && (
+          <Text style={s.moreText}>+{item.vehicle.amenities.length - 3}</Text>
+        )}
       </View>
 
-      {/* Trip Details */}
-      <View style={styles.tripDetails}>
-        <View style={styles.detailItem}>
-          <Ionicons name="car-outline" size={16} color="#64748B" />
-          <Text style={styles.detailText}>
-            {item.vehicle.type.replace('_', ' ').toUpperCase()}
-          </Text>
-        </View>
-        <View style={styles.detailItem}>
-          <Ionicons name="people-outline" size={16} color="#64748B" />
-          <Text style={styles.detailText}>
-            {item.availability.availableSeats} seats left
-          </Text>
-        </View>
-      </View>
-
-      {/* Amenities */}
-      {item.vehicle.amenities?.length > 0 && (
-        <View style={styles.amenitiesRow}>
-          {item.vehicle.amenities.slice(0, 4).map((amenity, index) => (
-            <View key={index} style={styles.amenityTag}>
-              <Text style={styles.amenityText}>{amenity}</Text>
-            </View>
-          ))}
-          {item.vehicle.amenities.length > 4 && (
-            <Text style={styles.moreAmenities}>+{item.vehicle.amenities.length - 4}</Text>
-          )}
-        </View>
-      )}
-
-      {/* Price & Book Button */}
-      <View style={styles.tripFooter}>
+      {/* Footer */}
+      <View style={s.tripFooter}>
         <View>
-          <Text style={styles.priceLabel}>From</Text>
-          <Text style={styles.priceText}>₦{parseFloat(item.pricing.priceInNaira).toLocaleString()}</Text>
-          <Text style={styles.perSeatText}>per seat</Text>
+          <Text style={s.priceLabel}>From</Text>
+          <Text style={s.priceText}>
+            ₦{parseFloat(item.pricing.priceInNaira).toLocaleString()}
+          </Text>
+          <Text style={s.perSeatText}>per seat</Text>
         </View>
         <TouchableOpacity
-          style={styles.bookButton}
-          onPress={() => handleBookTrip(item)}
+          style={s.bookBtn}
+          onPress={() =>
+            navigation.navigate("IntercityBookingForm", { trip: item })
+          }
+          activeOpacity={0.88}
         >
-          <Text style={styles.bookButtonText}>Book Now</Text>
-          <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+          <Text style={s.bookBtnText}>Book Now</Text>
+          <Ionicons name="arrow-forward" size={16} color="#fff" />
         </TouchableOpacity>
       </View>
     </View>
   );
 
+  const StateModal = ({ visible, title, selected, onSelect, onClose }) => (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <TouchableOpacity
+        style={s.modalBackdrop}
+        activeOpacity={1}
+        onPress={onClose}
+      />
+      <View style={s.modalSheet}>
+        <View style={s.sheetHandle} />
+        <View style={s.modalHeaderRow}>
+          <Text style={s.modalTitle}>{title}</Text>
+          <TouchableOpacity onPress={onClose} style={s.modalCloseBtn}>
+            <Ionicons name="close" size={20} color="#1A1A1A" />
+          </TouchableOpacity>
+        </View>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {NIGERIA_STATES.map((state) => (
+            <TouchableOpacity
+              key={state}
+              style={s.stateItem}
+              onPress={() => {
+                onSelect(state);
+                onClose();
+              }}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[s.stateText, selected === state && s.stateTextSelected]}
+              >
+                {state}
+              </Text>
+              {selected === state && (
+                <View style={s.stateCheck}>
+                  <Ionicons name="checkmark" size={14} color="#fff" />
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
+          <View style={{ height: Platform.OS === "ios" ? 28 : 12 }} />
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backBtn}
+    <SafeAreaView style={s.container}>
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="transparent"
+        translucent
+      />
+
+      {/* ── TOP BAR ── */}
+      <View style={s.topBar}>
+        <TouchableOpacity
+          style={s.topBarBtn}
           onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
         >
-          <Ionicons name="arrow-back" size={24} color="#0A2540" />
+          <Ionicons name="arrow-back" size={20} color="#1A1A1A" />
         </TouchableOpacity>
-        
-        <Text style={styles.headerTitle}>Intercity Travel</Text>
-        
-        <TouchableOpacity 
-          style={styles.bookingsBtn}
-          onPress={() => navigation.navigate('IntercityBookings')}
+
+        <Text style={s.topBarTitle}>City to City</Text>
+
+        <TouchableOpacity
+          style={s.topBarBtn}
+          onPress={() => navigation.navigate("IntercityBookings")}
+          activeOpacity={0.8}
         >
-          <Ionicons name="receipt-outline" size={22} color="#00B0F3" />
+          <Ionicons name="receipt-outline" size={20} color="#1A1A1A" />
         </TouchableOpacity>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Search Card */}
-        <View style={styles.searchCard}>
-          <Text style={styles.searchTitle}>Where are you going?</Text>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 40 }}
+      >
+        {/* ── SEARCH CARD ── */}
+        <View style={s.searchCard}>
+          <Text style={s.searchCardTitle}>Where are you going?</Text>
 
-          {/* From Location */}
+          {/* From */}
           <TouchableOpacity
-            style={styles.inputContainer}
+            style={s.locationInputRow}
             onPress={() => setShowDepartureModal(true)}
+            activeOpacity={0.8}
           >
-            <Ionicons name="location" size={20} color="#00B0F3" />
-            <Text style={[styles.inputText, !departureState && styles.placeholder]}>
-              {departureState || 'From (State)'}
-            </Text>
+            <View style={s.dotGreen} />
+            <View style={s.locationInputContent}>
+              <Text style={s.locationInputLabel}>DEPARTURE</Text>
+              <Text
+                style={[
+                  s.locationInputText,
+                  !departureState && s.locationInputPlaceholder,
+                ]}
+              >
+                {departureState || "Select state"}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#ccc" />
           </TouchableOpacity>
 
-          {/* Swap Button */}
-          <TouchableOpacity style={styles.swapButton} onPress={swapLocations}>
-            <Ionicons name="swap-vertical" size={20} color="#00B0F3" />
-          </TouchableOpacity>
-
-          {/* To Location */}
-          <TouchableOpacity
-            style={styles.inputContainer}
-            onPress={() => setShowArrivalModal(true)}
-          >
-            <Ionicons name="location-outline" size={20} color="#EF4444" />
-            <Text style={[styles.inputText, !arrivalState && styles.placeholder]}>
-              {arrivalState || 'To (State)'}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Date Picker */}
-          <View style={styles.inputContainer}>
-            <Ionicons name="calendar-outline" size={20} color="#64748B" />
-            <TextInput
-              style={styles.inputText}
-              value={travelDate}
-              onChangeText={setTravelDate}
-              placeholder="Travel Date (YYYY-MM-DD)"
-              placeholderTextColor="#94A3B8"
-            />
+          {/* Swap + divider */}
+          <View style={s.swapRow}>
+            <View style={s.swapDivider} />
+            <TouchableOpacity
+              style={s.swapBtn}
+              onPress={swapLocations}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="swap-vertical" size={18} color="#1A1A1A" />
+            </TouchableOpacity>
+            <View style={s.swapDivider} />
           </View>
 
-          {/* Search Button */}
+          {/* To */}
           <TouchableOpacity
-            style={styles.searchButton}
+            style={s.locationInputRow}
+            onPress={() => setShowArrivalModal(true)}
+            activeOpacity={0.8}
+          >
+            <View style={s.dotBlack} />
+            <View style={s.locationInputContent}>
+              <Text style={s.locationInputLabel}>ARRIVAL</Text>
+              <Text
+                style={[
+                  s.locationInputText,
+                  !arrivalState && s.locationInputPlaceholder,
+                ]}
+              >
+                {arrivalState || "Select state"}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#ccc" />
+          </TouchableOpacity>
+
+          {/* Date */}
+          <View style={[s.locationInputRow, { marginTop: 12 }]}>
+            <View style={s.calendarIconWrap}>
+              <Ionicons name="calendar-outline" size={16} color="#1A1A1A" />
+            </View>
+            <View style={s.locationInputContent}>
+              <Text style={s.locationInputLabel}>TRAVEL DATE</Text>
+              <TextInput
+                style={s.dateInput}
+                value={travelDate}
+                onChangeText={setTravelDate}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor="#bbb"
+              />
+            </View>
+          </View>
+
+          {/* Search CTA */}
+          <TouchableOpacity
+            style={s.searchBtn}
             onPress={handleSearch}
             disabled={searching}
+            activeOpacity={0.88}
           >
             {searching ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <ActivityIndicator color="#fff" />
             ) : (
               <>
-                <Ionicons name="search" size={20} color="#FFFFFF" />
-                <Text style={styles.searchButtonText}>Search Trips</Text>
+                <Text style={s.searchBtnText}>Search Trips</Text>
+                <Ionicons
+                  name="arrow-forward"
+                  size={20}
+                  color="#fff"
+                  style={{ marginLeft: 8 }}
+                />
               </>
             )}
           </TouchableOpacity>
         </View>
 
-        {/* Results */}
+        {/* ── RESULTS ── */}
         {hasSearched && (
-          <View style={styles.resultsContainer}>
-            <Text style={styles.resultsTitle}>
-              {trips.length} {trips.length === 1 ? 'Trip' : 'Trips'} Found
+          <View style={s.resultsSection}>
+            <Text style={s.resultsTitle}>
+              {trips.length} {trips.length === 1 ? "Trip" : "Trips"} Found
             </Text>
-            
+
             {trips.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="search-outline" size={64} color="#CBD5E1" />
-                <Text style={styles.emptyTitle}>No Trips Available</Text>
-                <Text style={styles.emptySubtitle}>
-                  Try searching for a different date or route
-                </Text>
+              <View style={s.emptyState}>
+                <View style={s.emptyIconWrap}>
+                  <Ionicons name="bus-outline" size={36} color="#1A1A1A" />
+                </View>
+                <Text style={s.emptyTitle}>No Trips Available</Text>
+                <Text style={s.emptySub}>Try a different date or route</Text>
               </View>
             ) : (
               <FlatList
@@ -309,433 +433,409 @@ export default function CityToCityScreen() {
                 keyExtractor={(item, index) => `${item.scheduleId}-${index}`}
                 renderItem={renderTripCard}
                 scrollEnabled={false}
-                contentContainerStyle={styles.tripsList}
+                ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
               />
             )}
           </View>
         )}
-
-        <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* State Selection Modals */}
-      <Modal
+      {/* ── STATE MODALS ── */}
+      <StateModal
         visible={showDepartureModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowDepartureModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Departure State</Text>
-              <TouchableOpacity onPress={() => setShowDepartureModal(false)}>
-                <Ionicons name="close" size={24} color="#0A2540" />
-              </TouchableOpacity>
-            </View>
-            <ScrollView>
-              {NIGERIA_STATES.map((state) => (
-                <TouchableOpacity
-                  key={state}
-                  style={styles.stateItem}
-                  onPress={() => {
-                    setDepartureState(state);
-                    setShowDepartureModal(false);
-                  }}
-                >
-                  <Text style={styles.stateText}>{state}</Text>
-                  {departureState === state && (
-                    <Ionicons name="checkmark-circle" size={24} color="#00B0F3" />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
+        title="Select Departure"
+        selected={departureState}
+        onSelect={setDepartureState}
+        onClose={() => setShowDepartureModal(false)}
+      />
+      <StateModal
         visible={showArrivalModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowArrivalModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Arrival State</Text>
-              <TouchableOpacity onPress={() => setShowArrivalModal(false)}>
-                <Ionicons name="close" size={24} color="#0A2540" />
-              </TouchableOpacity>
-            </View>
-            <ScrollView>
-              {NIGERIA_STATES.map((state) => (
-                <TouchableOpacity
-                  key={state}
-                  style={styles.stateItem}
-                  onPress={() => {
-                    setArrivalState(state);
-                    setShowArrivalModal(false);
-                  }}
-                >
-                  <Text style={styles.stateText}>{state}</Text>
-                  {arrivalState === state && (
-                    <Ionicons name="checkmark-circle" size={24} color="#00B0F3" />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+        title="Select Arrival"
+        selected={arrivalState}
+        onSelect={setArrivalState}
+        onClose={() => setShowArrivalModal(false)}
+      />
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
+// ─────────────────────────────────────────────────────────────────────────────
+// STYLES — mirrors PassengerHomeScreen design language
+// ─────────────────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F5F5F0" },
 
-  // Header
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+  // ── Top bar ──
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === "ios" ? 12 : 44,
+    paddingBottom: 14,
+    backgroundColor: "#F5F5F0",
   },
-  backBtn: {
+  topBarBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0A2540',
-  },
-  bookingsBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  // Search Card
-  searchCard: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginTop: 20,
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-    shadowColor: '#000',
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 4,
   },
-  searchTitle: {
+  topBarTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    letterSpacing: -0.3,
+  },
+
+  // ── Search card ──
+  searchCard: {
+    backgroundColor: "#fff",
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 22,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.09,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  searchCardTitle: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#0A2540',
+    fontWeight: "800",
+    color: "#1A1A1A",
+    letterSpacing: -0.5,
     marginBottom: 20,
   },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+
+  // Location input rows (same pattern as HomeScreen)
+  locationInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+  },
+  dotGreen: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#10B981",
+    marginRight: 14,
+  },
+  dotBlack: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#1A1A1A",
+    marginRight: 14,
+  },
+  locationInputContent: { flex: 1 },
+  locationInputLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#aaa",
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  locationInputText: { fontSize: 15, fontWeight: "600", color: "#1A1A1A" },
+  locationInputPlaceholder: { color: "#bbb", fontWeight: "400" },
+
+  // Swap row
+  swapRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 8,
+  },
+  swapDivider: { flex: 1, height: 1, backgroundColor: "#EFEFEF" },
+  swapBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#F5F5F0",
+    justifyContent: "center",
+    alignItems: "center",
+    marginHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    marginBottom: 12,
-  },
-  inputText: {
-    flex: 1,
-    fontSize: 16,
-    color: '#0A2540',
-    marginLeft: 12,
-  },
-  placeholder: {
-    color: '#94A3B8',
-  },
-  swapButton: {
-    alignSelf: 'center',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#EFF6FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: -6,
-    zIndex: 10,
-  },
-  searchButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#00B0F3',
-    paddingVertical: 16,
-    borderRadius: 12,
-    marginTop: 8,
-    gap: 8,
-  },
-  searchButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    borderColor: "#EBEBEB",
   },
 
-  // Results
-  resultsContainer: {
+  // Date input
+  calendarIconWrap: {
+    width: 12,
+    height: 12,
+    marginRight: 14,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  dateInput: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#1A1A1A",
+    padding: 0,
+  },
+
+  // Search button (matches requestBtn in HomeScreen)
+  searchBtn: {
+    backgroundColor: "#1A1A1A",
+    borderRadius: 16,
+    paddingVertical: 17,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 20,
+  },
+  searchBtnText: {
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+
+  // ── Results ──
+  resultsSection: {
     marginTop: 24,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
   },
   resultsTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0A2540',
-    marginBottom: 16,
-  },
-  tripsList: {
-    gap: 16,
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    letterSpacing: -0.3,
+    marginBottom: 14,
   },
 
-  // Trip Card
+  // ── Trip card ──
   tripCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 18,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 5,
   },
-  tripHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  tripCompanyRow: {
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 16,
   },
-  companyLogo: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#EFF6FF',
-    alignItems: 'center',
-    justifyContent: 'center',
+  tripCompanyIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: "#F5F5F0",
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: 12,
   },
-  companyInfo: {
-    flex: 1,
+  tripCompanyName: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 2,
   },
-  companyName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0A2540',
-  },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
+  tripRatingRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  tripRatingText: { fontSize: 12, color: "#888" },
+  seatsChip: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
+    backgroundColor: "#F5F5F0",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
   },
-  ratingText: {
-    fontSize: 12,
-    color: '#64748B',
+  seatsChipText: { fontSize: 11, fontWeight: "700", color: "#1A1A1A" },
+
+  // Route
+  routeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F5F5F0",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
   },
-  routeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    padding: 12,
-  },
-  routeColumn: {
-    flex: 1,
-  },
-  timeText: {
+  routeTimeBlock: { flex: 1 },
+  routeTime: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#0A2540',
-    marginBottom: 4,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    letterSpacing: -0.5,
+    marginBottom: 3,
   },
-  locationText: {
-    fontSize: 13,
-    color: '#64748B',
-  },
+  routeCity: { fontSize: 12, color: "#888" },
   routeCenter: {
-    alignItems: 'center',
-    paddingHorizontal: 12,
-  },
-  routeLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
   },
   routeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#00B0F3',
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: "#10B981",
   },
   routeDash: {
-    width: 40,
+    flex: 1,
     height: 2,
-    backgroundColor: '#CBD5E1',
+    backgroundColor: "#DCDCDC",
     marginHorizontal: 4,
   },
-  durationText: {
-    fontSize: 11,
-    color: '#64748B',
-    fontWeight: '600',
+  routeDuration: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#888",
+    letterSpacing: 0.3,
+    paddingHorizontal: 6,
   },
-  tripDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-    marginBottom: 12,
-  },
-  detailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  detailText: {
-    fontSize: 12,
-    color: '#64748B',
-  },
-  amenitiesRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+
+  // Chips
+  tripChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 6,
     marginBottom: 16,
   },
-  amenityTag: {
-    backgroundColor: '#F0FDF4',
+  tripChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#F5F5F0",
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingVertical: 5,
+    borderRadius: 10,
   },
-  amenityText: {
-    fontSize: 11,
-    color: '#10B981',
-    fontWeight: '500',
-  },
-  moreAmenities: {
-    fontSize: 11,
-    color: '#64748B',
-    alignSelf: 'center',
-  },
+  tripChipText: { fontSize: 11, fontWeight: "600", color: "#555" },
+  moreText: { fontSize: 12, color: "#aaa", alignSelf: "center" },
+
+  // Trip footer
   tripFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: "#F5F5F0",
   },
-  priceLabel: {
-    fontSize: 12,
-    color: '#64748B',
-  },
+  priceLabel: { fontSize: 11, color: "#aaa", fontWeight: "600" },
   priceText: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#0A2540',
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    letterSpacing: -0.5,
   },
-  perSeatText: {
-    fontSize: 12,
-    color: '#64748B',
-  },
-  bookButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#00B0F3',
+  perSeatText: { fontSize: 11, color: "#aaa" },
+  bookBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1A1A1A",
+    borderRadius: 14,
+    paddingVertical: 13,
     paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 12,
     gap: 6,
   },
-  bookButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
+  bookBtnText: { fontSize: 14, fontWeight: "800", color: "#fff" },
 
-  // Empty State
+  // Empty state
   emptyState: {
-    alignItems: 'center',
-    paddingVertical: 60,
+    alignItems: "center",
+    paddingVertical: 52,
+  },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 5,
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#475569',
-    marginTop: 16,
-    marginBottom: 8,
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    marginBottom: 6,
   },
-  emptySubtitle: {
-    fontSize: 14,
-    color: '#94A3B8',
-    textAlign: 'center',
-  },
+  emptySub: { fontSize: 14, color: "#aaa" },
 
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+  // ── Modal / bottom sheet ──
+  modalBackdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.35)",
   },
-  modalContent: {
-    backgroundColor: '#FFFFFF',
+  modalSheet: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    maxHeight: '80%',
-    paddingBottom: 20,
+    maxHeight: "78%",
+    paddingTop: 12,
   },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#E0E0E0",
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  modalHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: "#F5F5F0",
   },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0A2540',
+  modalTitle: { fontSize: 17, fontWeight: "800", color: "#1A1A1A" },
+  modalCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#F5F5F0",
+    justifyContent: "center",
+    alignItems: "center",
   },
   stateItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 16,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 20,
+    paddingVertical: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: "#F5F5F0",
   },
-  stateText: {
-    fontSize: 16,
-    color: '#0A2540',
+  stateText: { fontSize: 15, fontWeight: "500", color: "#1A1A1A" },
+  stateTextSelected: { fontWeight: "800" },
+  stateCheck: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#10B981",
+    justifyContent: "center",
+    alignItems: "center",
   },
 });

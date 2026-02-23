@@ -7,188 +7,178 @@ import {
   SafeAreaView,
   ScrollView,
   TouchableOpacity,
+  Platform,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+
+const BENEFITS = [
+  { icon: 'receipt-outline',         text: 'No hidden fees — pay exactly what the app shows.' },
+  { icon: 'shield-checkmark-outline', text: 'No card data stored. Your financial info stays private.' },
+  { icon: 'people-outline',          text: 'Works for everyone, with or without a bank account.' },
+  { icon: 'handshake-outline',       text: 'Builds direct trust between riders and drivers.' },
+];
 
 export default function PaymentMethodsScreen() {
   const navigation = useNavigation();
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={28} color="#000" />
+    <SafeAreaView style={s.container}>
+      {/* ── TOP BAR ── */}
+      <View style={s.topBar}>
+        <TouchableOpacity style={s.topBarBtn} onPress={() => navigation.goBack()} activeOpacity={0.8}>
+          <Ionicons name="arrow-back" size={20} color="#1A1A1A" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Payment Methods</Text>
-        <View style={{ width: 28 }} /> {/* Spacer for symmetry */}
+        <Text style={s.topBarTitle}>Payment</Text>
+        <View style={{ width: 44 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        {/* Cash Payment Card */}
-        <View style={styles.methodCard}>
-          <View style={styles.methodIconContainer}>
-            <Ionicons name="cash-outline" size={32} color="#00B0F3" />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.content}>
+
+        {/* ── CASH METHOD CARD ── */}
+        <View style={s.methodCard}>
+          <View style={s.methodLeft}>
+            <View style={s.methodIconWrap}>
+              <Ionicons name="cash-outline" size={26} color="#1A1A1A" />
+            </View>
+            <View>
+              <Text style={s.methodTitle}>Cash</Text>
+              <Text style={s.methodSub}>Default payment method</Text>
+            </View>
           </View>
-          <View style={styles.methodInfo}>
-            <Text style={styles.methodTitle}>Cash</Text>
-            <Text style={styles.methodDescription}>Default payment method</Text>
+          <View style={s.activeBadge}>
+            <Ionicons name="checkmark" size={14} color="#fff" />
+            <Text style={s.activeBadgeText}>Active</Text>
           </View>
-          <Ionicons name="checkmark-circle" size={24} color="#10B981" />
         </View>
 
-        {/* Explanation Section */}
-        <View style={styles.explanationSection}>
-          <Text style={styles.explanationTitle}>Why Cash Only on Wheela?</Text>
-          <Text style={styles.explanationText}>
-            At Wheela, we prioritize transparency and simplicity in every ride. That's why we exclusively support cash payments directly to your driver upon completion of the trip. This approach ensures:
+        {/* ── WHY CASH CARD ── */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Why Cash Only?</Text>
+          <Text style={s.cardBody}>
+            Wheela runs on a cash-only model to keep things simple, transparent, and accessible for every rider and driver.
           </Text>
-          <View style={styles.bulletList}>
-            <View style={styles.bulletItem}>
-              <Ionicons name="checkmark" size={18} color="#00B0F3" style={styles.bulletIcon} />
-              <Text style={styles.bulletText}>No hidden fees or surprises – you pay exactly what you see in the app estimate.</Text>
-            </View>
-            <View style={styles.bulletItem}>
-              <Ionicons name="checkmark" size={18} color="#00B0F3" style={styles.bulletIcon} />
-              <Text style={styles.bulletText}>Full control over your transactions, promoting trust between riders and drivers.</Text>
-            </View>
-            <View style={styles.bulletItem}>
-              <Ionicons name="checkmark" size={18} color="#00B0F3" style={styles.bulletIcon} />
-              <Text style={styles.bulletText}>Accessibility for everyone, regardless of banking status or digital payment preferences.</Text>
-            </View>
-            <View style={styles.bulletItem}>
-              <Ionicons name="checkmark" size={18} color="#00B0F3" style={styles.bulletIcon} />
-              <Text style={styles.bulletText}>Enhanced security – no need to store sensitive card information in the app.</Text>
-            </View>
+
+          <View style={s.benefitsList}>
+            {BENEFITS.map((b, i) => (
+              <View key={i} style={[s.benefitRow, i === BENEFITS.length - 1 && { borderBottomWidth: 0 }]}>
+                <View style={s.benefitIconWrap}>
+                  <Ionicons name={b.icon} size={17} color="#1A1A1A" />
+                </View>
+                <Text style={s.benefitText}>{b.text}</Text>
+              </View>
+            ))}
           </View>
-          <Text style={styles.explanationText}>
-            We believe this cash-only model fosters a more transparent and reliable experience for all Wheela users. If you have any questions about payments or need assistance during a ride, our support team is always here to help.
+
+          <Text style={[s.cardBody, { marginTop: 16, fontSize: 13, color: '#aaa', lineHeight: 20 }]}>
+            We believe this model fosters a more honest, reliable experience for everyone on the platform.
           </Text>
         </View>
 
-        {/* Support CTA */}
-        <TouchableOpacity style={styles.supportButton}>
-          <Ionicons name="help-circle-outline" size={24} color="#00B0F3" />
-          <Text style={styles.supportText}>Need help with payments?</Text>
+        {/* ── SUPPORT BUTTON ── */}
+        <TouchableOpacity
+          style={s.supportBtn}
+          onPress={() =>
+            Alert.alert('Contact Support', 'Call: +234 700 000 0000\nEmail: support@wheela.com\n\nWe\'re here 24/7!', [{ text: 'OK' }])
+          }
+          activeOpacity={0.85}
+        >
+          <View style={s.supportBtnLeft}>
+            <View style={s.supportIconWrap}>
+              <Ionicons name="help-circle-outline" size={20} color="#1A1A1A" />
+            </View>
+            <Text style={s.supportBtnText}>Questions about payments?</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="#ccc" />
         </TouchableOpacity>
+
+        <View style={{ height: 30 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+// ─────────────────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F5F5F0' },
+
+  // ── Top bar ──
+  topBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    paddingTop: Platform.OS === 'ios' ? 12 : 44,
+    paddingBottom: 14,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#0A2540',
+  topBarBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff',
+    justifyContent: 'center', alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1, shadowRadius: 8, elevation: 4,
   },
-  content: {
-    padding: 16,
-  },
+  topBarTitle: { fontSize: 17, fontWeight: '800', color: '#1A1A1A', letterSpacing: -0.3 },
+
+  content: { paddingHorizontal: 16 },
+
+  // ── Method card ──
   methodCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  methodIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#F0F9FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  methodInfo: {
-    flex: 1,
-  },
-  methodTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0A2540',
-    marginBottom: 4,
-  },
-  methodDescription: {
-    fontSize: 14,
-    color: '#64748B',
-  },
-  explanationSection: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  explanationTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0A2540',
+    backgroundColor: '#1A1A1A',
+    borderRadius: 20, padding: 20,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     marginBottom: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18, shadowRadius: 14, elevation: 7,
   },
-  explanationText: {
-    fontSize: 15,
-    color: '#64748B',
-    lineHeight: 22,
-    marginBottom: 16,
+  methodLeft: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  methodIconWrap: {
+    width: 50, height: 50, borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center', alignItems: 'center',
   },
-  bulletList: {
-    marginBottom: 16,
+  methodTitle: { fontSize: 18, fontWeight: '800', color: '#fff', marginBottom: 3 },
+  methodSub:   { fontSize: 12, color: 'rgba(255,255,255,0.45)' },
+  activeBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: '#10B981', borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 6,
   },
-  bulletItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 12,
+  activeBadgeText: { fontSize: 12, fontWeight: '800', color: '#fff' },
+
+  // ── Generic card ──
+  card: {
+    backgroundColor: '#fff', borderRadius: 20, padding: 18, marginBottom: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07, shadowRadius: 12, elevation: 5,
   },
-  bulletIcon: {
-    marginRight: 12,
-    marginTop: 2,
+  cardTitle: {
+    fontSize: 13, fontWeight: '800', color: '#aaa',
+    letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 10,
   },
-  bulletText: {
-    fontSize: 15,
-    color: '#64748B',
-    flex: 1,
-    lineHeight: 22,
+  cardBody: { fontSize: 14, color: '#666', lineHeight: 21, marginBottom: 16 },
+
+  // ── Benefits list ──
+  benefitsList: { borderTopWidth: 1, borderTopColor: '#F5F5F0' },
+  benefitRow: {
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 13,
+    borderBottomWidth: 1, borderBottomColor: '#F5F5F0', gap: 14,
   },
-  supportButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0F9FF',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E0F2FE',
+  benefitIconWrap: {
+    width: 36, height: 36, borderRadius: 10, backgroundColor: '#F5F5F0',
+    justifyContent: 'center', alignItems: 'center',
   },
-  supportText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#00B0F3',
-    marginLeft: 12,
+  benefitText: { flex: 1, fontSize: 13, color: '#444', lineHeight: 19, fontWeight: '500' },
+
+  // ── Support button ──
+  supportBtn: {
+    backgroundColor: '#fff', borderRadius: 18, padding: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07, shadowRadius: 12, elevation: 5,
   },
+  supportBtnLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  supportIconWrap: {
+    width: 38, height: 38, borderRadius: 11, backgroundColor: '#F5F5F0',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  supportBtnText: { fontSize: 14, fontWeight: '700', color: '#1A1A1A' },
 });
