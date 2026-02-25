@@ -143,30 +143,41 @@ export default function TripCompletedScreen() {
     }
   };
 
+  // FIX: checkReferralReward – only show if user has a completed referral
   const checkReferralReward = async () => {
     try {
       const token = await getAuthToken();
       if (!token) return;
+
       const meRes = await fetch(`${baseUrl}/users/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!meRes.ok) return;
       const { user } = await meRes.json();
+
+      // ✅ Only show bonus if user BOTH used a referral code AND this is their first trip
       if (!user?.usedReferralCode || !user?.hasCompletedFirstTrip) return;
 
-      const refRes = await fetch(`${baseUrl}/referrals/history?limit=1`, {
+      // ✅ Check that the referral event actually fired — look for a completed referral
+      const refRes = await fetch(`${baseUrl}/referrals/history?limit=5`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (refRes.ok) {
-        const refData = await refRes.json();
-        const latest = refData.referrals?.[0];
-        setReferralBonus({
-          amount: 300,
-          referrerName: latest?.referee?.name || null,
-        });
-      } else {
-        setReferralBonus({ amount: 300, referrerName: null });
-      }
+      if (!refRes.ok) return;
+
+      const refData = await refRes.json();
+      // Find a referral for THIS user as referee that is completed (not pending)
+      const completedReferral = refData.referrals?.find(
+        (r) =>
+          r.refereeId === user._id &&
+          (r.status === "completed" || r.status === "rewarded"),
+      );
+
+      if (!completedReferral) return; // ✅ No bonus to show
+
+      setReferralBonus({
+        amount: completedReferral.bonusAmount || 300,
+        referrerName: completedReferral.referrer?.name || null,
+      });
     } catch (e) {
       console.warn("checkReferralReward (non-fatal):", e);
     }

@@ -26,42 +26,60 @@ import {
 const { width, height } = Dimensions.get('window');
 const baseUrl = 'https://wheels-backend-7ydc.onrender.com';
 
-// Maps service type to a readable label and icon
 const SERVICE_META = {
-  CITY_RIDE:      { label: 'City Ride',   icon: 'car-sport',  color: '#1A1A1A' },
-  DELIVERY_BIKE:  { label: 'Bike',         icon: 'bicycle',    color: '#059669' },
-  KEKE:           { label: 'Keke',         icon: 'triangle',   color: '#D97706' },
-  LUXURY_RENTAL:  { label: 'Luxury',       icon: 'diamond',    color: '#7C3AED' },
+  CITY_RIDE:     { label: 'City Ride', icon: 'car-sport', color: '#1A1A1A' },
+  DELIVERY_BIKE: { label: 'Bike',      icon: 'bicycle',   color: '#059669' },
+  KEKE:          { label: 'Keke',      icon: 'triangle',  color: '#D97706' },
+  LUXURY_RENTAL: { label: 'Luxury',    icon: 'diamond',   color: '#7C3AED' },
+};
+
+// Payment method display helpers
+const PAYMENT_META = {
+  wallet: { label: 'Wallet',  icon: 'wallet-outline',  color: '#059669', bg: '#ECFDF5' },
+  cash:   { label: 'Cash',    icon: 'cash-outline',     color: '#1A1A1A', bg: '#F5F5F0' },
 };
 
 export default function DriverMatchingScreen() {
   const navigation = useNavigation();
   const route      = useRoute();
 
-  // ── Route params ────────────────────────────────────────────────────────────
+  // ── Route params ─────────────────────────────────────────────────────────
   const {
-    pickup, dropoff,
-    pickupAddress, dropoffAddress,
-    serviceType, estimatedFare, distance, duration,
+    pickup,
+    dropoff,
+    pickupAddress,
+    dropoffAddress,
+    serviceType,
+    estimatedFare,
+    distance,
+    duration,
+    paymentMethod: routePaymentMethod, // ✅ received from PassengerHomeScreen
   } = route.params || {};
 
-  // ── State ───────────────────────────────────────────────────────────────────
-  const [isMatching,      setIsMatching]      = useState(true);
-  const [timer,           setTimer]           = useState(0);
-  const [requestId,       setRequestId]       = useState(null);
-  const [assignedDriver,  setAssignedDriver]  = useState(null);
-  const [error,           setError]           = useState(null);
-  const [wsConnected,     setWsConnected]     = useState(false);
-  const [isTripAccepted,  setIsTripAccepted]  = useState(false);
-  const [searchDots,      setSearchDots]      = useState('');
+  // ✅ Normalise — never allow undefined to propagate; default to 'cash' as
+  //    a last resort only (PassengerHomeScreen should always pass this).
+  const VALID_PAYMENT_METHODS = ['cash', 'wallet'];
+  const paymentMethod = VALID_PAYMENT_METHODS.includes(routePaymentMethod)
+    ? routePaymentMethod
+    : 'cash';
 
-  // ── Refs (stale closure guards) ─────────────────────────────────────────────
-  const isTripAcceptedRef    = useRef(false);
-  const requestIdRef         = useRef(null);
-  const timerIntervalRef     = useRef(null);
-  const pollingIntervalRef   = useRef(null);
+  // ── State ─────────────────────────────────────────────────────────────────
+  const [isMatching,     setIsMatching]     = useState(true);
+  const [timer,          setTimer]          = useState(0);
+  const [requestId,      setRequestId]      = useState(null);
+  const [assignedDriver, setAssignedDriver] = useState(null);
+  const [error,          setError]          = useState(null);
+  const [wsConnected,    setWsConnected]    = useState(false);
+  const [isTripAccepted, setIsTripAccepted] = useState(false);
+  const [searchDots,     setSearchDots]     = useState('');
 
-  // ── Animations ──────────────────────────────────────────────────────────────
+  // ── Refs ──────────────────────────────────────────────────────────────────
+  const isTripAcceptedRef  = useRef(false);
+  const requestIdRef       = useRef(null);
+  const timerIntervalRef   = useRef(null);
+  const pollingIntervalRef = useRef(null);
+
+  // ── Animations ────────────────────────────────────────────────────────────
   const pulseAnim   = useRef(new Animated.Value(1)).current;
   const successAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim    = useRef(new Animated.Value(0)).current;
@@ -75,32 +93,32 @@ export default function DriverMatchingScreen() {
     ]).start();
   }, []);
 
-  // Pulse ring animation
+  // Pulse ring
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 1.55, duration: 1000, useNativeDriver: true }),
         Animated.timing(pulseAnim, { toValue: 1,    duration: 1000, useNativeDriver: true }),
-      ])
+      ]),
     );
     loop.start();
     return () => loop.stop();
   }, []);
 
-  // Animated dots ("Searching.")
+  // Animated dots
   useEffect(() => {
     if (!isMatching || error || isTripAccepted) return;
     const iv = setInterval(() => {
-      setSearchDots(d => d.length >= 3 ? '' : d + '.');
+      setSearchDots(d => (d.length >= 3 ? '' : d + '.'));
     }, 500);
     return () => clearInterval(iv);
   }, [isMatching, error, isTripAccepted]);
 
-  // ── Sync refs ───────────────────────────────────────────────────────────────
+  // ── Sync refs ─────────────────────────────────────────────────────────────
   useEffect(() => { isTripAcceptedRef.current = isTripAccepted; }, [isTripAccepted]);
-  useEffect(() => { requestIdRef.current = requestId; }, [requestId]);
+  useEffect(() => { requestIdRef.current = requestId; },          [requestId]);
 
-  // ── Main lifecycle ──────────────────────────────────────────────────────────
+  // ── Main lifecycle ────────────────────────────────────────────────────────
   useEffect(() => {
     startTimer();
     createTripRequest();
@@ -123,15 +141,16 @@ export default function DriverMatchingScreen() {
     }
   }, [isTripAccepted]);
 
-  // ── Timer ───────────────────────────────────────────────────────────────────
+  // ── Timer ─────────────────────────────────────────────────────────────────
   const startTimer = () => {
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     timerIntervalRef.current = setInterval(() => setTimer(p => p + 1), 1000);
   };
 
-  const formatTime = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const formatTime = s =>
+    `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
-  // ── WebSocket ───────────────────────────────────────────────────────────────
+  // ── WebSocket ─────────────────────────────────────────────────────────────
   const initWebSocketAndListen = async () => {
     try {
       await initWebSocket();
@@ -146,67 +165,89 @@ export default function DriverMatchingScreen() {
     }
   };
 
-  const handleConnect    = () => { setWsConnected(true); };
+  const handleConnect    = () => setWsConnected(true);
   const handleDisconnect = () => {
     setWsConnected(false);
     if (requestIdRef.current && !isTripAcceptedRef.current) startPollingForUpdates();
   };
 
-  const handleTripAccepted = useCallback((data) => {
-    if (isTripAcceptedRef.current) return;
-    isTripAcceptedRef.current = true;
-    setIsTripAccepted(true);
-    setAssignedDriver({ driverId: data.driverId, name: data.driverName || 'Driver' });
-    stopPolling();
-    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-
-    // Success animation
-    Animated.spring(successAnim, { toValue: 1, tension: 50, friction: 7, useNativeDriver: true }).start();
-
-    setTimeout(() => {
-      if (navigation.isFocused()) {
-        navigation.replace('TripTracking', {
-          tripId:             data.tripId,
-          requestId:          data.requestId || requestIdRef.current,
-          pickup,
-          destination:        dropoff,
-          pickupAddress:      pickupAddress    || 'Pickup location',
-          destinationAddress: dropoffAddress   || 'Destination',
-          driverId:           data.driverId,
-          driverName:         data.driverName  || 'Driver',
-          serviceType,
-          estimatedFare:      estimatedFare    || 0,
-          fare:               estimatedFare    || 0,
-          distance:           distance         || 0,
-          duration:           duration         || 0,
-          paymentMethod:      'cash',
-        });
-      }
-    }, 2000);
-  }, [pickup, dropoff, pickupAddress, dropoffAddress, serviceType, estimatedFare, distance, duration, navigation]);
-
-  const handleNotification = useCallback((payload) => {
-    const { type, data } = payload;
-    const notifRequestId = data?.requestId || payload.requestId;
-    if (notifRequestId && notifRequestId !== requestIdRef.current) return;
-
-    if (type === 'trip_accepted' || type === 'trip:accepted') {
-      handleTripAccepted({
-        driverId:   data?.driverId   || payload.driverId,
-        driverName: data?.driverName || payload.driverName,
-        tripId:     data?.tripId     || payload.tripId,
-        requestId:  notifRequestId,
+  // ── Navigate to TripTracking ──────────────────────────────────────────────
+  // ✅ paymentMethod is captured from outer scope (closure over the normalised value).
+  //    It is NOT sourced from WebSocket/notification data because the server doesn't
+  //    echo it back — the passenger already knows what they selected.
+  const navigateToTracking = useCallback(
+    (data) => {
+      if (!navigation.isFocused()) return;
+      navigation.replace('TripTracking', {
+        tripId:             data.tripId,
+        requestId:          data.requestId || requestIdRef.current,
+        pickup,
+        destination:        dropoff,
+        pickupAddress:      pickupAddress  || 'Pickup location',
+        destinationAddress: dropoffAddress || 'Destination',
+        driverId:           data.driverId,
+        driverName:         data.driverName || 'Driver',
+        serviceType,
+        estimatedFare:      estimatedFare  || 0,
+        fare:               estimatedFare  || 0,
+        distance:           distance       || 0,
+        duration:           duration       || 0,
+        paymentMethod,      // ✅ the value the passenger selected — 'cash' | 'wallet'
       });
-    } else if (type === 'no_driver_found') {
-      if (!isTripAcceptedRef.current) handleNoDriversFound();
-    }
-  }, [handleTripAccepted]);
+    },
+    [
+      navigation, pickup, dropoff, pickupAddress, dropoffAddress,
+      serviceType, estimatedFare, distance, duration, paymentMethod,
+    ],
+  );
 
-  // ── Polling fallback ────────────────────────────────────────────────────────
+  const handleTripAccepted = useCallback(
+    (data) => {
+      if (isTripAcceptedRef.current) return;
+      isTripAcceptedRef.current = true;
+      setIsTripAccepted(true);
+      setAssignedDriver({ driverId: data.driverId, name: data.driverName || 'Driver' });
+      stopPolling();
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+
+      // Success animation then navigate
+      Animated.spring(successAnim, {
+        toValue: 1, tension: 50, friction: 7, useNativeDriver: true,
+      }).start();
+
+      setTimeout(() => navigateToTracking(data), 2000);
+    },
+    [navigateToTracking],
+  );
+
+  const handleNotification = useCallback(
+    (payload) => {
+      const { type, data } = payload;
+      const notifRequestId = data?.requestId || payload.requestId;
+      if (notifRequestId && notifRequestId !== requestIdRef.current) return;
+
+      if (type === 'trip_accepted' || type === 'trip:accepted') {
+        handleTripAccepted({
+          driverId:   data?.driverId   || payload.driverId,
+          driverName: data?.driverName || payload.driverName,
+          tripId:     data?.tripId     || payload.tripId,
+          requestId:  notifRequestId,
+        });
+      } else if (type === 'no_driver_found') {
+        if (!isTripAcceptedRef.current) handleNoDriversFound();
+      }
+    },
+    [handleTripAccepted],
+  );
+
+  // ── Polling fallback ──────────────────────────────────────────────────────
   const startPollingForUpdates = () => {
     if (pollingIntervalRef.current || isTripAcceptedRef.current) return;
     pollingIntervalRef.current = setInterval(async () => {
-      if (!requestIdRef.current || isTripAcceptedRef.current) { stopPolling(); return; }
+      if (!requestIdRef.current || isTripAcceptedRef.current) {
+        stopPolling();
+        return;
+      }
       await checkTripStatus();
     }, 7000);
   };
@@ -215,9 +256,10 @@ export default function DriverMatchingScreen() {
     try {
       const token = await getAuthToken();
       if (!token) return;
-      const res    = await fetch(`${baseUrl}/trips/request/${requestIdRef.current}`, {
-        headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache' },
-      });
+      const res = await fetch(
+        `${baseUrl}/trips/request/${requestIdRef.current}`,
+        { headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache' } },
+      );
       if (!res.ok) return;
       const result = await res.json();
       const trip   = result.trip;
@@ -249,23 +291,27 @@ export default function DriverMatchingScreen() {
     }
   };
 
-  // ── Create trip request ─────────────────────────────────────────────────────
+  // ── Create trip request ───────────────────────────────────────────────────
   const createTripRequest = async () => {
     try {
       const token = await getAuthToken();
       if (!token) { navigation.replace('Login'); return; }
 
       const payload = {
-        pickup:   { type: 'Point', coordinates: [pickup.longitude, pickup.latitude] },
-        dropoff:  dropoff ? { type: 'Point', coordinates: [dropoff.longitude, dropoff.latitude] } : undefined,
+        pickup:  { type: 'Point', coordinates: [pickup.longitude,  pickup.latitude]  },
+        dropoff: dropoff
+          ? { type: 'Point', coordinates: [dropoff.longitude, dropoff.latitude] }
+          : undefined,
         serviceType,
-        paymentMethod: 'cash',
+        paymentMethod,          // ✅ 'cash' | 'wallet' — never hardcoded
         estimatedFare: estimatedFare || 0,
         distance:      distance      || 0,
         duration:      duration      || 0,
         pickupAddress:  pickupAddress  || '',
         dropoffAddress: dropoffAddress || '',
       };
+
+      console.log(`🚗 Creating trip request | payment: ${paymentMethod} | fare: ₦${estimatedFare}`);
 
       const res = await fetch(`${baseUrl}/trips/request`, {
         method:  'POST',
@@ -279,9 +325,15 @@ export default function DriverMatchingScreen() {
       setRequestId(result.requestId);
       requestIdRef.current = result.requestId;
 
-      if (result.message?.toLowerCase().includes('no drivers')) handleNoDriversFound();
-      else startPollingForUpdates();
-    } catch {
+      console.log(`✅ Trip request created: ${result.requestId} | payment: ${paymentMethod}`);
+
+      if (result.message?.toLowerCase().includes('no drivers')) {
+        handleNoDriversFound();
+      } else {
+        startPollingForUpdates();
+      }
+    } catch (err) {
+      console.error('createTripRequest error:', err);
       setError('Could not request ride. Please try again.');
       setIsMatching(false);
     }
@@ -295,7 +347,7 @@ export default function DriverMatchingScreen() {
     setTimeout(() => { if (navigation.isFocused()) navigation.goBack(); }, 3400);
   };
 
-  // ── Cancel ──────────────────────────────────────────────────────────────────
+  // ── Cancel ────────────────────────────────────────────────────────────────
   const cancelMatching = async () => {
     stopPolling();
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
@@ -314,9 +366,9 @@ export default function DriverMatchingScreen() {
     navigation.goBack();
   };
 
-  const meta = SERVICE_META[serviceType] || SERVICE_META.CITY_RIDE;
+  const meta        = SERVICE_META[serviceType] || SERVICE_META.CITY_RIDE;
+  const paymentMeta = PAYMENT_META[paymentMethod] || PAYMENT_META.cash;
 
-  // Interpolations
   const pulseOpacity = pulseAnim.interpolate({ inputRange: [1, 1.55], outputRange: [0.4, 0] });
   const successScale = successAnim.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
 
@@ -333,7 +385,11 @@ export default function DriverMatchingScreen() {
 
         <View style={s.headerCenter}>
           <Text style={s.headerTitle}>
-            {error ? 'Request Failed' : isTripAccepted ? 'Driver Found!' : 'Finding your ride'}
+            {error
+              ? 'Request Failed'
+              : isTripAccepted
+              ? 'Driver Found!'
+              : 'Finding your ride'}
           </Text>
         </View>
 
@@ -343,25 +399,42 @@ export default function DriverMatchingScreen() {
       </View>
 
       {/* ── Animation area ── */}
-      <Animated.View style={[s.animArea, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-
+      <Animated.View
+        style={[
+          s.animArea,
+          { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
+        ]}
+      >
         {/* State: matching */}
         {!isTripAccepted && !error && (
           <View style={s.iconWrap}>
-            {/* Outer pulse ring */}
-            <Animated.View style={[
-              s.pulseRing, s.pulseRingOuter,
-              { transform: [{ scale: pulseAnim }], opacity: pulseOpacity },
-            ]} />
-            {/* Inner pulse ring */}
-            <Animated.View style={[
-              s.pulseRing, s.pulseRingInner,
-              {
-                transform: [{ scale: pulseAnim.interpolate({ inputRange: [1, 1.55], outputRange: [1, 1.25] }) }],
-                opacity:   pulseAnim.interpolate({ inputRange: [1, 1.55], outputRange: [0.25, 0] }),
-              },
-            ]} />
-            {/* Icon circle */}
+            <Animated.View
+              style={[
+                s.pulseRing,
+                s.pulseRingOuter,
+                { transform: [{ scale: pulseAnim }], opacity: pulseOpacity },
+              ]}
+            />
+            <Animated.View
+              style={[
+                s.pulseRing,
+                s.pulseRingInner,
+                {
+                  transform: [
+                    {
+                      scale: pulseAnim.interpolate({
+                        inputRange:  [1, 1.55],
+                        outputRange: [1, 1.25],
+                      }),
+                    },
+                  ],
+                  opacity: pulseAnim.interpolate({
+                    inputRange:  [1, 1.55],
+                    outputRange: [0.25, 0],
+                  }),
+                },
+              ]}
+            />
             <View style={[s.iconCircle, { backgroundColor: meta.color }]}>
               <Ionicons name={meta.icon} size={46} color="#fff" />
             </View>
@@ -370,7 +443,12 @@ export default function DriverMatchingScreen() {
 
         {/* State: success */}
         {isTripAccepted && (
-          <Animated.View style={[s.successCircle, { transform: [{ scale: successScale }], opacity: successAnim }]}>
+          <Animated.View
+            style={[
+              s.successCircle,
+              { transform: [{ scale: successScale }], opacity: successAnim },
+            ]}
+          >
             <Ionicons name="checkmark" size={52} color="#fff" />
           </Animated.View>
         )}
@@ -383,11 +461,13 @@ export default function DriverMatchingScreen() {
         )}
 
         {/* Status text */}
-        <Text style={[
-          s.statusTitle,
-          isTripAccepted && { color: '#10B981' },
-          error && { color: '#EF4444' },
-        ]}>
+        <Text
+          style={[
+            s.statusTitle,
+            isTripAccepted && { color: '#10B981' },
+            error && { color: '#EF4444' },
+          ]}
+        >
           {error
             ? 'No ride found'
             : isTripAccepted
@@ -400,7 +480,7 @@ export default function DriverMatchingScreen() {
             ? error
             : isTripAccepted
             ? 'Preparing your navigation…'
-            : 'We\'re finding the nearest available driver'}
+            : "We're finding the nearest available driver"}
         </Text>
 
         {/* Preparing spinner */}
@@ -408,11 +488,37 @@ export default function DriverMatchingScreen() {
           <ActivityIndicator size="small" color="#10B981" style={{ marginTop: 16 }} />
         )}
 
+        {/* ✅ Payment method indicator — visible during search so passenger knows
+              which payment mode is active for this request */}
+        {!isTripAccepted && !error && (
+          <View style={[s.paymentPill, { backgroundColor: paymentMeta.bg }]}>
+            <Ionicons name={paymentMeta.icon} size={14} color={paymentMeta.color} />
+            <Text style={[s.paymentPillText, { color: paymentMeta.color }]}>
+              {paymentMethod === 'wallet' ? 'Paying by wallet' : 'Paying by cash'}
+            </Text>
+          </View>
+        )}
+
         {/* Connection pill */}
         {!isTripAccepted && !error && (
-          <View style={[s.connPill, { backgroundColor: wsConnected ? '#F0FDF4' : '#FFFBEB' }]}>
-            <View style={[s.connDot, { backgroundColor: wsConnected ? '#10B981' : '#F59E0B' }]} />
-            <Text style={[s.connText, { color: wsConnected ? '#059669' : '#B45309' }]}>
+          <View
+            style={[
+              s.connPill,
+              { backgroundColor: wsConnected ? '#F0FDF4' : '#FFFBEB' },
+            ]}
+          >
+            <View
+              style={[
+                s.connDot,
+                { backgroundColor: wsConnected ? '#10B981' : '#F59E0B' },
+              ]}
+            />
+            <Text
+              style={[
+                s.connText,
+                { color: wsConnected ? '#059669' : '#B45309' },
+              ]}
+            >
               {wsConnected ? 'Live updates active' : 'Checking for drivers…'}
             </Text>
           </View>
@@ -420,7 +526,12 @@ export default function DriverMatchingScreen() {
       </Animated.View>
 
       {/* ── Trip summary card ── */}
-      <Animated.View style={[s.summaryCard, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+      <Animated.View
+        style={[
+          s.summaryCard,
+          { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
+        ]}
+      >
         {/* Route */}
         <View style={s.routeRow}>
           <View style={s.routeTrack}>
@@ -431,51 +542,87 @@ export default function DriverMatchingScreen() {
           <View style={s.routeAddresses}>
             <View style={s.addressBlock}>
               <Text style={s.addressLabel}>PICKUP</Text>
-              <Text style={s.addressText} numberOfLines={1}>{pickupAddress || 'Current location'}</Text>
+              <Text style={s.addressText} numberOfLines={1}>
+                {pickupAddress || 'Current location'}
+              </Text>
             </View>
             <View style={s.addressBlock}>
               <Text style={s.addressLabel}>DROP-OFF</Text>
-              <Text style={s.addressText} numberOfLines={1}>{dropoffAddress || 'Destination'}</Text>
+              <Text style={s.addressText} numberOfLines={1}>
+                {dropoffAddress || 'Destination'}
+              </Text>
             </View>
           </View>
         </View>
 
-        {/* Divider */}
         <View style={s.cardDivider} />
 
-        {/* Stats */}
+        {/* Stats row */}
         <View style={s.statsRow}>
           <View style={s.stat}>
-            <Text style={s.statValue}>₦{estimatedFare?.toLocaleString() || '—'}</Text>
+            <Text style={s.statValue}>
+              ₦{estimatedFare?.toLocaleString() || '—'}
+            </Text>
             <Text style={s.statLabel}>Fare</Text>
           </View>
+
           <View style={s.statDivider} />
+
           <View style={s.stat}>
             <Text style={s.statValue}>{distance?.toFixed(1) || '—'} km</Text>
             <Text style={s.statLabel}>Distance</Text>
           </View>
+
           <View style={s.statDivider} />
+
+          {/* ✅ Show payment method in summary card instead of just ride type */}
           <View style={s.stat}>
             <View style={[s.rideTypePill, { backgroundColor: `${meta.color}15` }]}>
               <Ionicons name={meta.icon} size={13} color={meta.color} />
-              <Text style={[s.rideTypePillText, { color: meta.color }]}>{meta.label}</Text>
+              <Text style={[s.rideTypePillText, { color: meta.color }]}>
+                {meta.label}
+              </Text>
             </View>
             <Text style={s.statLabel}>Type</Text>
           </View>
+        </View>
+
+        {/* ✅ Payment method row below stats */}
+        <View style={s.cardDivider} />
+        <View style={s.paymentRow}>
+          <Ionicons name={paymentMeta.icon} size={16} color={paymentMeta.color} />
+          <Text style={[s.paymentRowLabel, { color: paymentMeta.color }]}>
+            {paymentMethod === 'wallet'
+              ? 'Wallet — fare will be deducted automatically on completion'
+              : 'Cash — pay the driver directly on completion'}
+          </Text>
         </View>
       </Animated.View>
 
       {/* ── Cancel / Error actions ── */}
       <View style={s.bottomArea}>
         {isMatching && !error && !isTripAccepted && (
-          <TouchableOpacity style={s.cancelBtn} onPress={cancelMatching} activeOpacity={0.85}>
+          <TouchableOpacity
+            style={s.cancelBtn}
+            onPress={cancelMatching}
+            activeOpacity={0.85}
+          >
             <Text style={s.cancelBtnText}>Cancel Request</Text>
           </TouchableOpacity>
         )}
 
         {error && !isTripAccepted && (
-          <TouchableOpacity style={s.retryBtn} onPress={() => navigation.goBack()} activeOpacity={0.85}>
-            <Ionicons name="arrow-back" size={18} color="#fff" style={{ marginRight: 8 }} />
+          <TouchableOpacity
+            style={s.retryBtn}
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name="arrow-back"
+              size={18}
+              color="#fff"
+              style={{ marginRight: 8 }}
+            />
             <Text style={s.retryBtnText}>Go Back</Text>
           </TouchableOpacity>
         )}
@@ -490,7 +637,7 @@ export default function DriverMatchingScreen() {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FAFAFA' },
 
-  // ── Header ──
+  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -508,15 +655,18 @@ const s = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   headerCenter: { flex: 1, alignItems: 'center' },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#1A1A1A' },
+  headerTitle:  { fontSize: 17, fontWeight: '700', color: '#1A1A1A' },
   timerBadge: {
     backgroundColor: '#F5F5F0', borderRadius: 12,
     paddingHorizontal: 12, paddingVertical: 6,
     minWidth: 56, alignItems: 'center',
   },
-  timerText: { fontSize: 14, fontWeight: '700', color: '#1A1A1A', fontVariant: ['tabular-nums'] },
+  timerText: {
+    fontSize: 14, fontWeight: '700', color: '#1A1A1A',
+    fontVariant: ['tabular-nums'],
+  },
 
-  // ── Animation area ──
+  // Animation area
   animArea: {
     flex: 1,
     alignItems: 'center',
@@ -525,11 +675,11 @@ const s = StyleSheet.create({
   },
 
   // Pulse rings
-  iconWrap: { alignItems: 'center', justifyContent: 'center', marginBottom: 32 },
+  iconWrap: {
+    alignItems: 'center', justifyContent: 'center', marginBottom: 32,
+  },
   pulseRing: {
-    position: 'absolute',
-    borderRadius: 9999,
-    backgroundColor: '#1A1A1A',
+    position: 'absolute', borderRadius: 9999, backgroundColor: '#1A1A1A',
   },
   pulseRingOuter: { width: 160, height: 160 },
   pulseRingInner: { width: 120, height: 120 },
@@ -540,7 +690,7 @@ const s = StyleSheet.create({
     shadowOpacity: 0.18, shadowRadius: 16, elevation: 10,
   },
 
-  // Success / error circles
+  // Success / error
   successCircle: {
     width: 100, height: 100, borderRadius: 50,
     backgroundColor: '#10B981',
@@ -568,16 +718,25 @@ const s = StyleSheet.create({
     textAlign: 'center', lineHeight: 22, maxWidth: 280,
   },
 
+  // Payment pill (shown during search)
+  paymentPill: {
+    flexDirection: 'row', alignItems: 'center',
+    marginTop: 16, borderRadius: 20,
+    paddingHorizontal: 16, paddingVertical: 9,
+    gap: 7,
+  },
+  paymentPillText: { fontSize: 13, fontWeight: '700' },
+
   // Connection pill
   connPill: {
     flexDirection: 'row', alignItems: 'center',
-    marginTop: 28, borderRadius: 20,
+    marginTop: 10, borderRadius: 20,
     paddingHorizontal: 16, paddingVertical: 9,
   },
-  connDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
+  connDot:  { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
   connText: { fontSize: 13, fontWeight: '600' },
 
-  // ── Summary card ──
+  // Summary card
   summaryCard: {
     backgroundColor: '#fff',
     marginHorizontal: 20, marginBottom: 16,
@@ -585,23 +744,26 @@ const s = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.07, shadowRadius: 16, elevation: 5,
   },
-  routeRow: { flexDirection: 'row', alignItems: 'stretch' },
-  routeTrack: { width: 24, alignItems: 'center', marginRight: 14, paddingTop: 4 },
+  routeRow:      { flexDirection: 'row', alignItems: 'stretch' },
+  routeTrack:    { width: 24, alignItems: 'center', marginRight: 14, paddingTop: 4 },
   trackDotGreen: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#10B981' },
-  trackLine: { flex: 1, width: 2, backgroundColor: '#E5E5E5', marginVertical: 6 },
+  trackLine:     { flex: 1, width: 2, backgroundColor: '#E5E5E5', marginVertical: 6 },
   trackDotBlack: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#1A1A1A' },
   routeAddresses: { flex: 1 },
-  addressBlock: { paddingVertical: 8 },
-  addressLabel: { fontSize: 10, fontWeight: '700', color: '#BABABA', letterSpacing: 0.8, marginBottom: 3 },
-  addressText: { fontSize: 15, fontWeight: '600', color: '#1A1A1A', lineHeight: 20 },
+  addressBlock:  { paddingVertical: 8 },
+  addressLabel:  {
+    fontSize: 10, fontWeight: '700', color: '#BABABA',
+    letterSpacing: 0.8, marginBottom: 3,
+  },
+  addressText:   { fontSize: 15, fontWeight: '600', color: '#1A1A1A', lineHeight: 20 },
 
   cardDivider: { height: 1, backgroundColor: '#F5F5F0', marginVertical: 16 },
 
-  statsRow: { flexDirection: 'row', alignItems: 'center' },
-  stat: { flex: 1, alignItems: 'center' },
-  statValue: { fontSize: 16, fontWeight: '800', color: '#1A1A1A', marginBottom: 4 },
-  statLabel: { fontSize: 11, fontWeight: '600', color: '#BABABA', letterSpacing: 0.5 },
-  statDivider: { width: 1, height: 36, backgroundColor: '#F0F0F0' },
+  statsRow:     { flexDirection: 'row', alignItems: 'center' },
+  stat:         { flex: 1, alignItems: 'center' },
+  statValue:    { fontSize: 16, fontWeight: '800', color: '#1A1A1A', marginBottom: 4 },
+  statLabel:    { fontSize: 11, fontWeight: '600', color: '#BABABA', letterSpacing: 0.5 },
+  statDivider:  { width: 1, height: 36, backgroundColor: '#F0F0F0' },
   rideTypePill: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 10, paddingVertical: 5,
@@ -609,7 +771,15 @@ const s = StyleSheet.create({
   },
   rideTypePillText: { fontSize: 13, fontWeight: '700' },
 
-  // ── Bottom actions ──
+  // Payment row inside summary card
+  paymentRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+  },
+  paymentRowLabel: {
+    flex: 1, fontSize: 12, fontWeight: '600', lineHeight: 17,
+  },
+
+  // Bottom actions
   bottomArea: {
     paddingHorizontal: 20,
     paddingBottom: Platform.OS === 'ios' ? 44 : 24,

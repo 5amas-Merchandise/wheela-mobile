@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
+// src/screens/driver/SubscriptionScreen.js
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,288 +11,201 @@ import {
   RefreshControl,
   Vibration,
   Platform,
-  Image,
+  StatusBar,
 } from 'react-native';
-import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { getAuthToken } from '../../utils/auth';
+import { getAuthToken, removeAuthToken } from '../../utils/auth';
 import * as Notifications from 'expo-notifications';
 
-const baseUrl = 'https://wheels-backend-7ydc.onrender.com';
+const BASE_URL = 'https://wheels-backend-7ydc.onrender.com';
+const FETCH_TIMEOUT_MS = 12000;
 
-// Try to load the logo, but handle errors gracefully
-let WHEELS_LOGO = null;
-try {
-  WHEELS_LOGO = require('../../../assets/logo.jpg');
-} catch (error) {
-  console.warn('Logo not found at path ../../../assets/logo.jpg');
-  // You can provide a default logo or use null
-}
-
-// Configure notifications with custom icon
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
-
-// Set default notification channel for Android
-if (Platform.OS === 'android') {
-  Notifications.setNotificationChannelAsync('default', {
-    name: 'Wheels Notifications',
-    importance: Notifications.AndroidImportance.HIGH,
-    vibrationPattern: [0, 250, 250, 250],
-    lightColor: '#0066FF',
-    sound: 'default',
-    enableVibrate: true,
-    showBadge: true,
-  }).catch(error => {
-    console.warn('Error setting notification channel:', error);
-  });
-}
-
-export default function SubscriptionScreen() {
-  const navigation = useNavigation();
-  const notificationListener = useRef();
-  
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [currentSubscription, setCurrentSubscription] = useState(null);
-  const [availablePlans, setAvailablePlans] = useState([]);
-  const [walletBalance, setWalletBalance] = useState(0);
-  const [driverVehicleType, setDriverVehicleType] = useState('CITY_CAR');
-  const [subscribing, setSubscribing] = useState(false);
-
-  // Initialize notifications
-  useEffect(() => {
-    registerForPushNotificationsAsync();
-    
-    // Listen for notifications while app is foregrounded
-    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
-      console.log('Subscription notification received:', notification);
-      Vibration.vibrate(300);
-    });
-
-    return () => {
-      // Proper cleanup for notifications
-      if (notificationListener.current) {
-        notificationListener.current.remove();
-      }
-      // Alternative cleanup method
-      Notifications.removeAllListeners?.();
-    };
-  }, []);
-
-  useEffect(() => {
-    fetchSubscriptionData();
-  }, []);
-
-  // Register for push notifications with custom configuration
-  async function registerForPushNotificationsAsync() {
+// ── Fetch with timeout ────────────────────────────────────────────────────────
+async function fetchWithTimeout(url, options = {}, ms = FETCH_TIMEOUT_MS) {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), ms);
   try {
-    // Check for existing permission
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-    
-    // Request permission if not granted
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-    
-    // Return if permission not granted
-    if (finalStatus !== 'granted') {
-      console.log('Failed to get push notification permission');
-      return null;
-    }
-
-    // Get the push token with your actual project ID
-    const token = await Notifications.getExpoPushTokenAsync({
-      projectId: '89ca3ed1-d2fb-429a-9fdb-614202a280e5', // Your actual project ID from app.json
-    });
-
-    console.log('Push token:', token.data);
-    
-    // For Android, we need to set the notification channel
-    if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'default',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#0066FF',
-      });
-    }
-
-    return token.data;
-  } catch (error) {
-    console.error('Error getting push token:', error);
-    return null;
+    const res = await fetch(url, { ...options, signal: ctrl.signal });
+    clearTimeout(id);
+    return res;
+  } catch (err) {
+    clearTimeout(id);
+    if (err.name === 'AbortError') throw new Error('TIMEOUT');
+    throw err;
   }
 }
 
-  // Send notification helper function with custom logo/icon
-  const sendNotification = async (title, body, data = {}) => {
-    try {
-      const notificationContent = {
-        title,
-        body,
-        data: { 
-          ...data, 
-          screen: 'SubscriptionScreen',
-          logo: WHEELS_LOGO ? 'wheels_logo' : 'default_icon'
-        },
-        sound: true,
-        vibrate: [0, 250, 250],
-      };
+// ── Notifications ─────────────────────────────────────────────────────────────
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: true,
+  }),
+});
 
-      // Add badge number if applicable
-      if (data.badgeCount) {
-        notificationContent.badge = data.badgeCount;
-      }
+async function sendNotification(title, body, data = {}) {
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: { title, body, data: { ...data, screen: 'SubscriptionScreen' }, sound: true },
+      trigger: null,
+    });
+  } catch {}
+}
 
-      await Notifications.scheduleNotificationAsync({
-        content: notificationContent,
-        trigger: null, // Send immediately
-      });
-    } catch (error) {
-      console.error('Error sending notification:', error);
+async function registerForPushNotifications() {
+  try {
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    let final = existing;
+    if (existing !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      final = status;
     }
-  };
+    if (final !== 'granted') return null;
 
-  const fetchSubscriptionData = async (showLoader = true) => {
+    const token = await Notifications.getExpoPushTokenAsync({
+      projectId: '89ca3ed1-d2fb-429a-9fdb-614202a280e5',
+    });
+
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'Wheela Notifications',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#1A6BFF',
+      });
+    }
+    return token.data;
+  } catch { return null; }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const VEHICLE_LABELS = {
+  CITY_CAR: 'City Car', KEKE: 'Keke / Tricycle', BIKE: 'Delivery Bike',
+};
+
+function formatTimeRemaining(expiresAt) {
+  const diff = new Date(expiresAt) - new Date();
+  if (diff <= 0) return 'Expired';
+  const days  = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  if (days > 0) return `${days}d ${hours}h remaining`;
+  return `${hours}h remaining`;
+}
+
+function isExpiringSoon(expiresAt) {
+  const diff = new Date(expiresAt) - new Date();
+  return diff > 0 && diff < 24 * 60 * 60 * 1000;
+}
+
+// ── Main screen ───────────────────────────────────────────────────────────────
+export default function SubscriptionScreen() {
+  const navigation = useNavigation();
+  const notifListener = useRef();
+
+  const [loading,       setLoading]       = useState(true);
+  const [refreshing,    setRefreshing]    = useState(false);
+  const [fetchError,    setFetchError]    = useState(null);
+  const [currentSub,    setCurrentSub]    = useState(null);
+  const [plans,         setPlans]         = useState([]);
+  const [walletBalance, setWalletBalance] = useState(0); // kobo
+  const [vehicleType,   setVehicleType]   = useState('CITY_CAR');
+  const [subscribing,   setSubscribing]   = useState(false);
+
+  const fetchingRef = useRef(false);
+
+  // Notifications setup
+  useEffect(() => {
+    registerForPushNotifications();
+    notifListener.current = Notifications.addNotificationReceivedListener(() => Vibration.vibrate(300));
+    return () => { notifListener.current?.remove(); };
+  }, []);
+
+  // ── Fetch all data ──────────────────────────────────────────────────────────
+  const fetchAll = useCallback(async (showLoader = true) => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
     if (showLoader) setLoading(true);
-    
+    setFetchError(null);
+
     try {
       const token = await getAuthToken();
       if (!token) {
-        Alert.alert('Error', 'Please log in again');
+        await removeAuthToken();
         navigation.replace('Login');
         return;
       }
+      const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-      // Fetch driver profile to get vehicle type
-      const profileRes = await axios.get(`${baseUrl}/users/me`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      const serviceCategories = profileRes.data?.user?.driverProfile?.serviceCategories || [];
-      let vehicleType = 'CITY_CAR';
-      
-      if (serviceCategories.includes('KEKE')) {
-        vehicleType = 'KEKE';
-      } else if (serviceCategories.includes('DELIVERY_BIKE')) {
-        vehicleType = 'BIKE';
-      } else if (serviceCategories.includes('CITY_RIDE')) {
-        vehicleType = 'CITY_CAR';
+      // 1. Driver profile → vehicle type
+      const profileRes = await fetchWithTimeout(`${BASE_URL}/users/me`, { headers });
+      if (profileRes.status === 401 || profileRes.status === 403) {
+        await removeAuthToken();
+        navigation.replace('Login');
+        return;
       }
-      
-      setDriverVehicleType(vehicleType);
-
-      // Fetch current subscription
-      const subRes = await axios.get(`${baseUrl}/subscriptions/current`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      if (subRes.data.hasActiveSubscription) {
-        const newSubscription = subRes.data.subscription;
-        const oldSubscription = currentSubscription;
-        
-        setCurrentSubscription(newSubscription);
-
-        // Send notification if subscription is new or has changed
-        if (!oldSubscription || oldSubscription._id !== newSubscription._id) {
-          sendNotification(
-            '✅ Subscription Active',
-            `Your ${newSubscription.plan.duration} plan is now active!`,
-            { 
-              subscriptionId: newSubscription._id, 
-              plan: newSubscription.plan.duration,
-              action: 'subscription_updated',
-              icon: 'subscription_icon',
-              color: '#0066FF',
-            }
-          );
-        }
-
-        // Check if subscription is expiring soon (less than 24 hours)
-        const expiryDate = new Date(newSubscription.expiresAt);
-        const now = new Date();
-        const hoursUntilExpiry = (expiryDate - now) / (1000 * 60 * 60);
-        
-        if (hoursUntilExpiry > 0 && hoursUntilExpiry <= 24) {
-          sendNotification(
-            '⚠️ Subscription Expiring Soon',
-            `Your subscription expires in ${Math.ceil(hoursUntilExpiry)} hours. Renew now!`,
-            { 
-              subscriptionId: newSubscription._id,
-              hoursUntilExpiry: Math.ceil(hoursUntilExpiry),
-              action: 'subscription_expiring',
-              icon: 'warning_icon',
-              color: '#FF9500',
-            }
-          );
-        }
-      } else {
-        setCurrentSubscription(null);
+      if (profileRes.ok) {
+        const pd = await profileRes.json();
+        const cats = pd?.user?.driverProfile?.serviceCategories || [];
+        let vt = 'CITY_CAR';
+        if (cats.includes('KEKE'))          vt = 'KEKE';
+        else if (cats.includes('DELIVERY_BIKE')) vt = 'BIKE';
+        setVehicleType(vt);
       }
 
-      // Fetch available plans
-      const plansRes = await axios.get(`${baseUrl}/subscriptions/plans`, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { vehicleType }
-      });
+      // 2. Current subscription
+      const subRes = await fetchWithTimeout(`${BASE_URL}/subscriptions/current`, { headers });
+      if (subRes.ok) {
+        const sd = await subRes.json();
+        const sub = sd.hasActiveSubscription ? sd.subscription : null;
+        setCurrentSub(sub);
 
-      setAvailablePlans(plansRes.data.plans || []);
+        if (sub && isExpiringSoon(sub.expiresAt)) {
+          const hrs = Math.ceil((new Date(sub.expiresAt) - new Date()) / (1000 * 60 * 60));
+          sendNotification(
+            '⚠️ Subscription Expiring',
+            `Your plan expires in ${hrs} hour${hrs !== 1 ? 's' : ''}. Renew now!`,
+            { action: 'expiring_soon' }
+          );
+        }
+      }
 
-      // Fetch wallet balance
-      const walletRes = await axios.get(`${baseUrl}/wallet`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      // 3. Plans
+      const vt = vehicleType;
+      const plansRes = await fetchWithTimeout(`${BASE_URL}/subscriptions/plans?vehicleType=${vt}`, { headers });
+      if (plansRes.ok) {
+        const pd = await plansRes.json();
+        setPlans(pd.plans || []);
+      }
 
-      const newBalance = walletRes.data.wallet?.balance || 0;
-      const oldBalance = walletBalance;
-      setWalletBalance(newBalance);
-
-      // Send notification for wallet updates (funding)
-      if (newBalance > oldBalance) {
-        const amountAdded = (newBalance - oldBalance) / 100;
-        sendNotification(
-          '💰 Wallet Funded',
-          `₦${amountAdded.toFixed(2)} added to your wallet!`,
-          { 
-            walletBalance: newBalance,
-            amountAdded: amountAdded,
-            action: 'wallet_funded',
-            icon: 'wallet_icon',
-            color: '#34C759',
-          }
-        );
+      // 4. Wallet balance
+      const walletRes = await fetchWithTimeout(`${BASE_URL}/wallet`, { headers });
+      if (walletRes.ok) {
+        const wd = await walletRes.json();
+        setWalletBalance(wd.wallet?.balance || 0);
       }
 
     } catch (err) {
-      console.error('Error fetching subscription data:', err);
-      Alert.alert('Error', 'Could not load subscription data');
+      console.error('SubscriptionScreen fetch:', err.message);
+      if (err.message === 'TIMEOUT') setFetchError('TIMEOUT');
+      else                            setFetchError('NETWORK');
     } finally {
       setLoading(false);
       setRefreshing(false);
+      fetchingRef.current = false;
     }
-  };
+  }, [vehicleType]);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchSubscriptionData(false);
-  };
+  useEffect(() => { fetchAll(true); }, []);
 
+  const onRefresh = () => { setRefreshing(true); fetchAll(false); };
+
+  // ── Subscribe ───────────────────────────────────────────────────────────────
   const handleSubscribe = async (plan) => {
     const priceKobo = plan.price * 100;
-    
     if (walletBalance < priceKobo) {
       Alert.alert(
         'Insufficient Balance',
-        `You need ₦${plan.price.toLocaleString()} to subscribe. Your current balance is ₦${(walletBalance / 100).toFixed(2)}.`,
+        `You need ₦${plan.price.toLocaleString()} but your balance is ₦${(walletBalance / 100).toFixed(2)}. Contact admin to top up.`,
         [{ text: 'OK' }]
       );
       return;
@@ -299,7 +213,7 @@ export default function SubscriptionScreen() {
 
     Alert.alert(
       'Confirm Subscription',
-      `Subscribe to ${plan.duration} plan for ₦${plan.price.toLocaleString()}?`,
+      `Subscribe to the ${plan.duration.toUpperCase()} plan for ₦${plan.price.toLocaleString()}?\n\nThis will be deducted from your wallet.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -308,830 +222,459 @@ export default function SubscriptionScreen() {
             setSubscribing(true);
             try {
               const token = await getAuthToken();
-              const response = await axios.post(
-                `${baseUrl}/subscriptions/subscribe`,
+              if (!token) { navigation.replace('Login'); return; }
+
+              const res = await fetchWithTimeout(
+                `${BASE_URL}/subscriptions/subscribe`,
                 {
-                  vehicleType: driverVehicleType,
-                  duration: plan.duration,
-                  autoRenew: false
-                },
-                {
-                  headers: { Authorization: `Bearer ${token}` }
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ vehicleType, duration: plan.duration, autoRenew: false }),
                 }
               );
 
-              // Send success notification with custom logo
-              sendNotification(
-                '🎉 Subscription Activated!',
-                `Your ${plan.duration} plan has been activated successfully!`,
-                { 
-                  plan: plan.duration,
-                  price: plan.price,
-                  action: 'subscription_activated',
-                  icon: 'success_icon',
-                  color: '#0066FF',
-                  badgeCount: 1,
-                }
-              );
+              const d = await res.json().catch(() => ({}));
 
-              Alert.alert('Success', 'Subscription activated!');
-              fetchSubscriptionData();
+              if (res.ok) {
+                sendNotification(
+                  '🎉 Subscription Activated!',
+                  `Your ${plan.duration.toUpperCase()} plan is now active.`,
+                  { action: 'activated' }
+                );
+                Alert.alert('Subscribed!', `Your ${plan.duration} plan is now active.`);
+                fetchAll(false);
+              } else if (res.status === 401 || res.status === 403) {
+                await removeAuthToken();
+                navigation.replace('Login');
+              } else {
+                Alert.alert('Failed', d?.error?.message || 'Could not subscribe. Try again.');
+              }
             } catch (err) {
-              console.error('Subscription error:', err);
-              
-              // Send error notification
-              sendNotification(
-                '❌ Subscription Failed',
-                err.response?.data?.error?.message || 'Could not subscribe. Please try again.',
-                { 
-                  action: 'subscription_failed',
-                  icon: 'error_icon',
-                  color: '#FF3B30',
-                }
+              Alert.alert(
+                err.message === 'TIMEOUT' ? 'Timeout' : 'Network Error',
+                'Could not connect. Please try again.'
               );
-              
-              Alert.alert('Error', err.response?.data?.error?.message || 'Could not subscribe');
             } finally {
               setSubscribing(false);
             }
-          }
-        }
+          },
+        },
       ]
     );
   };
 
-  const handleRenewSubscription = () => {
-    if (!currentSubscription) return;
+  // ── Renew ───────────────────────────────────────────────────────────────────
+  const handleRenew = async () => {
+    if (!currentSub) return;
+    const priceKobo = (currentSub.plan?.price || 0) * 100;
+    if (walletBalance < priceKobo) {
+      Alert.alert(
+        'Insufficient Balance',
+        `You need ₦${currentSub.plan?.price?.toLocaleString() || 0} to renew. Contact admin to top up.`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
 
     Alert.alert(
       'Renew Subscription',
-      `Renew your ${currentSubscription.plan.duration} plan for ₦${currentSubscription.plan.price}?`,
+      `Renew your ${currentSub.plan?.duration?.toUpperCase()} plan for ₦${currentSub.plan?.price?.toLocaleString()}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Renew Now',
+          text: 'Renew',
           onPress: async () => {
             setSubscribing(true);
             try {
               const token = await getAuthToken();
-              const response = await axios.post(
-                `${baseUrl}/subscriptions/subscribe`,
+              if (!token) { navigation.replace('Login'); return; }
+
+              const res = await fetchWithTimeout(
+                `${BASE_URL}/subscriptions/subscribe`,
                 {
-                  vehicleType: driverVehicleType,
-                  duration: currentSubscription.plan.duration,
-                  autoRenew: false
-                },
-                {
-                  headers: { Authorization: `Bearer ${token}` }
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ vehicleType, duration: currentSub.plan?.duration, autoRenew: false }),
                 }
               );
 
-              // Send renewal notification
-              sendNotification(
-                '🔄 Subscription Renewed',
-                `Your ${currentSubscription.plan.duration} plan has been renewed!`,
-                { 
-                  plan: currentSubscription.plan.duration,
-                  price: currentSubscription.plan.price,
-                  action: 'subscription_renewed',
-                  icon: 'renew_icon',
-                  color: '#34C759',
-                }
-              );
+              const d = await res.json().catch(() => ({}));
 
-              Alert.alert('Success', 'Subscription renewed successfully!');
-              fetchSubscriptionData();
+              if (res.ok) {
+                sendNotification('🔄 Subscription Renewed', 'Your plan has been renewed successfully.', { action: 'renewed' });
+                Alert.alert('Renewed!', 'Your subscription has been renewed.');
+                fetchAll(false);
+              } else if (res.status === 401 || res.status === 403) {
+                await removeAuthToken();
+                navigation.replace('Login');
+              } else {
+                Alert.alert('Failed', d?.error?.message || 'Could not renew. Try again.');
+              }
             } catch (err) {
-              console.error('Renewal error:', err);
-              
-              // Send error notification
-              sendNotification(
-                '❌ Renewal Failed',
-                err.response?.data?.error?.message || 'Could not renew subscription.',
-                { 
-                  action: 'renewal_failed',
-                  icon: 'error_icon',
-                  color: '#FF3B30',
-                }
+              Alert.alert(
+                err.message === 'TIMEOUT' ? 'Timeout' : 'Network Error',
+                'Could not connect. Please try again.'
               );
-              
-              Alert.alert('Error', err.response?.data?.error?.message || 'Could not renew subscription');
             } finally {
               setSubscribing(false);
             }
-          }
-        }
-      ]
-    );
-  };
-
-  const getVehicleTypeName = (type) => {
-    const names = {
-      'CITY_CAR': 'City Car',
-      'KEKE': 'Keke/Tricycle',
-      'BIKE': 'Delivery Bike'
-    };
-    return names[type] || type;
-  };
-
-  const formatTimeRemaining = (expiresAt) => {
-    const now = new Date();
-    const expiry = new Date(expiresAt);
-    const diff = expiry - now;
-    
-    if (diff <= 0) return 'Expired';
-    
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    
-    if (days > 0) return `${days}d ${hours}h remaining`;
-    return `${hours}h remaining`;
-  };
-
-  const handleFundWallet = () => {
-    Alert.alert(
-      'Fund Wallet',
-      'To add funds to your wallet, please contact admin support:',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Copy Admin Number',
-          onPress: () => {
-            // In a real app, you'd copy to clipboard
-            Alert.alert(
-              'Contact Admin',
-              'Please call or WhatsApp admin at: +234 800 123 4567\n\nOr visit the admin office.',
-              [{ text: 'OK' }]
-            );
-          }
+          },
         },
-        {
-          text: 'Request Fund',
-          onPress: () => {
-            // Navigate to fund request screen or open form
-            Alert.alert(
-              'Fund Request',
-              'A fund request has been sent to admin. They will contact you shortly.',
-              [
-                { 
-                  text: 'OK',
-                  onPress: () => {
-                    sendNotification(
-                      '📱 Fund Request Sent',
-                      'Your wallet fund request has been sent to admin.',
-                      { 
-                        action: 'fund_request_sent',
-                        icon: 'fund_request_icon',
-                        color: '#0066FF',
-                      }
-                    );
-                  }
-                }
-              ]
-            );
-          }
-        }
       ]
     );
   };
 
-  // Function to clear all notifications
-  const clearAllNotifications = async () => {
-    try {
-      await Notifications.cancelAllScheduledNotificationsAsync();
-      await Notifications.dismissAllNotificationsAsync();
-      Alert.alert('Success', 'All notifications cleared.');
-    } catch (error) {
-      console.error('Error clearing notifications:', error);
-      Alert.alert('Error', 'Could not clear notifications.');
-    }
-  };
-
-  // Function to handle test notification with logo
-  const handleTestNotification = () => {
-    sendNotification(
-      '🔔 Wheels Notification Test',
-      'This is a test notification from Wheels app with custom logo.',
-      { 
-        action: 'test_notification',
-        icon: WHEELS_LOGO ? 'wheels_logo' : 'default_icon',
-        color: '#0066FF',
-        badgeCount: 1,
-      }
-    );
-    Alert.alert('Test Sent', 'A test notification has been sent.');
-  };
-
+  // ── Loading ─────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0066FF" />
-        <Text style={styles.loadingText}>Loading...</Text>
+      <View style={s.centeredScreen}>
+        <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" />
+        <ActivityIndicator size="large" color="#1A6BFF" />
+        <Text style={s.loadingText}>Loading subscription...</Text>
       </View>
     );
   }
 
+  // ── Error ───────────────────────────────────────────────────────────────────
+  if (fetchError) {
+    const ec = fetchError === 'TIMEOUT'
+      ? { icon: 'time-outline',  title: 'Request Timed Out', body: 'Server is taking too long. Try again.' }
+      : { icon: 'wifi-outline',  title: 'No Connection',     body: 'Check your internet and try again.' };
+
+    return (
+      <View style={s.centeredScreen}>
+        <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" />
+        <View style={s.errorIconWrap}><Ionicons name={ec.icon} size={40} color="#333" /></View>
+        <Text style={s.errorTitle}>{ec.title}</Text>
+        <Text style={s.errorBody}>{ec.body}</Text>
+        <TouchableOpacity style={s.retryBtn} onPress={() => fetchAll(true)} activeOpacity={0.85}>
+          <Ionicons name="refresh-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
+          <Text style={s.retryBtnText}>Retry</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 14 }}>
+          <Text style={{ color: '#555', fontSize: 14, fontWeight: '600' }}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const balanceNaira = (walletBalance / 100).toFixed(2);
+  const expiringSoon = currentSub && isExpiringSoon(currentSub.expiresAt);
+
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      {/* Header with Logo */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#111827" />
+    <View style={{ flex: 1, backgroundColor: '#0D0D0D' }}>
+      <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" />
+
+      {/* Header */}
+      <View style={s.header}>
+        <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+          <Ionicons name="arrow-back" size={20} color="#fff" />
         </TouchableOpacity>
-        <View style={styles.headerTitleContainer}>
-          {WHEELS_LOGO ? (
-            <Image source={WHEELS_LOGO} style={styles.headerLogo} resizeMode="contain" />
-          ) : (
-            <Ionicons name="card-outline" size={24} color="#0066FF" style={styles.headerIcon} />
-          )}
-          <Text style={styles.headerTitle}>Subscription</Text>
-        </View>
-        <TouchableOpacity onPress={onRefresh} disabled={refreshing}>
-          <Ionicons name="refresh" size={24} color="#0066FF" />
+        <Text style={s.headerTitle}>Subscription</Text>
+        <TouchableOpacity style={s.refreshBtn} onPress={onRefresh} disabled={refreshing} activeOpacity={0.7}>
+          <Ionicons name="refresh-outline" size={20} color="#1A6BFF" />
         </TouchableOpacity>
       </View>
 
-      {/* Wallet Balance */}
-      <View style={styles.walletCard}>
-        <View style={styles.walletHeader}>
-          <Ionicons name="wallet-outline" size={24} color="#0066FF" />
-          <Text style={styles.walletTitle}>Wallet Balance</Text>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 48 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1A6BFF" colors={['#1A6BFF']} />
+        }
+      >
+        {/* ── Wallet balance ── */}
+        <View style={s.walletCard}>
+          <View style={s.walletTop}>
+            <View style={s.walletIconWrap}>
+              <Ionicons name="wallet-outline" size={20} color="#1A6BFF" />
+            </View>
+            <Text style={s.walletLabel}>Wallet Balance</Text>
+          </View>
+          <Text style={s.walletAmount}>₦{parseFloat(balanceNaira).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</Text>
+          <Text style={s.walletNote}>Contact admin to add funds</Text>
         </View>
-        <Text style={styles.walletBalance}>
-          ₦{(walletBalance / 100).toFixed(2)}
-        </Text>
-      </View>
 
-      {/* Current Subscription */}
-      {currentSubscription ? (
-        <View style={styles.currentSubCard}>
-          <View style={styles.activeBadge}>
-            <View style={styles.activeDot} />
-            <Text style={styles.activeBadgeText}>Active</Text>
-          </View>
-          
-          <Text style={styles.currentSubTitle}>Current Plan</Text>
-          <Text style={styles.currentSubPlan}>
-            {currentSubscription.plan.duration.toUpperCase()}
-          </Text>
-          
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Vehicle Type</Text>
-            <Text style={styles.detailValue}>
-              {getVehicleTypeName(currentSubscription.vehicleType)}
-            </Text>
-          </View>
-          
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Price Paid</Text>
-            <Text style={styles.detailValue}>
-              {currentSubscription.plan.priceFormatted}
-            </Text>
-          </View>
-          
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Expires</Text>
-            <Text style={styles.detailValue}>
-              {new Date(currentSubscription.expiresAt).toLocaleDateString()}
-            </Text>
-          </View>
+        {/* ── Current subscription ── */}
+        {currentSub ? (
+          <View style={[s.currentSubCard, expiringSoon && s.currentSubCardWarning]}>
+            {/* Active badge */}
+            <View style={s.activeBadge}>
+              <View style={s.activeDot} />
+              <Text style={s.activeBadgeText}>Active</Text>
+            </View>
 
-          <View style={styles.timeRemainingCard}>
-            <Ionicons name="time-outline" size={20} color="#0066FF" />
-            <Text style={styles.timeRemainingText}>
-              {formatTimeRemaining(currentSubscription.expiresAt)}
-            </Text>
-          </View>
-
-          {/* Renew Button */}
-          <TouchableOpacity 
-            style={styles.renewBtn}
-            onPress={handleRenewSubscription}
-            disabled={subscribing}
-          >
-            {subscribing ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <Ionicons name="refresh-outline" size={18} color="#FFFFFF" />
-                <Text style={styles.renewBtnText}>Renew Subscription</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={styles.noSubCard}>
-          <Ionicons name="alert-circle-outline" size={48} color="#9CA3AF" />
-          <Text style={styles.noSubTitle}>No Active Subscription</Text>
-          <Text style={styles.noSubText}>Choose a plan below to start riding</Text>
-          
-          {/* Send notification reminder */}
-          <TouchableOpacity 
-            style={styles.reminderBtn}
-            onPress={() => {
-              sendNotification(
-                '⏰ Subscription Reminder',
-                'Don\'t forget to subscribe to continue accepting rides!',
-                { 
-                  action: 'subscription_reminder',
-                  icon: 'reminder_icon',
-                  color: '#FF9500',
-                }
-              );
-              Alert.alert('Reminder Set', 'You will be reminded about subscription.');
-            }}
-          >
-            <Ionicons name="notifications-outline" size={16} color="#0066FF" />
-            <Text style={styles.reminderText}>Set Reminder</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Available Plans */}
-      <View style={styles.plansSection}>
-        <Text style={styles.sectionTitle}>
-          Plans for {getVehicleTypeName(driverVehicleType)}
-        </Text>
-        
-        {availablePlans.map((plan) => (
-          <View
-            key={plan.duration}
-            style={[styles.planCard, plan.recommended && styles.recommendedPlan]}
-          >
-            {plan.recommended && (
-              <View style={styles.recommendedBadge}>
-                <Ionicons name="star" size={12} color="#FFFFFF" />
-                <Text style={styles.recommendedText}>RECOMMENDED</Text>
+            {/* Expiry warning */}
+            {expiringSoon && (
+              <View style={s.expiryWarning}>
+                <Ionicons name="warning-outline" size={14} color="#F59E0B" />
+                <Text style={s.expiryWarningText}>Expiring soon — renew now!</Text>
               </View>
             )}
-            
-            <Text style={styles.planDuration}>
-              {plan.duration.toUpperCase()}
-            </Text>
-            <Text style={styles.planPrice}>{plan.priceFormatted}</Text>
-            
-            <View style={styles.featureRow}>
-              <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-              <Text style={styles.featureText}>
-                {plan.durationDays} days access
+
+            <Text style={s.currentSubPlanLabel}>Current Plan</Text>
+            <Text style={s.currentSubPlan}>{currentSub.plan?.duration?.toUpperCase()}</Text>
+
+            <View style={s.subDetailRow}>
+              <Text style={s.subDetailLabel}>Vehicle Type</Text>
+              <Text style={s.subDetailValue}>{VEHICLE_LABELS[currentSub.vehicleType] || currentSub.vehicleType}</Text>
+            </View>
+            <View style={s.subDetailRow}>
+              <Text style={s.subDetailLabel}>Price Paid</Text>
+              <Text style={s.subDetailValue}>{currentSub.plan?.priceFormatted}</Text>
+            </View>
+            <View style={s.subDetailRow}>
+              <Text style={s.subDetailLabel}>Expires</Text>
+              <Text style={s.subDetailValue}>
+                {new Date(currentSub.expiresAt).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })}
               </Text>
             </View>
-            
-            <View style={styles.featureRow}>
-              <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-              <Text style={styles.featureText}>Unlimited rides</Text>
-            </View>
 
-            <View style={styles.featureRow}>
-              <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-              <Text style={styles.featureText}>24/7 support</Text>
+            <View style={s.timeRemaining}>
+              <Ionicons name="time-outline" size={16} color="#1A6BFF" />
+              <Text style={s.timeRemainingText}>{formatTimeRemaining(currentSub.expiresAt)}</Text>
             </View>
 
             <TouchableOpacity
-              style={[
-                styles.subscribeBtn,
-                currentSubscription && styles.subscribeBtnDisabled
-              ]}
-              onPress={() => handleSubscribe(plan)}
-              disabled={currentSubscription !== null || subscribing}
+              style={[s.renewBtn, subscribing && { opacity: 0.6 }]}
+              onPress={handleRenew}
+              disabled={subscribing}
+              activeOpacity={0.85}
             >
-              {subscribing ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.subscribeBtnText}>
-                  {currentSubscription ? 'Already Subscribed' : 'Subscribe Now'}
-                </Text>
-              )}
+              {subscribing
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <>
+                    <Ionicons name="refresh-outline" size={18} color="#fff" />
+                    <Text style={s.renewBtnText}>Renew Subscription</Text>
+                  </>
+              }
             </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={s.noSubCard}>
+            <View style={s.noSubIconWrap}>
+              <Ionicons name="card-outline" size={36} color="#333" />
+            </View>
+            <Text style={s.noSubTitle}>No Active Subscription</Text>
+            <Text style={s.noSubBody}>Choose a plan below to start accepting rides.</Text>
+          </View>
+        )}
+
+        {/* ── Plans ── */}
+        <View style={s.plansSection}>
+          <Text style={s.sectionTitle}>
+            Plans for {VEHICLE_LABELS[vehicleType] || vehicleType}
+          </Text>
+
+          {plans.length === 0 ? (
+            <View style={s.noPlansCard}>
+              <Ionicons name="document-text-outline" size={32} color="#333" />
+              <Text style={s.noPlansText}>No plans available. Pull down to refresh.</Text>
+            </View>
+          ) : (
+            plans.map(plan => (
+              <PlanCard
+                key={plan.duration}
+                plan={plan}
+                isSubscribed={!!currentSub}
+                subscribing={subscribing}
+                onPress={() => handleSubscribe(plan)}
+              />
+            ))
+          )}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+// ── Plan card ─────────────────────────────────────────────────────────────────
+function PlanCard({ plan, isSubscribed, subscribing, onPress }) {
+  const rec = plan.recommended;
+  return (
+    <View style={[s.planCard, rec && s.planCardRecommended]}>
+      {rec && (
+        <View style={s.recommendedBadge}>
+          <Ionicons name="star" size={11} color="#fff" />
+          <Text style={s.recommendedText}>RECOMMENDED</Text>
+        </View>
+      )}
+
+      <View style={s.planHeader}>
+        <View>
+          <Text style={s.planDuration}>{plan.duration?.toUpperCase()}</Text>
+          <Text style={s.planDays}>{plan.durationDays} days access</Text>
+        </View>
+        <Text style={s.planPrice}>{plan.priceFormatted}</Text>
+      </View>
+
+      <View style={s.planFeatures}>
+        {['Unlimited rides', '24/7 support', 'Instant activation'].map(f => (
+          <View key={f} style={s.featureRow}>
+            <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
+            <Text style={s.featureText}>{f}</Text>
           </View>
         ))}
       </View>
 
-      {/* Notification Settings */}
-      <View style={styles.notificationSection}>
-        <Text style={styles.sectionTitle}>Notification Settings</Text>
-        <View style={styles.notificationCard}>
-          <View style={styles.notificationRow}>
-            <View style={styles.notificationInfo}>
-              <Ionicons name="notifications-outline" size={20} color="#0066FF" />
-              <Text style={styles.notificationLabel}>Subscription Reminders</Text>
-            </View>
-            <Text style={styles.notificationStatus}>Enabled</Text>
-          </View>
-          
-          <View style={styles.notificationRow}>
-            <View style={styles.notificationInfo}>
-              <Ionicons name="wallet-outline" size={20} color="#0066FF" />
-              <Text style={styles.notificationLabel}>Wallet Updates</Text>
-            </View>
-            <Text style={styles.notificationStatus}>Enabled</Text>
-          </View>
-          
-         
-        </View>
-      </View>
-
-      {/* Footer with App Logo */}
-      {WHEELS_LOGO && (
-        <View style={styles.footer}>
-          <Image source={WHEELS_LOGO} style={styles.footerLogo} resizeMode="contain" />
-          <Text style={styles.footerText}>Wheels - Subscription Management</Text>
-          <Text style={styles.footerVersion}>Version 1.0.0</Text>
-        </View>
-      )}
-    </ScrollView>
+      <TouchableOpacity
+        style={[s.subscribeBtn, isSubscribed && s.subscribeBtnDisabled]}
+        onPress={onPress}
+        disabled={isSubscribed || subscribing}
+        activeOpacity={0.85}
+      >
+        {subscribing
+          ? <ActivityIndicator color="#fff" size="small" />
+          : <Text style={s.subscribeBtnText}>
+              {isSubscribed ? 'Already Subscribed' : 'Subscribe Now'}
+            </Text>
+        }
+      </TouchableOpacity>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
+// ─────────────────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  centeredScreen: {
+    flex: 1, backgroundColor: '#0D0D0D',
+    justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  loadingText: { color: '#555', fontSize: 14, fontWeight: '600', marginTop: 16 },
+  errorIconWrap: {
+    width: 80, height: 80, borderRadius: 40, backgroundColor: '#1A1A1A',
+    justifyContent: 'center', alignItems: 'center', marginBottom: 20,
   },
-  loadingText: {
-    marginTop: 10,
-    color: '#6B7280',
-    fontSize: 16,
+  errorTitle:  { fontSize: 20, fontWeight: '800', color: '#fff', marginBottom: 8, textAlign: 'center' },
+  errorBody:   { fontSize: 13, color: '#555', textAlign: 'center', lineHeight: 20, marginBottom: 28 },
+  retryBtn:    {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#1A6BFF', borderRadius: 14,
+    paddingVertical: 14, paddingHorizontal: 28,
   },
+  retryBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+
+  // Header
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  headerTitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-  },
-  headerLogo: {
-    width: 32,
-    height: 32,
-    marginRight: 8,
-    borderRadius: 4,
-  },
-  headerIcon: {
-    marginRight: 8,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  walletCard: {
-    backgroundColor: '#FFFFFF',
-    margin: 20,
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  walletHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  walletTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  walletBalance: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#0066FF',
-    marginBottom: 16,
-  },
-  fundWalletBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#0066FF',
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  fundWalletText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  currentSubCard: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 2,
-    borderColor: '#10B981',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  activeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: '#D1FAE5',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    gap: 6,
-    marginBottom: 12,
-  },
-  activeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#10B981',
-  },
-  activeBadgeText: {
-    color: '#065F46',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  currentSubTitle: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 4,
-  },
-  currentSubPlan: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 16,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  detailLabel: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  detailValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  timeRemainingCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#EFF6FF',
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 4,
-    marginBottom: 16,
-  },
-  timeRemainingText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0066FF',
-  },
-  renewBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#34C759',
-    paddingVertical: 14,
-    borderRadius: 8,
-  },
-  renewBtnText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  noSubCard: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 16,
-    padding: 40,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  noSubTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-    marginTop: 16,
-  },
-  noSubText: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 8,
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  reminderBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#EFF6FF',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: '#141414',
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  reminderText: {
-    color: '#0066FF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  plansSection: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 16,
-  },
-  planCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  recommendedPlan: {
-    borderColor: '#0066FF',
-    backgroundColor: '#EFF6FF',
-  },
-  recommendedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#0066FF',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  recommendedText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  planDuration: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  planPrice: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#0066FF',
-    marginBottom: 16,
-  },
-  featureRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  featureText: {
-    fontSize: 14,
-    color: '#374151',
-  },
-  subscribeBtn: {
-    backgroundColor: '#0066FF',
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  subscribeBtnDisabled: {
-    backgroundColor: '#9CA3AF',
-  },
-  subscribeBtnText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  notificationSection: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-  },
-  notificationCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  notificationRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+    paddingTop: Platform.OS === 'ios' ? 58 : 44,
     paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomWidth: 1, borderBottomColor: '#222',
   },
-  notificationInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+  backBtn:    { width: 36, height: 36, borderRadius: 18, backgroundColor: '#1E1E1E', justifyContent: 'center', alignItems: 'center' },
+  headerTitle:{ fontSize: 18, fontWeight: '800', color: '#fff' },
+  refreshBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#1E1E1E', justifyContent: 'center', alignItems: 'center' },
+
+  // Wallet
+  walletCard: {
+    backgroundColor: '#141414', margin: 16, borderRadius: 18,
+    padding: 20, borderWidth: 1, borderColor: '#1E1E1E',
   },
-  notificationLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#111827',
+  walletTop:    { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+  walletIconWrap:{
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: 'rgba(26,107,255,0.12)',
+    justifyContent: 'center', alignItems: 'center',
   },
-  notificationStatus: {
-    fontSize: 14,
-    color: '#10B981',
-    fontWeight: '600',
+  walletLabel:  { fontSize: 13, color: '#666', fontWeight: '600' },
+  walletAmount: { fontSize: 36, fontWeight: '900', color: '#fff', marginBottom: 6, letterSpacing: -1 },
+  walletNote:   { fontSize: 12, color: '#444', fontWeight: '500' },
+
+  // Current sub
+  currentSubCard: {
+    backgroundColor: '#141414', marginHorizontal: 16, marginBottom: 14,
+    borderRadius: 18, padding: 20,
+    borderWidth: 1.5, borderColor: '#22C55E',
   },
-  testNotificationBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#8B5CF6',
-    paddingVertical: 14,
-    borderRadius: 8,
-    marginTop: 8,
-    marginBottom: 12,
+  currentSubCardWarning: { borderColor: '#F59E0B' },
+  activeBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(34,197,94,0.1)', borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 6, marginBottom: 10,
   },
-  testNotificationText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '600',
+  activeDot:      { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#22C55E' },
+  activeBadgeText:{ color: '#22C55E', fontSize: 12, fontWeight: '700' },
+  expiryWarning: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: 'rgba(245,158,11,0.1)',
+    borderRadius: 10, padding: 10, marginBottom: 12,
+    borderLeftWidth: 3, borderLeftColor: '#F59E0B',
   },
-  clearNotificationsBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#FF3B30',
-    paddingVertical: 14,
-    borderRadius: 8,
+  expiryWarningText: { color: '#F59E0B', fontSize: 12, fontWeight: '600' },
+  currentSubPlanLabel: { fontSize: 11, color: '#555', fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 },
+  currentSubPlan:      { fontSize: 30, fontWeight: '900', color: '#fff', marginBottom: 16, letterSpacing: -0.5 },
+  subDetailRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1E1E1E',
   },
-  clearNotificationsText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '600',
+  subDetailLabel: { fontSize: 13, color: '#555', fontWeight: '600' },
+  subDetailValue: { fontSize: 13, color: '#ccc', fontWeight: '700' },
+  timeRemaining: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(26,107,255,0.08)',
+    borderRadius: 10, padding: 12, marginTop: 14, marginBottom: 16,
+    borderWidth: 1, borderColor: 'rgba(26,107,255,0.15)',
   },
-  footer: {
-    alignItems: 'center',
-    padding: 20,
-    marginBottom: 20,
+  timeRemainingText: { color: '#1A6BFF', fontSize: 14, fontWeight: '700' },
+  renewBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#22C55E', borderRadius: 14, paddingVertical: 15,
   },
-  footerLogo: {
-    width: 80,
-    height: 80,
-    marginBottom: 10,
-    borderRadius: 8,
+  renewBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  // No sub
+  noSubCard: {
+    backgroundColor: '#141414', marginHorizontal: 16, marginBottom: 14,
+    borderRadius: 18, padding: 36, alignItems: 'center',
+    borderWidth: 1, borderColor: '#1E1E1E',
   },
-  footerText: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 5,
+  noSubIconWrap: {
+    width: 72, height: 72, borderRadius: 36, backgroundColor: '#1A1A1A',
+    justifyContent: 'center', alignItems: 'center', marginBottom: 16,
   },
-  footerVersion: {
-    fontSize: 12,
-    color: '#9CA3AF',
+  noSubTitle: { fontSize: 17, fontWeight: '800', color: '#fff', marginBottom: 6 },
+  noSubBody:  { fontSize: 13, color: '#555', textAlign: 'center', lineHeight: 19 },
+
+  // Plans
+  plansSection:{ paddingHorizontal: 16, marginBottom: 8 },
+  sectionTitle:{ fontSize: 16, fontWeight: '800', color: '#fff', marginBottom: 12 },
+  noPlansCard: {
+    backgroundColor: '#141414', borderRadius: 16,
+    padding: 32, alignItems: 'center', gap: 12,
+    borderWidth: 1, borderColor: '#1E1E1E',
   },
+  noPlansText: { color: '#555', fontSize: 13, textAlign: 'center', fontWeight: '500' },
+
+  planCard: {
+    backgroundColor: '#141414', borderRadius: 18,
+    padding: 20, marginBottom: 12,
+    borderWidth: 1, borderColor: '#1E1E1E',
+  },
+  planCardRecommended: { borderColor: '#1A6BFF', borderWidth: 1.5 },
+  recommendedBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: '#1A6BFF', alignSelf: 'flex-start',
+    borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5, marginBottom: 14,
+  },
+  recommendedText: { color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  planHeader: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'flex-start', marginBottom: 16,
+  },
+  planDuration:{ fontSize: 22, fontWeight: '900', color: '#fff' },
+  planDays:    { fontSize: 12, color: '#555', fontWeight: '600', marginTop: 4 },
+  planPrice:   { fontSize: 26, fontWeight: '900', color: '#1A6BFF' },
+  planFeatures:{ gap: 8, marginBottom: 16 },
+  featureRow:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  featureText: { fontSize: 13, color: '#888', fontWeight: '500' },
+  subscribeBtn:{
+    backgroundColor: '#1A6BFF', borderRadius: 14,
+    paddingVertical: 15, alignItems: 'center',
+  },
+  subscribeBtnDisabled: { backgroundColor: '#222' },
+  subscribeBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });

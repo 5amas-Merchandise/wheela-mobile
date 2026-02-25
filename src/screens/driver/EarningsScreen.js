@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+// src/screens/shared/TripHistoryScreen.js
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -6,691 +7,781 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  Image,
   Alert,
   RefreshControl,
   ScrollView,
-} from 'react-native';
-import axios from 'axios';
-import { getAuthToken } from '../../utils/auth';
-import { Ionicons } from '@expo/vector-icons';
+  Platform,
+  StatusBar,
+} from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
+import { getAuthToken, removeAuthToken } from "../../utils/auth";
 
-const baseUrl = 'https://wheels-backend-7ydc.onrender.com';
+const BASE_URL = "https://wheels-backend-7ydc.onrender.com";
+const FETCH_TIMEOUT_MS = 12000;
 
-// Replace with your actual logo
-const WHEELA_LOGO = require('../../../assets/logo.jpg');
+// ── Fetch with timeout ────────────────────────────────────────────────────────
+async function fetchWithTimeout(url, options = {}, ms = FETCH_TIMEOUT_MS) {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const res = await fetch(url, { ...options, signal: ctrl.signal });
+    clearTimeout(id);
+    return res;
+  } catch (err) {
+    clearTimeout(id);
+    if (err.name === "AbortError") throw new Error("TIMEOUT");
+    throw err;
+  }
+}
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const SERVICE_LABELS = {
+  CITY_RIDE: "City Ride",
+  DELIVERY_BIKE: "Bike",
+  KEKE: "Keke",
+  LUXURY_RENTAL: "Luxury",
+  INTERSTATE: "Interstate",
+  TRUCK: "Truck",
+};
+
+const STATUS_META = {
+  completed: {
+    label: "Completed",
+    color: "#22C55E",
+    bg: "rgba(34,197,94,0.12)",
+  },
+  cancelled: {
+    label: "Cancelled",
+    color: "#EF4444",
+    bg: "rgba(239,68,68,0.12)",
+  },
+  assigned: {
+    label: "Assigned",
+    color: "#F59E0B",
+    bg: "rgba(245,158,11,0.12)",
+  },
+  started: { label: "Started", color: "#3B82F6", bg: "rgba(59,130,246,0.12)" },
+  default: { label: "Unknown", color: "#888", bg: "rgba(136,136,136,0.1)" },
+};
+
+const PAYMENT_META = {
+  wallet: { icon: "wallet-outline", color: "#22C55E", label: "Wallet" },
+  cash: { icon: "cash-outline", color: "#888", label: "Cash" },
+};
+
+function getStatusMeta(status) {
+  return STATUS_META[status] || STATUS_META.default;
+}
+
+function formatDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return (
+    d.toLocaleDateString("en-NG", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    }) +
+    " · " +
+    d.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })
+  );
+}
+
+function getFare(item) {
+  const raw = item.fareInNaira ?? item.finalFare ?? item.estimatedFare ?? 0;
+  return Number(raw).toLocaleString("en-NG", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+// ── Trip card ─────────────────────────────────────────────────────────────────
+function TripCard({ item, role }) {
+  const sm = getStatusMeta(item.status);
+  const pm = PAYMENT_META[item.paymentMethod] || PAYMENT_META.cash;
+  const pickup =
+    item.pickupAddress ||
+    item.pickup?.address ||
+    item.pickupLocation?.address ||
+    "Pickup";
+  const dropoff =
+    item.dropoffAddress ||
+    item.dropoff?.address ||
+    item.dropoffLocation?.address ||
+    "Destination";
+  const service =
+    SERVICE_LABELS[item.serviceType] ||
+    item.serviceType?.replace(/_/g, " ") ||
+    "Ride";
+
+  return (
+    <View style={c.tripCard}>
+      {/* Top row */}
+      <View style={c.tripTop}>
+        <View style={{ flex: 1 }}>
+          <Text style={c.tripDate}>
+            {formatDate(
+              item.completedAt || item.cancelledAt || item.requestedAt,
+            )}
+          </Text>
+          <View style={[c.statusPill, { backgroundColor: sm.bg }]}>
+            <View style={[c.statusDot, { backgroundColor: sm.color }]} />
+            <Text style={[c.statusPillText, { color: sm.color }]}>
+              {sm.label}
+            </Text>
+          </View>
+        </View>
+        <View style={c.fareCol}>
+          <Text style={c.fareAmount}>₦{getFare(item)}</Text>
+          <View style={c.paymentRow}>
+            <Ionicons name={pm.icon} size={11} color={pm.color} />
+            <Text style={[c.paymentLabel, { color: pm.color }]}>
+              {pm.label}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Route */}
+      <View style={c.route}>
+        <View style={c.routeTrack}>
+          <View style={c.routeDotGreen} />
+          <View style={c.routeLine} />
+          <View style={c.routeDotRed} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={c.routeText} numberOfLines={1}>
+            {pickup}
+          </Text>
+          <View style={{ height: 14 }} />
+          <Text style={c.routeText} numberOfLines={1}>
+            {dropoff}
+          </Text>
+        </View>
+      </View>
+
+      {/* Footer chips */}
+      <View style={c.tripFooter}>
+        <View style={c.chip}>
+          <Ionicons name="car-outline" size={12} color="#555" />
+          <Text style={c.chipText}>{service}</Text>
+        </View>
+        {item.distanceKm != null && (
+          <View style={c.chip}>
+            <Ionicons name="navigate-outline" size={12} color="#555" />
+            <Text style={c.chipText}>{item.distanceKm} km</Text>
+          </View>
+        )}
+        {item.durationMinutes != null && (
+          <View style={c.chip}>
+            <Ionicons name="time-outline" size={12} color="#555" />
+            <Text style={c.chipText}>{item.durationMinutes} min</Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ── Main screen ───────────────────────────────────────────────────────────────
 export default function TripHistoryScreen() {
+  const navigation = useNavigation();
+
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [role, setRole] = useState('driver');
+  const [role, setRole] = useState("driver");
+  const [fetchError, setFetchError] = useState(null);
   const [stats, setStats] = useState({
     totalTrips: 0,
     completedTrips: 0,
     cancelledTrips: 0,
-    totalEarnings: 0,
+    totalValue: 0,
   });
 
-  useEffect(() => {
-    fetchTripHistory();
-  }, [role]);
+  const fetchingRef = useRef(false);
 
-  const fetchTripHistory = async () => {
-    try {
-      setLoading(true);
-      
-      const token = await getAuthToken();
-      if (!token) {
-        Alert.alert('Error', 'Please login to view trip history');
-        setLoading(false);
-        return;
-      }
-
-      const config = {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      };
-
-      console.log('Fetching trip history with role:', role);
+  const fetchHistory = useCallback(
+    async (showLoader = true) => {
+      if (fetchingRef.current) return;
+      fetchingRef.current = true;
+      if (showLoader) setLoading(true);
+      setFetchError(null);
 
       try {
-        const historyRes = await axios.get(`${baseUrl}/trips/history`, {
-          ...config,
-          params: { 
-            role: role, 
-            limit: 50, 
-            status: 'all' 
-          },
-        });
-
-        console.log('History response:', historyRes.data);
-
-        if (historyRes.data.success) {
-          setTrips(historyRes.data.trips || []);
-          
-          const completedTrips = historyRes.data.stats?.completedTrips || 0;
-          const cancelledTrips = historyRes.data.stats?.cancelledTrips || 0;
-          const totalSpent = historyRes.data.stats?.totalSpent || 0;
-          
-          setStats({
-            totalTrips: historyRes.data.stats?.totalTrips || 0,
-            completedTrips: completedTrips,
-            cancelledTrips: cancelledTrips,
-            totalEarnings: role === 'driver' ? totalSpent : 0,
-          });
-        } else {
-          Alert.alert('Error', historyRes.data?.error?.message || 'Failed to load trip history');
+        const token = await getAuthToken();
+        if (!token) {
+          await removeAuthToken();
+          navigation.replace("Login");
+          return;
         }
-      } catch (fetchErr) {
-        console.error('Fetch trip history error:', fetchErr);
-        
-        const simpleRes = await axios.get(`${baseUrl}/trips`, {
-          ...config,
-          params: { 
-            role: role, 
-            limit: 50 
-          },
-        });
-        
-        if (simpleRes.data?.trips) {
-          const completedTrips = simpleRes.data.trips.filter(trip => 
-            trip.status === 'completed' || trip.status === 'cancelled'
+
+        const headers = {
+          Authorization: `Bearer ${token}`,
+          "Cache-Control": "no-cache",
+        };
+
+        // Primary endpoint
+        const res = await fetchWithTimeout(
+          `${BASE_URL}/trips/history?role=${role}&limit=50&status=all`,
+          { headers },
+        );
+
+        if (res.status === 401 || res.status === 403) {
+          await removeAuthToken();
+          Alert.alert("Session Expired", "Please log in again.", [
+            { text: "Log In", onPress: () => navigation.replace("Login") },
+          ]);
+          return;
+        }
+
+        let data;
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error("SERVER");
+        }
+
+        if (res.ok && data.success) {
+          const list = data.trips || [];
+          setTrips(list);
+          setStats({
+            totalTrips: data.stats?.totalTrips ?? list.length,
+            completedTrips:
+              data.stats?.completedTrips ??
+              list.filter((t) => t.status === "completed").length,
+            cancelledTrips:
+              data.stats?.cancelledTrips ??
+              list.filter((t) => t.status === "cancelled").length,
+            totalValue:
+              data.stats?.totalSpent ??
+              list
+                .filter((t) => t.status === "completed")
+                .reduce(
+                  (s, t) =>
+                    s + (t.fareInNaira || t.finalFare || t.estimatedFare || 0),
+                  0,
+                ),
+          });
+          return;
+        }
+
+        // Fallback endpoint
+        const fallbackRes = await fetchWithTimeout(
+          `${BASE_URL}/trips?role=${role}&limit=50`,
+          { headers },
+        );
+
+        if (fallbackRes.ok) {
+          const fb = await fallbackRes.json();
+          const list = (fb.trips || []).filter((t) =>
+            ["completed", "cancelled"].includes(t.status),
           );
-          
-          setTrips(completedTrips);
-          
-          const total = completedTrips.length;
-          const completed = completedTrips.filter(t => t.status === 'completed').length;
-          const cancelled = completedTrips.filter(t => t.status === 'cancelled').length;
-          const earnings = completedTrips
-            .filter(t => t.status === 'completed')
-            .reduce((sum, t) => sum + (t.finalFare || t.estimatedFare || 0), 0);
-            
+          setTrips(list);
           setStats({
-            totalTrips: total,
-            completedTrips: completed,
-            cancelledTrips: cancelled,
-            totalEarnings: earnings,
+            totalTrips: list.length,
+            completedTrips: list.filter((t) => t.status === "completed").length,
+            cancelledTrips: list.filter((t) => t.status === "cancelled").length,
+            totalValue: list
+              .filter((t) => t.status === "completed")
+              .reduce(
+                (s, t) =>
+                  s + (t.fareInNaira || t.finalFare || t.estimatedFare || 0),
+                0,
+              ),
           });
-        } else {
-          throw fetchErr;
+          return;
         }
-      }
 
-    } catch (err) {
-      console.error('Error loading trip history:', err.response?.data || err.message);
-      if (err.response) {
-        if (err.response.status === 401) {
-          Alert.alert('Session Expired', 'Please login again');
-        } else if (err.response.status === 403) {
-          Alert.alert('Access Denied', 'You are not authorized to view this content');
-        } else if (err.response.status === 404) {
-          Alert.alert('Not Found', 'Trip history endpoint not found');
-        } else {
-          Alert.alert('Error', err.response.data?.error?.message || 'Could not load trip history');
-        }
-      } else if (err.request) {
-        Alert.alert('Network Error', 'Please check your internet connection');
-      } else {
-        Alert.alert('Error', 'Could not load trip history');
+        setFetchError("SERVER");
+      } catch (err) {
+        console.error("fetchHistory:", err.message);
+        if (err.message === "TIMEOUT") setFetchError("TIMEOUT");
+        else setFetchError("NETWORK");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+        fetchingRef.current = false;
       }
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+    },
+    [role],
+  );
 
-  const toggleRole = () => {
-    setRole(role === 'driver' ? 'passenger' : 'driver');
-  };
+  useEffect(() => {
+    fetchHistory(true);
+  }, [role]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchTripHistory();
+    fetchHistory(false);
   };
 
-  if (loading && !refreshing) {
+  // ── Loading ─────────────────────────────────────────────────────────────────
+  if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0066FF" />
-        <Text style={styles.loadingText}>Loading trip history...</Text>
+      <View style={c.loadingScreen}>
+        <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" />
+        <ActivityIndicator size="large" color="#1A6BFF" />
+        <Text style={c.loadingText}>Loading trip history...</Text>
       </View>
     );
   }
 
-  const renderTrip = ({ item }) => {
-    const tripDate = new Date(item.completedAt || item.cancelledAt || item.requestedAt || item.date);
-    const formattedDate = tripDate.toLocaleDateString('en-US', {
-      weekday: 'short',
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    const isCompleted = item.status === 'completed';
-    const statusColor = isCompleted ? '#10B981' : '#FF6B6B';
-    
-    const pickupAddress = item.pickup?.address || item.pickupLocation?.address || 'Pickup location';
-    const dropoffAddress = item.dropoff?.address || item.dropoffLocation?.address || 'Dropoff location';
-    
-    const fareAmount = item.fareInNaira || 
-                      (item.finalFare ? item.finalFare.toFixed(2) : 
-                      (item.estimatedFare ? item.estimatedFare.toFixed(2) : '0.00'));
+  // ── Error ───────────────────────────────────────────────────────────────────
+  if (fetchError) {
+    const errConfig = {
+      TIMEOUT: {
+        icon: "time-outline",
+        title: "Request Timed Out",
+        body: "Server took too long. Try again.",
+      },
+      NETWORK: {
+        icon: "wifi-outline",
+        title: "No Connection",
+        body: "Check your internet and try again.",
+      },
+      SERVER: {
+        icon: "server-outline",
+        title: "Server Error",
+        body: "Something went wrong. Try again later.",
+      },
+    };
+    const ec = errConfig[fetchError] || errConfig.SERVER;
 
     return (
-      <View style={styles.tripCard}>
-        <View style={styles.tripHeader}>
-          <View style={styles.dateStatusContainer}>
-            <Text style={styles.tripDate}>{formattedDate}</Text>
-            <View style={styles.statusBadge}>
-              <View 
-                style={[
-                  styles.statusDot, 
-                  { backgroundColor: statusColor }
-                ]} 
-              />
-              <Text style={[
-                styles.tripStatus,
-                { color: statusColor }
-              ]}>
-                {item.status?.charAt(0).toUpperCase() + item.status?.slice(1) || 'Unknown'}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.fareContainer}>
-            <Text style={styles.tripFare}>
-              ₦{parseFloat(fareAmount).toLocaleString('en-US')}
-            </Text>
-          </View>
+      <View style={c.loadingScreen}>
+        <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" />
+        <View style={c.errorIconWrap}>
+          <Ionicons name={ec.icon} size={44} color="#333" />
         </View>
-
-        <View style={styles.routeContainer}>
-          <View style={styles.routeRow}>
-            <View style={[styles.routeIconContainer, styles.pickupIcon]}>
-              <Ionicons name="location" size={16} color="#0066FF" />
-            </View>
-            <Text style={styles.routeAddress} numberOfLines={2}>
-              {pickupAddress}
-            </Text>
-          </View>
-          
-          <View style={styles.connectorLine}>
-            <View style={styles.dashedLine} />
-          </View>
-          
-          <View style={styles.routeRow}>
-            <View style={[styles.routeIconContainer, styles.dropoffIcon]}>
-              <Ionicons name="flag" size={16} color="#FF6B6B" />
-            </View>
-            <Text style={styles.routeAddress} numberOfLines={2}>
-              {dropoffAddress}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.tripFooter}>
-          <View style={styles.infoRow}>
-            <View style={styles.infoItem}>
-              <Ionicons name="car" size={16} color="#666" />
-              <Text style={styles.infoText}>{item.serviceType || 'Standard'}</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Ionicons name="time" size={16} color="#666" />
-              <Text style={styles.infoText}>
-                {tripDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-              </Text>
-            </View>
-          </View>
-          
-          {item.distanceKm && (
-            <View style={styles.distanceRow}>
-              <Ionicons name="navigate" size={16} color="#666" />
-              <Text style={styles.distanceText}>
-                {item.distanceKm || item.distance || '0'} km
-              </Text>
-            </View>
-          )}
-        </View>
+        <Text style={c.errorTitle}>{ec.title}</Text>
+        <Text style={c.errorBody}>{ec.body}</Text>
+        <TouchableOpacity
+          style={c.errorRetryBtn}
+          onPress={() => fetchHistory(true)}
+          activeOpacity={0.85}
+        >
+          <Ionicons
+            name="refresh-outline"
+            size={18}
+            color="#fff"
+            style={{ marginRight: 8 }}
+          />
+          <Text style={c.errorRetryText}>Retry</Text>
+        </TouchableOpacity>
       </View>
     );
-  };
+  }
 
+  const isDriver = role === "driver";
+
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <Image source={WHEELA_LOGO} style={styles.logo} resizeMode="contain" />
-          <Text style={styles.title}>Trip History</Text>
-        </View>
-        
-        <TouchableOpacity 
-          style={styles.roleButton} 
-          onPress={toggleRole}
+    <View style={{ flex: 1, backgroundColor: "#0D0D0D" }}>
+      <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" />
+
+      {/* ── Sticky header ── */}
+      <View style={c.header}>
+        <TouchableOpacity
+          style={c.backBtn}
+          onPress={() => navigation.goBack()}
           activeOpacity={0.7}
         >
-          <Ionicons 
-            name={role === 'driver' ? 'car-sport' : 'person'} 
-            size={20} 
-            color="#0066FF" 
+          <Ionicons name="arrow-back" size={20} color="#fff" />
+        </TouchableOpacity>
+
+        <Text style={c.headerTitle}>Trip History</Text>
+
+        {/* Role toggle */}
+        <TouchableOpacity
+          style={c.roleToggle}
+          onPress={() =>
+            setRole((r) => (r === "driver" ? "passenger" : "driver"))
+          }
+          activeOpacity={0.75}
+        >
+          <Ionicons
+            name={isDriver ? "car-sport-outline" : "person-outline"}
+            size={14}
+            color="#1A6BFF"
           />
-          <Text style={styles.roleButtonText}>
-            {role === 'driver' ? 'Driver' : 'Passenger'}
+          <Text style={c.roleToggleText}>
+            {isDriver ? "Driver" : "Passenger"}
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Stats Overview */}
-      <ScrollView 
-        style={styles.content}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 48 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            colors={['#0066FF']}
-            tintColor="#0066FF"
+            tintColor="#1A6BFF"
+            colors={["#1A6BFF"]}
           />
         }
       >
-        <View style={styles.statsGrid}>
-          <View style={[styles.statCard, styles.totalCard]}>
-            <Ionicons name="document-text" size={24} color="#0066FF" />
-            <Text style={styles.statNumber}>{stats.totalTrips}</Text>
-            <Text style={styles.statLabel}>Total Trips</Text>
-          </View>
-          
-          <View style={[styles.statCard, styles.completedCard]}>
-            <Ionicons name="checkmark-circle" size={24} color="#10B981" />
-            <Text style={styles.statNumber}>{stats.completedTrips}</Text>
-            <Text style={styles.statLabel}>Completed</Text>
-          </View>
-          
-          <View style={[styles.statCard, styles.cancelledCard]}>
-            <Ionicons name="close-circle" size={24} color="#FF6B6B" />
-            <Text style={styles.statNumber}>{stats.cancelledTrips}</Text>
-            <Text style={styles.statLabel}>Cancelled</Text>
-          </View>
-          
-          <View style={[styles.statCard, styles.earningsCard]}>
-            <Ionicons name="cash" size={24} color="#8B5CF6" />
-            <Text style={styles.statNumber}>
-              ₦{(stats.totalEarnings || 0).toLocaleString('en-US')}
-            </Text>
-            <Text style={styles.statLabel}>
-              {role === 'driver' ? 'Earnings' : 'Spent'}
-            </Text>
-          </View>
-        </View>
-
-        {/* Recent Trips Section */}
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionTitleContainer}>
-            <Ionicons name="time" size={20} color="#111827" />
-            <Text style={styles.sectionTitle}>Recent Trips</Text>
-          </View>
-          <TouchableOpacity 
-            style={styles.refreshButton}
-            onPress={onRefresh}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="refresh" size={18} color="#0066FF" />
-          </TouchableOpacity>
-        </View>
-
-        {trips.length > 0 ? (
-          <FlatList
-            data={trips}
-            keyExtractor={(item) => item.id || item._id || Math.random().toString()}
-            renderItem={renderTrip}
-            scrollEnabled={false}
-            ListFooterComponent={<View style={{ height: 40 }} />}
+        {/* ── Stats grid ── */}
+        <View style={c.statsGrid}>
+          <StatCard
+            icon="document-text-outline"
+            iconColor="#1A6BFF"
+            value={stats.totalTrips}
+            label="Total"
+            accent="#1A6BFF"
           />
-        ) : (
-          <View style={styles.emptyState}>
-            <Ionicons name="document-text-outline" size={80} color="#E5E7EB" />
-            <Text style={styles.emptyTitle}>No Trips Yet</Text>
-            <Text style={styles.emptySubtitle}>
-              {role === 'driver' 
-                ? 'Start accepting rides to see your history here.' 
-                : 'Book your first ride to see your history here.'}
+          <StatCard
+            icon="checkmark-circle-outline"
+            iconColor="#22C55E"
+            value={stats.completedTrips}
+            label="Completed"
+            accent="#22C55E"
+          />
+          <StatCard
+            icon="close-circle-outline"
+            iconColor="#EF4444"
+            value={stats.cancelledTrips}
+            label="Cancelled"
+            accent="#EF4444"
+          />
+          <StatCard
+            icon={isDriver ? "cash-outline" : "card-outline"}
+            iconColor="#F59E0B"
+            value={`₦${Number(stats.totalValue).toLocaleString("en-NG", { maximumFractionDigits: 0 })}`}
+            label={isDriver ? "Earned" : "Spent"}
+            accent="#F59E0B"
+          />
+        </View>
+
+        {/* ── Section header ── */}
+        <View style={c.sectionHeader}>
+          <Text style={c.sectionTitle}>Recent Trips</Text>
+          <Text style={c.sectionCount}>
+            {trips.length} {trips.length === 1 ? "trip" : "trips"}
+          </Text>
+        </View>
+
+        {/* ── List ── */}
+        {trips.length === 0 ? (
+          <View style={c.emptyState}>
+            <View style={c.emptyIconWrap}>
+              <Ionicons name="car-outline" size={40} color="#333" />
+            </View>
+            <Text style={c.emptyTitle}>No Trips Yet</Text>
+            <Text style={c.emptyBody}>
+              {isDriver
+                ? "Accept rides to see your history here."
+                : "Book your first ride to see your history here."}
             </Text>
-            <TouchableOpacity 
-              style={styles.emptyButton}
+            <TouchableOpacity
+              style={c.emptyRefreshBtn}
               onPress={onRefresh}
-              activeOpacity={0.7}
+              activeOpacity={0.8}
             >
-              <Ionicons name="refresh" size={18} color="#FFFFFF" />
-              <Text style={styles.emptyButtonText}>Refresh</Text>
+              <Ionicons
+                name="refresh-outline"
+                size={16}
+                color="#fff"
+                style={{ marginRight: 6 }}
+              />
+              <Text style={c.emptyRefreshText}>Refresh</Text>
             </TouchableOpacity>
           </View>
+        ) : (
+          <FlatList
+            data={trips}
+            keyExtractor={(item) =>
+              item._id || item.id || Math.random().toString()
+            }
+            renderItem={({ item }) => <TripCard item={item} role={role} />}
+            scrollEnabled={false}
+            contentContainerStyle={{ paddingHorizontal: 16 }}
+          />
         )}
 
-        <Text style={styles.viewingNote}>
-          Viewing trips as {role}
-        </Text>
+        <Text style={c.viewingNote}>Viewing as {role}</Text>
       </ScrollView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
+// ── Stat card ─────────────────────────────────────────────────────────────────
+function StatCard({ icon, iconColor, value, label, accent }) {
+  return (
+    <View style={[c.statCard, { borderTopColor: accent }]}>
+      <View style={[c.statIconWrap, { backgroundColor: `${accent}15` }]}>
+        <Ionicons name={icon} size={20} color={iconColor} />
+      </View>
+      <Text style={c.statValue} numberOfLines={1}>
+        {value}
+      </Text>
+      <Text style={c.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+const c = StyleSheet.create({
+  // Loading / error screens
+  loadingScreen: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#0D0D0D",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 32,
   },
   loadingText: {
-    color: '#666',
-    fontSize: 16,
-    marginTop: 16,
-    fontWeight: '500',
-  },
-  header: {
-    backgroundColor: '#FFFFFF',
-    paddingTop: 60,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  logo: {
-    width: 40,
-    height: 40,
-    marginRight: 12,
-    borderRadius: 8,
-  },
-  title: {
-    color: '#111827',
-    fontSize: 24,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-  },
-  roleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EFF6FF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    gap: 8,
-  },
-  roleButtonText: {
-    color: '#0066FF',
+    color: "#555",
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: "600",
+    marginTop: 16,
   },
-  content: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-    padding: 20,
+  errorIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#1A1A1A",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
   },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#fff",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  errorBody: {
+    fontSize: 13,
+    color: "#555",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 28,
+  },
+  errorRetryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1A6BFF",
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+  },
+  errorRetryText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+
+  // Header
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#141414",
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === "ios" ? 58 : 44,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#222",
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#1E1E1E",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerTitle: { fontSize: 18, fontWeight: "800", color: "#fff" },
+  roleToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(26,107,255,0.1)",
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: "rgba(26,107,255,0.2)",
+  },
+  roleToggleText: { color: "#1A6BFF", fontSize: 13, fontWeight: "700" },
+
+  // Stats
   statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 24,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 6,
   },
   statCard: {
-    width: '48%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 3,
+    width: "47.5%",
+    backgroundColor: "#141414",
+    borderRadius: 16,
+    padding: 16,
+    alignItems: "flex-start",
+    borderTopWidth: 3,
     borderWidth: 1,
-    borderColor: '#F3F4F6',
+    borderColor: "#1E1E1E",
   },
-  totalCard: {
-    borderTopWidth: 4,
-    borderTopColor: '#0066FF',
+  statIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 10,
   },
-  completedCard: {
-    borderTopWidth: 4,
-    borderTopColor: '#10B981',
-  },
-  cancelledCard: {
-    borderTopWidth: 4,
-    borderTopColor: '#FF6B6B',
-  },
-  earningsCard: {
-    borderTopWidth: 4,
-    borderTopColor: '#8B5CF6',
-  },
-  statNumber: {
-    color: '#111827',
-    fontSize: 28,
-    fontWeight: '800',
-    marginTop: 12,
+  statValue: {
+    fontSize: 22,
+    fontWeight: "900",
+    color: "#fff",
     marginBottom: 4,
   },
   statLabel: {
-    color: '#6B7280',
-    fontSize: 13,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#555",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
+
+  // Section header
   sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
-  sectionTitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  sectionTitle: {
-    color: '#111827',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  refreshButton: {
-    backgroundColor: '#FFFFFF',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
+  sectionTitle: { fontSize: 17, fontWeight: "800", color: "#fff" },
+  sectionCount: { fontSize: 12, fontWeight: "600", color: "#555" },
+
+  // Trip card
   tripCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    backgroundColor: "#141414",
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#F3F4F6',
+    borderColor: "#1E1E1E",
   },
-  tripHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 20,
-  },
-  dateStatusContainer: {
-    flex: 1,
-  },
-  tripDate: {
-    color: '#6B7280',
-    fontSize: 13,
-    fontWeight: '500',
-    marginBottom: 8,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  tripTop: { flexDirection: "row", alignItems: "flex-start", marginBottom: 14 },
+  tripDate: { fontSize: 11, color: "#555", fontWeight: "600", marginBottom: 6 },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    alignSelf: "flex-start",
     borderRadius: 20,
-    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  statusPillText: { fontSize: 11, fontWeight: "700" },
+  fareCol: { alignItems: "flex-end" },
+  fareAmount: {
+    fontSize: 20,
+    fontWeight: "900",
+    color: "#fff",
+    marginBottom: 4,
   },
-  tripStatus: {
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
-  fareContainer: {
-    backgroundColor: '#EFF6FF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  paymentRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  paymentLabel: { fontSize: 10, fontWeight: "700" },
+
+  // Route
+  route: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    backgroundColor: "#0D0D0D",
     borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    gap: 10,
   },
-  tripFare: {
-    color: '#0066FF',
-    fontSize: 18,
-    fontWeight: '800',
+  routeTrack: {
+    width: 16,
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 2,
   },
-  routeContainer: {
-    marginBottom: 20,
+  routeDotGreen: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#22C55E",
   },
-  routeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginVertical: 4,
+  routeLine: { flex: 1, width: 2, backgroundColor: "#222", marginVertical: 3 },
+  routeDotRed: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#EF4444",
   },
-  routeIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  pickupIcon: {
-    backgroundColor: '#EFF6FF',
-  },
-  dropoffIcon: {
-    backgroundColor: '#FEF2F2',
-  },
-  routeAddress: {
-    color: '#111827',
-    fontSize: 15,
-    fontWeight: '600',
-    flex: 1,
-    lineHeight: 22,
-  },
-  connectorLine: {
-    height: 24,
-    justifyContent: 'center',
-    paddingLeft: 16,
-  },
-  dashedLine: {
-    width: 1,
-    height: '100%',
+  routeText: { fontSize: 13, fontWeight: "600", color: "#ccc", lineHeight: 20 },
+
+  // Footer chips
+  tripFooter: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#1A1A1A",
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderStyle: 'dashed',
+    borderColor: "#222",
   },
-  tripFooter: {
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    gap: 12,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  infoItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  infoText: {
-    color: '#666',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  distanceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    alignSelf: 'flex-start',
-    backgroundColor: '#F9FAFB',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  distanceText: {
-    color: '#666',
-    fontSize: 13,
-    fontWeight: '600',
-  },
+  chipText: { fontSize: 11, color: "#666", fontWeight: "600" },
+
+  // Empty
   emptyState: {
-    alignItems: 'center',
-    paddingVertical: 60,
-    paddingHorizontal: 40,
+    alignItems: "center",
+    paddingVertical: 56,
+    paddingHorizontal: 32,
+  },
+  emptyIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#1A1A1A",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
   },
   emptyTitle: {
-    color: '#111827',
-    fontSize: 20,
-    fontWeight: '800',
-    marginTop: 16,
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#fff",
     marginBottom: 8,
   },
-  emptySubtitle: {
-    color: '#6B7280',
-    fontSize: 15,
-    textAlign: 'center',
-    lineHeight: 22,
+  emptyBody: {
+    fontSize: 13,
+    color: "#555",
+    textAlign: "center",
+    lineHeight: 20,
     marginBottom: 24,
   },
-  emptyButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#0066FF',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+  emptyRefreshBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1A1A1A",
     borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: "#2A2A2A",
   },
-  emptyButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
+  emptyRefreshText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+
   viewingNote: {
-    color: '#9CA3AF',
-    fontSize: 13,
-    textAlign: 'center',
+    textAlign: "center",
+    fontSize: 11,
+    color: "#333",
     marginTop: 20,
-    marginBottom: 40,
-    fontWeight: '500',
+    fontWeight: "500",
   },
 });

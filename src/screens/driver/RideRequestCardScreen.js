@@ -1,5 +1,5 @@
-// src/screens/driver/RideRequestScreen.js (WITH CORRECTED PUSH NOTIFICATIONS)
-import React, { useState, useEffect, useRef } from 'react';
+// src/screens/driver/RideRequestScreen.js
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,25 +9,177 @@ import {
   ActivityIndicator,
   Dimensions,
   Linking,
-  SafeAreaView,
   StatusBar,
   Platform,
   Modal,
   ScrollView,
   BackHandler,
   Vibration,
-} from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
-import { getAuthToken } from '../../utils/auth';
-import * as Location from 'expo-location';
-import * as Notifications from 'expo-notifications';
+  Animated,
+} from "react-native";
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
+import { useNavigation, useRoute } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
+import { getAuthToken } from "../../utils/auth";
+import * as Location from "expo-location";
+import * as Notifications from "expo-notifications";
 
-const { width, height } = Dimensions.get('window');
-const baseUrl = 'https://wheels-backend-7ydc.onrender.com';
+const { width, height } = Dimensions.get("window");
+const ASPECT_RATIO = width / height;
+const baseUrl = "https://wheels-backend-7ydc.onrender.com";
+const GOOGLE_API_KEY = "AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo";
 
-// Configure notifications
+const MAP_STYLE = [
+  { elementType: "geometry", stylers: [{ color: "#f5f5f0" }] },
+  { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#616161" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#f5f5f5" }] },
+  {
+    featureType: "administrative.land_parcel",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#bdbdbd" }],
+  },
+  {
+    featureType: "poi",
+    elementType: "geometry",
+    stylers: [{ color: "#eeeeee" }],
+  },
+  {
+    featureType: "poi",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#757575" }],
+  },
+  {
+    featureType: "poi.park",
+    elementType: "geometry",
+    stylers: [{ color: "#d5e8d4" }],
+  },
+  {
+    featureType: "poi.park",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#9e9e9e" }],
+  },
+  {
+    featureType: "road",
+    elementType: "geometry",
+    stylers: [{ color: "#ffffff" }],
+  },
+  {
+    featureType: "road.arterial",
+    elementType: "geometry",
+    stylers: [{ color: "#ffffff" }],
+  },
+  {
+    featureType: "road.arterial",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#757575" }],
+  },
+  {
+    featureType: "road.highway",
+    elementType: "geometry",
+    stylers: [{ color: "#f8e8a0" }],
+  },
+  {
+    featureType: "road.highway",
+    elementType: "geometry.stroke",
+    stylers: [{ color: "#e8d870" }],
+  },
+  {
+    featureType: "road.highway",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#616161" }],
+  },
+  {
+    featureType: "road.local",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#9e9e9e" }],
+  },
+  {
+    featureType: "transit.line",
+    elementType: "geometry",
+    stylers: [{ color: "#e5e5e5" }],
+  },
+  {
+    featureType: "transit.station",
+    elementType: "geometry",
+    stylers: [{ color: "#eeeeee" }],
+  },
+  {
+    featureType: "water",
+    elementType: "geometry",
+    stylers: [{ color: "#b8d4e8" }],
+  },
+  {
+    featureType: "water",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#9e9e9e" }],
+  },
+];
+
+// ─── Payment meta ─────────────────────────────────────────────────────────────
+const PAYMENT_META = {
+  wallet: {
+    label: "Wallet",
+    icon: "wallet",
+    color: "#059669",
+    bg: "#ECFDF5",
+    borderColor: "#A7F3D0",
+    driverNote:
+      "Fare will be credited to your wallet automatically — no cash to collect.",
+    confirmNote:
+      "This is a wallet trip. The fare will be automatically credited to your wallet after completion.",
+    completeBtnLabel: "Complete Trip",
+  },
+  cash: {
+    label: "Cash",
+    icon: "cash",
+    color: "#1A1A1A",
+    bg: "#F5F5F0",
+    borderColor: "#E5E5E5",
+    driverNote: "Collect cash from passenger after completing the trip.",
+    confirmNote:
+      "Confirm you have received the cash from the passenger before completing.",
+    completeBtnLabel: "Confirm Cash & Complete",
+  },
+  // ✅ FIX: Added free_ride entry — driver sees wallet credit message,
+  // never told to collect cash. Passenger pays nothing.
+  free_ride: {
+    label: "Kilometre Club 🎁",
+    icon: "gift",
+    color: "#7C3AED",
+    bg: "#F5F3FF",
+    borderColor: "#DDD6FE",
+    driverNote:
+      "This is a Kilometre Club free ride. Do NOT collect cash — the fare will be credited to your wallet by the platform.",
+    confirmNote:
+      "This passenger's ride is completely free (Kilometre Club reward). The platform will credit the full fare to your wallet automatically.",
+    completeBtnLabel: "Complete Trip",
+  },
+};
+
+// ─── Service config ───────────────────────────────────────────────────────────
+const SERVICE_CONFIG = {
+  CITY_RIDE: {
+    icon: "car-sport",
+    color: "#1A1A1A",
+    bg: "#F0F0F0",
+    label: "City Ride",
+  },
+  DELIVERY_BIKE: {
+    icon: "bicycle",
+    color: "#059669",
+    bg: "#ECFDF5",
+    label: "Delivery Bike",
+  },
+  KEKE: { icon: "triangle", color: "#D97706", bg: "#FFFBEB", label: "Keke" },
+  LUXURY_RENTAL: {
+    icon: "diamond",
+    color: "#7C3AED",
+    bg: "#F5F3FF",
+    label: "Luxury",
+  },
+};
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -36,1180 +188,1807 @@ Notifications.setNotificationHandler({
   }),
 });
 
+function decodePolyline(encoded) {
+  if (!encoded) return [];
+  const pts = [];
+  let i = 0,
+    lat = 0,
+    lng = 0;
+  while (i < encoded.length) {
+    let b,
+      s = 0,
+      r = 0;
+    do {
+      b = encoded.charCodeAt(i++) - 63;
+      r |= (b & 0x1f) << s;
+      s += 5;
+    } while (b >= 0x20);
+    lat += r & 1 ? ~(r >> 1) : r >> 1;
+    s = 0;
+    r = 0;
+    do {
+      b = encoded.charCodeAt(i++) - 63;
+      r |= (b & 0x1f) << s;
+      s += 5;
+    } while (b >= 0x20);
+    lng += r & 1 ? ~(r >> 1) : r >> 1;
+    pts.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+  return pts;
+}
+
+function haversineDistance(c1, c2) {
+  const R = 6371;
+  const dLat = ((c2.latitude - c1.latitude) * Math.PI) / 180;
+  const dLon = ((c2.longitude - c1.longitude) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((c1.latitude * Math.PI) / 180) *
+      Math.cos((c2.latitude * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function estTimeMinutes(distKm) {
+  return Math.max(Math.ceil((distKm / 35) * 60), 1);
+}
+
 export default function RideRequestScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const mapRef = useRef(null);
-  const notificationListener = useRef();
-  const responseListener = useRef();
-  
+  const notifListenerRef = useRef();
+  const locationSubRef = useRef(null);
+  const cardAnim = useRef(new Animated.Value(0)).current;
+
   const {
     tripId,
-    passengerName = 'Passenger',
-    passengerPhone = '',
-    serviceType = 'CITY_RIDE',
+    passengerName = "Passenger",
+    passengerPhone = "",
+    serviceType = "CITY_RIDE",
     fare = 0,
     pickup,
     destination,
-    pickupAddress = 'Pickup location',
-    destinationAddress = 'Destination',
+    pickupAddress = "Pickup location",
+    destinationAddress = "Destination",
+    paymentMethod: routePaymentMethod,
   } = route.params || {};
 
-  const [tripPhase, setTripPhase] = useState('pickup');
-  const [tripStatus, setTripStatus] = useState('assigned');
+  // ✅ FIX: Added "free_ride" to VALID so it is never silently
+  // replaced with "cash" when the route param arrives.
+  const VALID = ["cash", "wallet", "free_ride"];
+  const [paymentMethod, setPaymentMethod] = useState(
+    VALID.includes(routePaymentMethod) ? routePaymentMethod : "cash",
+  );
+
+  const [tripPhase, setTripPhase] = useState("pickup");
+  const [tripStatus, setTripStatus] = useState("assigned");
   const [tripValid, setTripValid] = useState(true);
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
+  const [isMapReady, setIsMapReady] = useState(false);
   const [driverLocation, setDriverLocation] = useState(null);
   const [pickupCoord, setPickupCoord] = useState(null);
   const [dropoffCoord, setDropoffCoord] = useState(null);
-  const [routeCoordinates, setRouteCoordinates] = useState([]);
-  const [region, setRegion] = useState(null);
-  const [distanceToTarget, setDistanceToTarget] = useState(null);
-  const [timeToTarget, setTimeToTarget] = useState(null);
+  const [routeCoords, setRouteCoords] = useState([]);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [distKm, setDistKm] = useState(null);
+  const [etaMin, setEtaMin] = useState(null);
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [completingTrip, setCompletingTrip] = useState(false);
-  const [lastNotificationTime, setLastNotificationTime] = useState(0);
+  const [completionResult, setCompletionResult] = useState(null);
+  const [lastNotifTime, setLastNotifTime] = useState(0);
 
-  // Initialize notifications
+  const pmeta = PAYMENT_META[paymentMethod] || PAYMENT_META.cash;
+  const isWallet = paymentMethod === "wallet";
+  const isFreeRide = paymentMethod === "free_ride";
+  const svcConfig = SERVICE_CONFIG[serviceType] || SERVICE_CONFIG.CITY_RIDE;
+
+  // ── Card entrance animation ────────────────────────────────────────────────
   useEffect(() => {
-    registerForPushNotificationsAsync();
-    
-    // Listen for notifications while app is foregrounded
-    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
-      console.log('Notification received:', notification);
-      Vibration.vibrate(500);
-    });
-
-    // Listen for notification responses
-    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
-      console.log('Notification response:', response);
-      const data = response.notification.request.content.data;
-      
-      // Handle notification tap actions
-      if (data.action === 'call_passenger') {
-        makePhoneCall();
-      } else if (data.action === 'navigate') {
-        openNavigation();
-      }
-    });
-
-    return () => {
-      // Proper cleanup for notification listeners
-      if (notificationListener.current) {
-        notificationListener.current.remove();
-      }
-      if (responseListener.current) {
-        responseListener.current.remove();
-      }
-      // Alternative cleanup
-      Notifications.removeAllListeners?.();
-    };
+    Animated.spring(cardAnim, {
+      toValue: 1,
+      tension: 55,
+      friction: 8,
+      useNativeDriver: true,
+    }).start();
   }, []);
 
-  // CORRECTED: Register for push notifications
-  async function registerForPushNotificationsAsync() {
-    try {
-      // Check for existing permission
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-      
-      // Request permission if not granted
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-      
-      // Return if permission not granted
-      if (finalStatus !== 'granted') {
-        console.log('Failed to get push notification permission');
-        return null;
-      }
+  // ── Notifications ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status: existing } = await Notifications.getPermissionsAsync();
+        if (existing !== "granted")
+          await Notifications.requestPermissionsAsync();
+        if (Platform.OS === "android") {
+          await Notifications.setNotificationChannelAsync("wheels_ride", {
+            name: "Wheels Ride",
+            importance: Notifications.AndroidImportance.HIGH,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: "#1A1A1A",
+          });
+        }
+      } catch {}
+    })();
+    notifListenerRef.current = Notifications.addNotificationReceivedListener(
+      () => Vibration.vibrate(300),
+    );
+    return () => notifListenerRef.current?.remove();
+  }, []);
 
-      // Get the push token with your actual project ID
-      const token = await Notifications.getExpoPushTokenAsync({
-        projectId: '89ca3ed1-d2fb-429a-9fdb-614202a280e5', // Your actual project ID from app.json
-      });
-
-      console.log('Push token:', token.data);
-      
-      // For Android, set notification channel
-      if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('default', {
-          name: 'Wheela Ride Notifications',
-          importance: Notifications.AndroidImportance.HIGH,
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#007AFF',
-        });
-      }
-
-      return token.data;
-    } catch (error) {
-      console.error('Error getting push token:', error);
-      return null;
-    }
-  }
-
-  // Send notification helper function
-  const sendNotification = async (title, body, data = {}) => {
+  const sendNotification = useCallback(async (title, body, data = {}) => {
     try {
       await Notifications.scheduleNotificationAsync({
         content: {
           title,
           body,
-          data: { ...data, screen: 'RideRequestScreen' },
+          data: { ...data, screen: "RideRequestScreen" },
           sound: true,
         },
-        trigger: null, // Send immediately
+        trigger: null,
       });
-    } catch (error) {
-      console.error('Error sending notification:', error);
-    }
-  };
+    } catch {}
+  }, []);
 
+  // ── Guard ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!tripId) {
-      Alert.alert(
-        'Invalid Trip Data',
-        'Unable to load trip information.',
-        [{ text: 'OK', onPress: () => navigation.goBack() }]
-      );
+      Alert.alert("Invalid Trip", "Unable to load trip information.", [
+        { text: "OK", onPress: () => navigation.goBack() },
+      ]);
     } else {
-      // Send initial notification for ride assignment
-      sendNotification(
-        '🎉 New Ride Assigned!',
-        `You have a new ride request from ${passengerName}`,
-        { tripId, passengerName, action: 'ride_assigned' }
-      );
+      sendNotification("🚗 Ride Assigned", `Pick up ${passengerName}`, {
+        tripId,
+      });
     }
   }, [tripId]);
 
+  // ── Hardware back ──────────────────────────────────────────────────────────
   useEffect(() => {
-    const backAction = () => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       handleBackPress();
       return true;
-    };
+    });
+    return () => sub.remove();
+  }, [tripPhase, tripValid]);
 
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
-    return () => backHandler.remove();
+  // ── Fetch Google route ─────────────────────────────────────────────────────
+  const fetchRoute = useCallback(
+    async (from, to) => {
+      if (!from || !to) return;
+      setRouteLoading(true);
+      try {
+        const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${from.latitude},${from.longitude}&destination=${to.latitude},${to.longitude}&key=${GOOGLE_API_KEY}&mode=driving`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.status === "OK" && data.routes?.length > 0) {
+          const route = data.routes[0];
+          const leg = route.legs[0];
+          const decoded = decodePolyline(route.overview_polyline.points);
+          setRouteCoords(decoded);
+
+          const distM = leg.distance?.value || 0;
+          const durS = leg.duration?.value || 0;
+          setDistKm((distM / 1000).toFixed(1));
+          setEtaMin(Math.ceil(durS / 60));
+
+          if (decoded.length > 0 && mapRef.current && isMapReady) {
+            mapRef.current.fitToCoordinates(decoded, {
+              edgePadding: { top: 80, right: 50, bottom: 320, left: 50 },
+              animated: true,
+            });
+          }
+        } else {
+          setRouteCoords([from, to]);
+          const d = haversineDistance(from, to);
+          setDistKm(d.toFixed(1));
+          setEtaMin(estTimeMinutes(d));
+        }
+      } catch {
+        setRouteCoords([from, to]);
+      } finally {
+        setRouteLoading(false);
+      }
+    },
+    [isMapReady],
+  );
+
+  useEffect(() => {
+    if (!driverLocation) return;
+    if (tripPhase === "pickup" && pickupCoord) {
+      fetchRoute(driverLocation, pickupCoord);
+    } else if (tripPhase === "in_progress" && dropoffCoord) {
+      fetchRoute(driverLocation, dropoffCoord);
+    }
+  }, [tripPhase, isMapReady]);
+
+  // ── Initialization ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!pickup?.coordinates || pickup.coordinates.length < 2) {
+          throw new Error("Invalid pickup location data");
+        }
+
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") {
+          Alert.alert(
+            "Location Required",
+            "Enable location access to navigate.",
+            [{ text: "OK", onPress: () => navigation.goBack() }],
+          );
+          return;
+        }
+
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.BestForNavigation,
+        });
+        const driverLoc = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        };
+        setDriverLocation(driverLoc);
+
+        const [pLng, pLat] = pickup.coordinates;
+        const pCoord = { latitude: pLat, longitude: pLng };
+        setPickupCoord(pCoord);
+
+        if (destination?.coordinates?.length === 2) {
+          const [dLng, dLat] = destination.coordinates;
+          setDropoffCoord({ latitude: dLat, longitude: dLng });
+        }
+
+        const quickDist = haversineDistance(driverLoc, pCoord);
+        setDistKm(quickDist.toFixed(1));
+        setEtaMin(estTimeMinutes(quickDist));
+
+        setInitializing(false);
+
+        sendNotification(
+          "📍 Navigate to Pickup",
+          `Pick up ${passengerName} from ${pickupAddress}`,
+          { tripId },
+        );
+      } catch (e) {
+        Alert.alert(
+          "Error",
+          e.message || "Failed to initialize. Please go back.",
+          [{ text: "OK", onPress: () => navigation.goBack() }],
+        );
+        setInitializing(false);
+      }
+    })();
+
+    return () => {
+      locationSubRef.current?.remove();
+    };
   }, []);
 
+  // ── Start location tracking ────────────────────────────────────────────────
+  useEffect(() => {
+    if (initializing || !pickupCoord) return;
+
+    let sub = null;
+    (async () => {
+      try {
+        sub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            timeInterval: 6000,
+            distanceInterval: 15,
+          },
+          (pos) => {
+            if (!pos) return;
+            const loc = {
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+            };
+            setDriverLocation(loc);
+
+            const target = tripPhase === "pickup" ? pickupCoord : dropoffCoord;
+            if (!target) return;
+
+            const d = haversineDistance(loc, target);
+            setDistKm(d.toFixed(1));
+            setEtaMin(estTimeMinutes(d));
+
+            const now = Date.now();
+            if (now - lastNotifTime > 30000) {
+              fetchRoute(loc, target);
+              if (d < 0.1) {
+                sendNotification(
+                  tripPhase === "pickup"
+                    ? "📍 Arrived at Pickup"
+                    : "🏁 Arrived at Destination",
+                  tripPhase === "pickup"
+                    ? "You have arrived at pickup"
+                    : "You have arrived at destination",
+                  { tripId },
+                );
+                setLastNotifTime(now);
+              } else if (d < 0.5) {
+                sendNotification(
+                  tripPhase === "pickup"
+                    ? "🚗 Approaching Pickup"
+                    : "🏁 Approaching Destination",
+                  `${d.toFixed(1)} km away`,
+                  { tripId },
+                );
+                setLastNotifTime(now);
+              }
+            }
+          },
+        );
+        locationSubRef.current = sub;
+      } catch {}
+    })();
+
+    return () => {
+      sub?.remove();
+    };
+  }, [initializing, pickupCoord, tripPhase]);
+
+  // ── Poll trip status ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!tripId || !tripValid) return;
 
-    const pollTripStatus = async () => {
+    const poll = async () => {
       try {
         const token = await getAuthToken();
         if (!token) return;
-
-        const response = await fetch(`${baseUrl}/trips/${tripId}`, {
+        const res = await fetch(`${baseUrl}/trips/${tripId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.trip) {
-            const status = data.trip.status;
-            const oldStatus = tripStatus;
-            setTripStatus(status);
-
-            // Send notification on status changes
-            if (status !== oldStatus) {
-              let notificationTitle = '';
-              let notificationBody = '';
-              
-              switch (status) {
-                case 'started':
-                  notificationTitle = '🚗 Trip Started';
-                  notificationBody = 'You have started the trip. Head to destination.';
-                  break;
-                case 'in_progress':
-                  notificationTitle = '📍 Trip In Progress';
-                  notificationBody = 'You are now on the way to destination.';
-                  break;
-                case 'cancelled':
-                  notificationTitle = '❌ Trip Cancelled';
-                  notificationBody = 'This trip has been cancelled.';
-                  break;
-                case 'completed':
-                  notificationTitle = '✅ Trip Completed';
-                  notificationBody = 'Trip completed successfully!';
-                  break;
-              }
-              
-              if (notificationTitle) {
-                sendNotification(notificationTitle, notificationBody, { tripId, status });
-              }
-            }
-
-            if (status === 'started' || status === 'in_progress') {
-              setTripPhase('in_progress');
-            }
-
-            if (status === 'cancelled' || status === 'completed') {
-              Alert.alert(
-                'Trip Ended',
-                status === 'cancelled' ? 'This trip has been cancelled.' : 'Trip completed successfully!',
-                [{ 
-                  text: 'OK', 
-                  onPress: () => {
-                    setTripValid(false);
-                    navigation.reset({
-                      index: 0,
-                      routes: [{ name: 'DriverOnlineMap' }],
-                    });
-                  }
-                }]
-              );
-              setTripValid(false);
-            }
+        if (!res.ok) {
+          if (res.status === 404) {
+            setTripValid(false);
+            Alert.alert("Trip Not Found", "This trip is no longer available.", [
+              {
+                text: "OK",
+                onPress: () => navigation.navigate("DriverOnlineMap"),
+              },
+            ]);
           }
-        } else if (response.status === 404) {
-          Alert.alert(
-            'Trip Not Found',
-            'This trip is no longer available.',
-            [{ 
-              text: 'OK', 
-              onPress: () => {
-                setTripValid(false);
-                navigation.navigate('DriverOnlineMap');
-              }
-            }]
-          );
-          setTripValid(false);
+          return;
         }
-      } catch (error) {
-        console.warn('Trip status polling error:', error.message);
-      }
+        const data = await res.json();
+        if (!data.trip) return;
+
+        const status = data.trip.status;
+        setTripStatus(status);
+
+        // ✅ FIX: VALID now includes "free_ride" so the polled payment
+        // method is never silently dropped back to "cash".
+        if (
+          data.trip.paymentMethod &&
+          VALID.includes(data.trip.paymentMethod)
+        ) {
+          setPaymentMethod(data.trip.paymentMethod);
+        }
+
+        if (status === "started" || status === "in_progress")
+          setTripPhase("in_progress");
+
+        if (status === "cancelled" || status === "completed") {
+          setTripValid(false);
+          Alert.alert(
+            "Trip Ended",
+            status === "cancelled"
+              ? "This trip was cancelled."
+              : "Trip completed!",
+            [
+              {
+                text: "OK",
+                onPress: () =>
+                  navigation.reset({
+                    index: 0,
+                    routes: [{ name: "DriverOnlineMap" }],
+                  }),
+              },
+            ],
+          );
+        }
+      } catch {}
     };
 
-    pollTripStatus();
-    const intervalId = setInterval(pollTripStatus, 10000);
-    return () => clearInterval(intervalId);
+    poll();
+    const iv = setInterval(poll, 10000);
+    return () => clearInterval(iv);
   }, [tripId, tripValid]);
 
-  useEffect(() => {
-    initializeScreen();
-  }, []);
-
-  useEffect(() => {
-    if (driverLocation && tripPhase === 'in_progress' && dropoffCoord) {
-      fetchRoute(driverLocation, dropoffCoord);
-      updateMapRegion(driverLocation, dropoffCoord);
-    } else if (driverLocation && tripPhase === 'pickup' && pickupCoord) {
+  // ── Map ready → fetch route ────────────────────────────────────────────────
+  const handleMapReady = useCallback(() => {
+    setIsMapReady(true);
+    if (driverLocation && pickupCoord) {
       fetchRoute(driverLocation, pickupCoord);
-      updateMapRegion(driverLocation, pickupCoord);
     }
-  }, [tripPhase]);
+  }, [driverLocation, pickupCoord, fetchRoute]);
 
-  const initializeScreen = async () => {
-    try {
-      if (!pickup?.coordinates) {
-        throw new Error('Invalid pickup location data');
-      }
-
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert(
-          'Location Permission Required',
-          'This app needs location access to navigate.',
-          [{ text: 'OK', onPress: () => navigation.goBack() }]
-        );
-        return;
-      }
-
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.BestForNavigation,
-        timeout: 10000,
-      });
-
-      const driverLoc = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-      };
-      setDriverLocation(driverLoc);
-
-      const [pickupLng, pickupLat] = pickup.coordinates;
-      const pickupCoordinate = { latitude: pickupLat, longitude: pickupLng };
-      setPickupCoord(pickupCoordinate);
-
-      if (destination?.coordinates?.length === 2) {
-        const [dropoffLng, dropoffLat] = destination.coordinates;
-        const dropoffCoordinate = { latitude: dropoffLat, longitude: dropoffLng };
-        setDropoffCoord(dropoffCoordinate);
-      }
-
-      const targetCoord = tripPhase === 'pickup' ? pickupCoordinate : dropoffCoord;
-      if (targetCoord) {
-        const distance = calculateDistance(driverLoc, targetCoord);
-        const time = calculateTime(driverLoc, targetCoord);
-        setDistanceToTarget(distance);
-        setTimeToTarget(time);
-        await fetchRoute(driverLoc, targetCoord);
-        updateMapRegion(driverLoc, targetCoord);
-        
-        // Send notification for navigation
-        sendNotification(
-          '📍 Navigate to Pickup',
-          `Pickup ${passengerName} from ${pickupAddress}`,
-          { tripId, passengerName, action: 'navigate_to_pickup' }
-        );
-      } else {
-        updateMapRegion(driverLoc, pickupCoordinate);
-      }
-
-      startLocationTracking();
-      setInitializing(false);
-    } catch (error) {
-      console.error('❌ Initialize error:', error);
-      Alert.alert(
-        'Initialization Error',
-        error.message || 'Failed to initialize navigation.',
-        [{ text: 'OK', onPress: () => navigation.goBack() }]
-      );
-      setInitializing(false);
-    }
-  };
-
-  const updateMapRegion = (from, to) => {
-    try {
-      const centerLat = (from.latitude + to.latitude) / 2;
-      const centerLng = (from.longitude + to.longitude) / 2;
-      const latDelta = Math.abs(from.latitude - to.latitude) * 1.8 + 0.01;
-      const lngDelta = Math.abs(from.longitude - to.longitude) * 1.8 + 0.01;
-      
-      const newRegion = {
-        latitude: centerLat,
-        longitude: centerLng,
-        latitudeDelta: Math.max(latDelta, 0.05),
-        longitudeDelta: Math.max(lngDelta, 0.05 * (width / height)),
-      };
-      
-      setRegion(newRegion);
-      if (mapRef.current) {
-        mapRef.current.animateToRegion(newRegion, 1000);
-      }
-    } catch (error) {
-      console.error('Map region update error:', error);
-    }
-  };
-
-  const fetchRoute = async (from, to) => {
-    if (!from || !to) return;
-
-    try {
-      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${from.latitude},${from.longitude}&destination=${to.latitude},${to.longitude}&mode=driving`;
-      const response = await fetch(url);
-      const data = await response.json();
-
-      if (data.routes?.[0]) {
-        const points = data.routes[0].overview_polyline.points;
-        const decoded = decodePolyline(points);
-        setRouteCoordinates(decoded);
-      } else {
-        setRouteCoordinates([from, to]);
-      }
-    } catch (error) {
-      console.error('Route fetching error:', error);
-      setRouteCoordinates([from, to]);
-    }
-  };
-
-  const decodePolyline = (encoded) => {
-    try {
-      let points = [];
-      let index = 0, len = encoded.length;
-      let lat = 0, lng = 0;
-
-      while (index < len) {
-        let b, shift = 0, result = 0;
-        do {
-          b = encoded.charCodeAt(index++) - 63;
-          result |= (b & 0x1f) << shift;
-          shift += 5;
-        } while (b >= 0x20);
-        let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
-        lat += dlat;
-
-        shift = 0;
-        result = 0;
-        do {
-          b = encoded.charCodeAt(index++) - 63;
-          result |= (b & 0x1f) << shift;
-          shift += 5;
-        } while (b >= 0x20);
-        let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
-        lng += dlng;
-
-        points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
-      }
-      return points;
-    } catch (error) {
-      console.error('Polyline decode error:', error);
-      return [];
-    }
-  };
-
-  const startLocationTracking = async () => {
-    try {
-      await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 5000,
-          distanceInterval: 10,
-        },
-        (position) => {
-          if (!position) return;
-          
-          const newLocation = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          };
-          
-          setDriverLocation(newLocation);
-          
-          const targetCoord = tripPhase === 'pickup' ? pickupCoord : dropoffCoord;
-          if (targetCoord) {
-            const distance = calculateDistance(newLocation, targetCoord);
-            const time = calculateTime(newLocation, targetCoord);
-            setDistanceToTarget(distance);
-            setTimeToTarget(time);
-            
-            // Send proximity notifications
-            const now = Date.now();
-            if (now - lastNotificationTime > 30000) { // Every 30 seconds
-              if (distance < 0.5) { // 500 meters
-                if (tripPhase === 'pickup') {
-                  sendNotification(
-                    '🚗 Approaching Pickup',
-                    `You're close to pickup location. ${distanceToTarget} km away`,
-                    { tripId, action: 'near_pickup' }
-                  );
-                } else {
-                  sendNotification(
-                    '🏁 Approaching Destination',
-                    `You're close to destination. ${distanceToTarget} km to go`,
-                    { tripId, action: 'near_destination' }
-                  );
-                }
-                setLastNotificationTime(now);
-              } else if (distance < 0.1) { // 100 meters
-                if (tripPhase === 'pickup') {
-                  sendNotification(
-                    '📍 Arrived at Pickup',
-                    'You have arrived at the pickup location',
-                    { tripId, action: 'arrived_pickup' }
-                  );
-                } else {
-                  sendNotification(
-                    '🏁 Arrived at Destination',
-                    'You have arrived at the destination',
-                    { tripId, action: 'arrived_destination' }
-                  );
-                }
-                setLastNotificationTime(now);
-              }
-            }
-          }
-        }
-      );
-    } catch (error) {
-      console.error('Location tracking error:', error);
-    }
-  };
-
-  const openNavigation = () => {
-    const targetCoord = tripPhase === 'pickup' ? pickupCoord : dropoffCoord;
-    
-    if (!targetCoord) {
-      Alert.alert('Error', 'Destination not available');
+  // ── Actions ────────────────────────────────────────────────────────────────
+  const openNavigation = useCallback(() => {
+    const target = tripPhase === "pickup" ? pickupCoord : dropoffCoord;
+    if (!target) {
+      Alert.alert("Error", "Destination not available");
       return;
     }
-    
-    // Send notification for navigation
-    sendNotification(
-      '🗺️ Navigation Started',
-      `Opening ${Platform.OS === 'ios' ? 'Apple Maps' : 'Google Maps'} for navigation`,
-      { tripId, action: 'navigation_started' }
-    );
-    
     const url = Platform.select({
-      ios: `http://maps.apple.com/?daddr=${targetCoord.latitude},${targetCoord.longitude}&dirflg=d`,
-      android: `https://www.google.com/maps/dir/?api=1&destination=${targetCoord.latitude},${targetCoord.longitude}&travelmode=driving`,
+      ios: `http://maps.apple.com/?daddr=${target.latitude},${target.longitude}&dirflg=d`,
+      android: `https://www.google.com/maps/dir/?api=1&destination=${target.latitude},${target.longitude}&travelmode=driving`,
     });
-    
-    Linking.openURL(url).catch((err) => {
-      console.error('Failed to open navigation:', err);
-      Alert.alert('Error', 'Cannot open navigation app.');
-    });
-  };
-
-  const makePhoneCall = () => {
-    if (!passengerPhone) {
-      Alert.alert('Error', 'Passenger phone number not available');
-      return;
-    }
-    
-    const phoneNumber = passengerPhone.replace(/\D/g, '');
-    if (phoneNumber.length < 10) {
-      Alert.alert('Error', 'Invalid phone number format');
-      return;
-    }
-    
-    // Send notification for call
-    sendNotification(
-      '📞 Calling Passenger',
-      `Calling ${passengerName} at ${passengerPhone}`,
-      { tripId, passengerName, action: 'calling_passenger' }
+    Linking.openURL(url).catch(() =>
+      Alert.alert("Error", "Cannot open navigation app."),
     );
-    
-    Linking.openURL(`tel:${phoneNumber}`).catch((err) => {
-      console.error('Failed to make call:', err);
-      Alert.alert('Error', 'Cannot make phone call.');
-    });
-  };
+  }, [tripPhase, pickupCoord, dropoffCoord]);
 
-  const startTrip = async () => {
-    if (!tripId || !tripValid) {
-      Alert.alert('Error', 'This trip is no longer available.');
+  const makePhoneCall = useCallback(() => {
+    if (!passengerPhone) {
+      Alert.alert("No Number", "Passenger phone number not available");
       return;
     }
+    const num = passengerPhone.replace(/\D/g, "");
+    if (num.length < 7) {
+      Alert.alert("Invalid", "Invalid phone number format");
+      return;
+    }
+    Linking.openURL(`tel:${num}`).catch(() =>
+      Alert.alert("Error", "Cannot make phone call."),
+    );
+  }, [passengerPhone]);
 
+  const startTrip = useCallback(async () => {
+    if (!tripId || !tripValid) {
+      Alert.alert("Error", "Trip no longer available.");
+      return;
+    }
     setLoading(true);
-
     try {
       const token = await getAuthToken();
-      if (!token) throw new Error('Authentication token not available');
-
-      const response = await fetch(`${baseUrl}/trips/${tripId}/start`, {
-        method: 'POST',
+      if (!token) throw new Error("Authentication error");
+      const res = await fetch(`${baseUrl}/trips/${tripId}/start`, {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
       });
 
-      if (response.ok) {
-        setTripPhase('in_progress');
-        setTripStatus('started');
-        
-        // Send notification for trip start
-        sendNotification(
-          '🚗 Trip Started',
-          'You have started the trip. Navigate to the destination.',
-          { tripId, action: 'trip_started' }
-        );
-        
+      if (res.ok) {
+        setTripPhase("in_progress");
+        setTripStatus("started");
+        sendNotification("🚗 Trip Started", "Navigate to the destination.", {
+          tripId,
+        });
         if (dropoffCoord && driverLocation) {
-          await fetchRoute(driverLocation, dropoffCoord);
-          updateMapRegion(driverLocation, dropoffCoord);
+          fetchRoute(driverLocation, dropoffCoord);
         }
-        
-        Alert.alert('Trip Started', 'You have started the trip. Navigate to the destination.', [{ text: 'OK' }]);
       } else {
-        const errorText = await response.text();
-        Alert.alert('Start Failed', 'Failed to start trip. Please try again.');
+        const data = await res.json().catch(() => ({}));
+        Alert.alert(
+          "Failed",
+          data.error?.message || "Could not start trip. Please try again.",
+        );
       }
-    } catch (error) {
-      console.error('❌ Start trip error:', error);
-      Alert.alert('Network Error', 'Failed to start trip. Please check your connection.');
+    } catch {
+      Alert.alert(
+        "Network Error",
+        "Failed to start trip. Check your connection.",
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    tripId,
+    tripValid,
+    dropoffCoord,
+    driverLocation,
+    fetchRoute,
+    sendNotification,
+  ]);
 
-  const finishTrip = () => {
+  const finishTrip = useCallback(() => {
     if (!tripId || !tripValid) {
-      Alert.alert('Error', 'This trip is no longer available.');
+      Alert.alert("Error", "Trip no longer available.");
       return;
     }
-
-    // Send notification for trip completion request
-    sendNotification(
-      '💰 Complete Trip',
-      `Confirm cash received from ${passengerName}`,
-      { tripId, passengerName, action: 'complete_trip_request' }
-    );
-    
     setShowCompleteModal(true);
-  };
+  }, [tripId, tripValid]);
 
-  const completeTrip = async () => {
-    if (completingTrip) return;
-    
-    if (!tripId || !tripValid) {
-      Alert.alert('Error', 'This trip is no longer available.');
-      return;
-    }
-
+  const completeTrip = useCallback(async () => {
+    if (completingTrip || !tripId || !tripValid) return;
     setCompletingTrip(true);
-
     try {
       const token = await getAuthToken();
-      if (!token) throw new Error('Authentication token not available');
-
-      // SIMPLIFIED: Send only trip ID, no pricing data
-      const response = await fetch(`${baseUrl}/trips/${tripId}/complete`, {
-        method: 'POST',
+      if (!token) throw new Error("Authentication error");
+      const res = await fetch(`${baseUrl}/trips/${tripId}/complete`, {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ cashReceived: true })
       });
 
-      const responseText = await response.text();
-      let responseData;
-      
+      let data;
       try {
-        responseData = JSON.parse(responseText);
+        data = await res.json();
       } catch {
-        throw new Error('Invalid server response');
+        throw new Error("Invalid server response");
       }
 
-      if (response.ok && responseData.success !== false) {
+      if (res.ok && data.success !== false) {
+        const payment = data.payment || {};
+        const resolvedMethod = payment.method || paymentMethod;
+        const resolvedIsFreeRide =
+          resolvedMethod === "free_ride" ||
+          resolvedMethod === "free_ride_pending";
+        const resolvedIsWallet = resolvedMethod === "wallet";
+        const resolvedFare = payment.fareNaira || Number(fare) || 0;
+        const driverMessage =
+          payment.driverMessage ||
+          (resolvedIsFreeRide
+            ? `🎁 Kilometre Club ride! ₦${resolvedFare.toLocaleString()} has been credited to your wallet by the platform. Do NOT collect cash.`
+            : resolvedIsWallet
+              ? `₦${resolvedFare.toLocaleString()} has been credited to your wallet.`
+              : `Collect ₦${resolvedFare.toLocaleString()} in cash from the passenger.`);
+
+        setCompletionResult({
+          resolvedMethod,
+          resolvedIsFreeRide,
+          resolvedIsWallet,
+          resolvedFare,
+          driverMessage,
+          driverWallet: payment.driverWallet || null,
+        });
         setShowCompleteModal(false);
         setTripValid(false);
-        
-        // Send success notification
         sendNotification(
-          '✅ Trip Completed!',
-          `Trip with ${passengerName} completed successfully. ₦${Number(fare).toLocaleString()} cash received.`,
-          { tripId, passengerName, fare, action: 'trip_completed' }
+          resolvedIsFreeRide
+            ? "🎁 Kilometre Club Ride Complete!"
+            : "✅ Trip Completed",
+          `Fare: ₦${resolvedFare.toLocaleString()}`,
+          { tripId },
         );
-        
-        Alert.alert(
-          '✅ Trip Completed Successfully!',
-          `Trip has been completed. Cash received: ₦${Number(fare).toLocaleString()}`,
-          [
-            { 
-              text: 'Return to Map', 
-              onPress: () => {
-                navigation.reset({
-                  index: 0,
-                  routes: [{ name: 'DriverOnlineMap' }],
-                });
-              }
-            }
-          ],
-          { cancelable: false }
-        );
-        
       } else {
-        console.error('❌ Trip completion failed:', responseData);
-        
-        // Send error notification
-        sendNotification(
-          '❌ Trip Completion Failed',
-          'Failed to complete trip. Please try again.',
-          { tripId, action: 'completion_failed' }
-        );
-        
-        if (response.status === 400 && responseData.error?.code === 'TRIP_ALREADY_ENDED') {
-          Alert.alert(
-            'Trip Already Completed',
-            'This trip has already been completed or cancelled.',
-            [{ 
-              text: 'OK', 
-              onPress: () => {
-                setTripValid(false);
-                setShowCompleteModal(false);
+        const code = data?.error?.code;
+        const msg = data?.error?.message || "Failed to complete trip.";
+        if (code === "TRIP_ALREADY_ENDED") {
+          setTripValid(false);
+          setShowCompleteModal(false);
+          Alert.alert("Already Completed", "This trip has already ended.", [
+            {
+              text: "OK",
+              onPress: () =>
                 navigation.reset({
                   index: 0,
-                  routes: [{ name: 'DriverOnlineMap' }],
-                });
-              }
-            }]
-          );
-        } else if (response.status === 404) {
-          Alert.alert(
-            'Trip Not Found',
-            'This trip no longer exists in the system.',
-            [{ 
-              text: 'OK', 
-              onPress: () => {
-                setTripValid(false);
-                setShowCompleteModal(false);
-                navigation.navigate('DriverOnlineMap');
-              }
-            }]
-          );
+                  routes: [{ name: "DriverOnlineMap" }],
+                }),
+            },
+          ]);
         } else {
-          Alert.alert(
-            'Completion Failed',
-            responseData.error?.message || 'Failed to complete trip. Please try again.',
-            [{ text: 'OK' }]
-          );
+          Alert.alert("Completion Failed", msg, [{ text: "OK" }]);
         }
       }
-    } catch (error) {
-      console.error('❌ Complete trip error:', error);
-      
-      // Send network error notification
-      sendNotification(
-        '⚠️ Network Error',
-        'Unable to connect to server. Please check your internet.',
-        { tripId, action: 'network_error' }
-      );
-      
-      if (error.message.includes('Network') || error.message.includes('Failed to fetch')) {
-        Alert.alert(
-          'Network Error',
-          'Unable to connect to the server. Please check your internet connection.',
-          [
-            { text: 'Cancel', style: 'cancel', onPress: () => setShowCompleteModal(false) },
-            { text: 'Retry', onPress: () => {
+    } catch (e) {
+      if (e.message.includes("Network") || e.message.includes("fetch")) {
+        Alert.alert("Network Error", "Cannot connect to server.", [
+          {
+            text: "Cancel",
+            style: "cancel",
+            onPress: () => setShowCompleteModal(false),
+          },
+          {
+            text: "Retry",
+            onPress: () => {
               setCompletingTrip(false);
-              setTimeout(() => completeTrip(), 1000);
-            }}
-          ]
-        );
+              setTimeout(completeTrip, 1000);
+            },
+          },
+        ]);
       } else {
-        Alert.alert('Error', error.message || 'Failed to complete trip');
+        Alert.alert("Error", e.message);
       }
     } finally {
       setCompletingTrip(false);
     }
-  };
+  }, [
+    completingTrip,
+    tripId,
+    tripValid,
+    paymentMethod,
+    fare,
+    sendNotification,
+    navigation,
+  ]);
 
-  const cancelTrip = async () => {
-    if (!tripId || !tripValid) {
-      Alert.alert('Error', 'This trip is no longer available.');
-      return;
-    }
-
-    Alert.alert(
-      'Cancel Trip',
-      'Are you sure you want to cancel this trip?',
-      [
-        { text: 'No, Keep Trip', style: 'cancel' },
-        {
-          text: 'Yes, Cancel',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const token = await getAuthToken();
-              if (!token) {
-                Alert.alert('Error', 'Authentication error.');
-                return;
-              }
-
-              // Send cancellation notification
-              sendNotification(
-                '❌ Trip Cancelled',
-                `Trip with ${passengerName} has been cancelled`,
-                { tripId, passengerName, action: 'trip_cancelled' }
-              );
-
-              const response = await fetch(`${baseUrl}/trips/${tripId}/cancel`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({ reason: 'driver_cancelled' }),
+  const cancelTrip = useCallback(() => {
+    if (!tripId || !tripValid) return;
+    Alert.alert("Cancel Trip", "Are you sure you want to cancel?", [
+      { text: "Keep Trip", style: "cancel" },
+      {
+        text: "Cancel Trip",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            const token = await getAuthToken();
+            if (!token) return;
+            const res = await fetch(`${baseUrl}/trips/${tripId}/cancel`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ reason: "driver_cancelled" }),
+            });
+            if (res.ok) {
+              setTripValid(false);
+              navigation.reset({
+                index: 0,
+                routes: [{ name: "DriverOnlineMap" }],
               });
-
-              if (response.ok) {
-                Alert.alert(
-                  'Trip Cancelled',
-                  'The trip has been cancelled successfully.',
-                  [{ 
-                    text: 'OK', 
-                    onPress: () => {
-                      setTripValid(false);
-                      navigation.reset({
-                        index: 0,
-                        routes: [{ name: 'DriverOnlineMap' }],
-                      });
-                    }
-                  }]
-                );
-              } else {
-                Alert.alert('Error', 'Failed to cancel trip.');
-              }
-            } catch (error) {
-              console.error('Cancel trip error:', error);
-              Alert.alert('Network Error', 'Failed to cancel trip.');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleBackPress = () => {
-    Alert.alert(
-      'Leave Trip Screen',
-      'What would you like to do?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'End Trip', 
-          style: 'destructive',
-          onPress: () => {
-            if (tripPhase === 'in_progress') {
-              finishTrip();
             } else {
-              cancelTrip();
+              Alert.alert("Error", "Failed to cancel trip.");
             }
+          } catch {
+            Alert.alert("Error", "Network error.");
           }
         },
-        { 
-          text: 'Just Leave', 
-          onPress: () => navigation.navigate('DriverOnlineMap')
-        }
-      ]
-    );
-    return true;
-  };
+      },
+    ]);
+  }, [tripId, tripValid, navigation]);
 
-  const calculateDistance = (coord1, coord2) => {
-    try {
-      const R = 6371;
-      const dLat = (coord2.latitude - coord1.latitude) * Math.PI / 180;
-      const dLon = (coord2.longitude - coord1.longitude) * Math.PI / 180;
-      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(coord1.latitude * Math.PI / 180) * 
-                Math.cos(coord2.latitude * Math.PI / 180) * 
-                Math.sin(dLon/2) * Math.sin(dLon/2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-      const distance = R * c;
-      return distance.toFixed(1);
-    } catch (error) {
-      console.error('Distance calculation error:', error);
-      return '0.0';
-    }
-  };
+  const handleBackPress = useCallback(() => {
+    Alert.alert("Leave Trip?", "What would you like to do?", [
+      { text: "Stay", style: "cancel" },
+      {
+        text: tripPhase === "in_progress" ? "End Trip" : "Cancel Trip",
+        style: "destructive",
+        onPress: () =>
+          tripPhase === "in_progress" ? finishTrip() : cancelTrip(),
+      },
+      {
+        text: "Just Leave",
+        onPress: () => navigation.navigate("DriverOnlineMap"),
+      },
+    ]);
+  }, [tripPhase, finishTrip, cancelTrip, navigation]);
 
-  const calculateTime = (coord1, coord2) => {
-    try {
-      const distance = parseFloat(calculateDistance(coord1, coord2));
-      const averageSpeed = 40;
-      const timeInHours = distance / averageSpeed;
-      const timeInMinutes = timeInHours * 60;
-      return Math.max(Math.ceil(timeInMinutes), 1);
-    } catch (error) {
-      console.error('Time calculation error:', error);
-      return 1;
-    }
-  };
+  const cardTranslateY = cardAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [300, 0],
+  });
 
-  if (initializing || !region || !driverLocation) {
+  // ─────────────────────────────────────────────────────────────────────────
+  // LOADING
+  // ─────────────────────────────────────────────────────────────────────────
+  if (initializing) {
     return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
-          <Text style={styles.loadingText}>Loading navigation...</Text>
+      <View style={s.loadingScreen}>
+        <StatusBar
+          barStyle="dark-content"
+          backgroundColor="transparent"
+          translucent
+        />
+        <View style={s.loadingCard}>
+          <View style={s.loadingIconWrap}>
+            <Ionicons name="navigate" size={36} color="#1A1A1A" />
+          </View>
+          <ActivityIndicator
+            size="large"
+            color="#1A1A1A"
+            style={{ marginTop: 20 }}
+          />
+          <Text style={s.loadingTitle}>Loading navigation…</Text>
+          <Text style={s.loadingSubtitle}>Acquiring your location</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        
-        <Text style={styles.headerTitle}>
-          {tripPhase === 'pickup' ? 'Pickup Passenger' : 'Trip in Progress'}
-        </Text>
-        
-        <View style={styles.headerRight}>
-          <View style={[styles.statusBadge, tripPhase === 'in_progress' && styles.statusBadgeActive]}>
-            <Text style={[styles.statusBadgeText, tripPhase === 'in_progress' && styles.statusBadgeTextActive]}>
-              {tripPhase === 'pickup' ? 'To Pickup' : 'In Progress'}
+  // ─────────────────────────────────────────────────────────────────────────
+  // COMPLETION RESULT SCREEN
+  // ─────────────────────────────────────────────────────────────────────────
+  if (completionResult) {
+    const {
+      resolvedIsFreeRide,
+      resolvedIsWallet,
+      resolvedFare,
+      driverMessage,
+      driverWallet,
+      resolvedMethod,
+    } = completionResult;
+
+    // ✅ FIX: Free ride uses purple theme matching Kilometre Club branding.
+    // Wallet uses green. Cash uses dark.
+    const iconColor = resolvedIsFreeRide
+      ? "#7C3AED"
+      : resolvedIsWallet
+        ? "#10B981"
+        : "#1A1A1A";
+    const iconBg = resolvedIsFreeRide
+      ? "#F5F3FF"
+      : resolvedIsWallet
+        ? "#ECFDF5"
+        : "#F5F5F0";
+    const iconName = resolvedIsFreeRide
+      ? "gift"
+      : resolvedIsWallet
+        ? "wallet"
+        : "cash";
+
+    return (
+      <View style={s.completionScreen}>
+        <StatusBar
+          barStyle="dark-content"
+          backgroundColor="transparent"
+          translucent
+        />
+
+        <View
+          style={[
+            s.completionCheck,
+            { backgroundColor: resolvedIsFreeRide ? "#7C3AED" : "#1A1A1A" },
+          ]}
+        >
+          <Ionicons name="checkmark" size={40} color="#fff" />
+        </View>
+
+        <Text style={s.completionLabel}>TRIP COMPLETE</Text>
+        <Text style={s.completionFare}>₦{resolvedFare.toLocaleString()}</Text>
+
+        <View style={[s.completionBadge, { backgroundColor: iconBg }]}>
+          <Ionicons name={iconName} size={15} color={iconColor} />
+          <Text style={[s.completionBadgeText, { color: iconColor }]}>
+            {resolvedIsFreeRide
+              ? "Kilometre Club 🎁"
+              : resolvedIsWallet
+                ? "Wallet Payment"
+                : "Cash Payment"}
+          </Text>
+        </View>
+
+        <View style={[s.completionMsgCard, { borderLeftColor: iconColor }]}>
+          <Ionicons name={iconName} size={22} color={iconColor} />
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={s.completionMsgTitle}>
+              {resolvedIsFreeRide
+                ? "Do NOT collect cash!"
+                : resolvedIsWallet
+                  ? "No cash needed!"
+                  : "Collect cash from passenger"}
             </Text>
+            <Text style={s.completionMsgBody}>{driverMessage}</Text>
+            {(resolvedIsWallet || resolvedIsFreeRide) && driverWallet && (
+              <Text style={[s.completionMsgBalance, { color: iconColor }]}>
+                New balance: {driverWallet.balanceFormatted}
+              </Text>
+            )}
           </View>
         </View>
-      </View>
 
-      <View style={styles.mapContainer}>
-        <MapView
-          ref={mapRef}
-          provider={PROVIDER_GOOGLE}
-          style={styles.map}
-          region={region}
-          showsUserLocation={true}
-          showsTraffic={true}
+        <TouchableOpacity
+          style={[
+            s.doneBtnLarge,
+            {
+              backgroundColor: resolvedIsFreeRide ? "#7C3AED" : "#1A1A1A",
+            },
+          ]}
+          onPress={() =>
+            navigation.reset({
+              index: 0,
+              routes: [{ name: "DriverOnlineMap" }],
+            })
+          }
+          activeOpacity={0.88}
         >
-          {driverLocation && (
-            <Marker coordinate={driverLocation} title="Your Location" description="Driver">
-              <View style={styles.driverMarker}>
-                <Ionicons name="car-sport" size={24} color="#007AFF" />
-              </View>
-            </Marker>
-          )}
+          <Ionicons name="home" size={20} color="#fff" />
+          <Text style={s.doneBtnLargeText}>Back to Dashboard</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
-          {pickupCoord && tripPhase === 'pickup' && (
-            <Marker coordinate={pickupCoord} title="Pickup Location" description={pickupAddress}>
-              <View style={styles.pickupMarker}>
-                <View style={styles.pickupPin}>
-                  <Ionicons name="person" size={14} color="#FFFFFF" />
-                </View>
-              </View>
-            </Marker>
-          )}
+  // ─────────────────────────────────────────────────────────────────────────
+  // ACTIVE TRIP VIEW
+  // ─────────────────────────────────────────────────────────────────────────
+  return (
+    <View style={s.container}>
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="transparent"
+        translucent
+      />
 
-          {dropoffCoord && tripPhase === 'in_progress' && (
-            <Marker coordinate={dropoffCoord} title="Destination" description={destinationAddress}>
-              <View style={styles.destinationMarker}>
-                <View style={styles.destinationPin}>
-                  <Ionicons name="flag" size={14} color="#FFFFFF" />
-                </View>
-              </View>
-            </Marker>
-          )}
+      {/* ── MAP ── */}
+      <MapView
+        ref={mapRef}
+        provider={PROVIDER_GOOGLE}
+        style={s.map}
+        customMapStyle={MAP_STYLE}
+        showsUserLocation={false}
+        showsMyLocationButton={false}
+        showsCompass={false}
+        showsTraffic={false}
+        onMapReady={handleMapReady}
+        initialRegion={
+          driverLocation
+            ? {
+                ...driverLocation,
+                latitudeDelta: 0.012,
+                longitudeDelta: 0.012 * ASPECT_RATIO,
+              }
+            : {
+                latitude: 9.0765,
+                longitude: 7.3986,
+                latitudeDelta: 0.05,
+                longitudeDelta: 0.05,
+              }
+        }
+      >
+        {driverLocation && (
+          <Marker coordinate={driverLocation} anchor={{ x: 0.5, y: 0.5 }}>
+            <View style={s.driverPin}>
+              <Ionicons name="car-sport" size={20} color="#fff" />
+            </View>
+          </Marker>
+        )}
 
-          {routeCoordinates.length > 0 && (
+        {pickupCoord && (
+          <Marker coordinate={pickupCoord} anchor={{ x: 0.5, y: 1 }}>
+            <View style={s.pickupPinWrap}>
+              <View style={s.pickupPin}>
+                <Ionicons name="person" size={14} color="#fff" />
+              </View>
+              <View style={s.pinTailGreen} />
+            </View>
+          </Marker>
+        )}
+
+        {dropoffCoord && (
+          <Marker coordinate={dropoffCoord} anchor={{ x: 0.5, y: 1 }}>
+            <View style={s.dropoffPinWrap}>
+              <View style={s.dropoffPin}>
+                <Ionicons name="flag" size={14} color="#fff" />
+              </View>
+              <View style={s.pinTailRed} />
+            </View>
+          </Marker>
+        )}
+
+        {routeCoords.length > 1 && (
+          <>
             <Polyline
-              coordinates={routeCoordinates}
-              strokeColor={tripPhase === 'pickup' ? '#007AFF' : '#34C759'}
+              coordinates={routeCoords}
+              strokeColor="rgba(0,0,0,0.08)"
+              strokeWidth={10}
+            />
+            <Polyline
+              coordinates={routeCoords}
+              strokeColor={tripPhase === "pickup" ? "#10B981" : "#1A1A1A"}
               strokeWidth={5}
             />
-          )}
-        </MapView>
+          </>
+        )}
+      </MapView>
+
+      {/* ── TOP BAR ── */}
+      <View style={s.topBar}>
+        <TouchableOpacity
+          style={s.iconBtn}
+          onPress={handleBackPress}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="arrow-back" size={20} color="#1A1A1A" />
+        </TouchableOpacity>
+
+        <View style={s.topCenter}>
+          <View
+            style={[
+              s.topStatusDot,
+              {
+                backgroundColor: tripPhase === "pickup" ? "#10B981" : "#1A1A1A",
+              },
+            ]}
+          />
+          <Text style={s.topCenterText}>
+            {tripPhase === "pickup" ? "To Pickup" : "In Progress"}
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          style={s.iconBtn}
+          onPress={() => {
+            const target = tripPhase === "pickup" ? pickupCoord : dropoffCoord;
+            const src = driverLocation;
+            if (target && src && mapRef.current) {
+              mapRef.current.fitToCoordinates(
+                routeCoords.length > 1 ? routeCoords : [src, target],
+                {
+                  edgePadding: { top: 80, right: 50, bottom: 320, left: 50 },
+                  animated: true,
+                },
+              );
+            }
+          }}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="expand" size={20} color="#1A1A1A" />
+        </TouchableOpacity>
       </View>
 
-      <View style={styles.bottomCard}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          <View style={styles.passengerSection}>
-            <View style={styles.passengerAvatar}>
-              <Text style={styles.avatarText}>{passengerName.charAt(0).toUpperCase()}</Text>
+      {routeLoading && (
+        <View style={s.routeLoadingBadge}>
+          <ActivityIndicator size="small" color="#1A1A1A" />
+          <Text style={s.routeLoadingText}>Finding route…</Text>
+        </View>
+      )}
+
+      {/* ── BOTTOM CARD ── */}
+      <Animated.View
+        style={[
+          s.bottomCard,
+          { transform: [{ translateY: cardTranslateY }], opacity: cardAnim },
+        ]}
+      >
+        <View style={s.sheetHandle} />
+
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={s.scrollContent}
+          bounces={false}
+        >
+          {/* Passenger row */}
+          <View style={s.passengerRow}>
+            <View style={s.avatar}>
+              <Text style={s.avatarText}>
+                {(passengerName || "P").charAt(0).toUpperCase()}
+              </Text>
             </View>
-            <View style={styles.passengerInfo}>
-              <Text style={styles.passengerName} numberOfLines={1}>{passengerName}</Text>
-              <Text style={styles.serviceType}>{serviceType.replace(/_/g, ' ').toUpperCase()}</Text>
+            <View style={s.passengerInfo}>
+              <Text style={s.passengerName} numberOfLines={1}>
+                {passengerName}
+              </Text>
+              <View style={[s.serviceChip, { backgroundColor: svcConfig.bg }]}>
+                <Ionicons
+                  name={svcConfig.icon}
+                  size={11}
+                  color={svcConfig.color}
+                />
+                <Text style={[s.serviceChipText, { color: svcConfig.color }]}>
+                  {svcConfig.label}
+                </Text>
+              </View>
             </View>
-            <TouchableOpacity style={styles.callButton} onPress={makePhoneCall} disabled={!passengerPhone}>
-              <Ionicons name="call" size={20} color="#FFFFFF" />
+            <TouchableOpacity
+              style={[s.callBtn, !passengerPhone && s.callBtnDisabled]}
+              onPress={makePhoneCall}
+              activeOpacity={0.85}
+              disabled={!passengerPhone}
+            >
+              <Ionicons name="call" size={18} color="#fff" />
             </TouchableOpacity>
           </View>
 
-          <View style={styles.locationSection}>
-            <View style={styles.locationRow}>
-              <View style={[styles.locationDot, { backgroundColor: tripPhase === 'pickup' ? '#007AFF' : '#34C759' }]} />
-              <View style={styles.locationDetails}>
-                <Text style={styles.locationLabel}>
-                  {tripPhase === 'pickup' ? 'PICKUP LOCATION' : 'DESTINATION'}
+          {/* ✅ FIX: Free ride banner — shown above route card when isFreeRide */}
+          {isFreeRide && (
+            <View style={s.freeRideBanner}>
+              <Ionicons name="gift" size={16} color="#7C3AED" />
+              <Text style={s.freeRideBannerText}>
+                Kilometre Club Free Ride — Do NOT collect cash from passenger
+              </Text>
+            </View>
+          )}
+
+          {/* Route card */}
+          <View style={s.routeCard}>
+            <View style={s.routeRow}>
+              <View style={s.routeDotGreen} />
+              <View style={s.routeTextBlock}>
+                <Text style={s.routeRowLabel}>PICKUP</Text>
+                <Text style={s.routeRowAddress} numberOfLines={2}>
+                  {pickupAddress}
                 </Text>
-                <Text style={styles.locationAddress} numberOfLines={2}>
-                  {tripPhase === 'pickup' ? pickupAddress : destinationAddress}
+              </View>
+            </View>
+            <View style={s.routeConnector}>
+              <View style={s.routeConnectorLine} />
+            </View>
+            <View style={s.routeRow}>
+              <View style={s.routeDotRed} />
+              <View style={s.routeTextBlock}>
+                <Text style={s.routeRowLabel}>DESTINATION</Text>
+                <Text style={s.routeRowAddress} numberOfLines={2}>
+                  {destinationAddress}
                 </Text>
               </View>
             </View>
           </View>
 
-          <View style={styles.tripDetails}>
-            <View style={styles.fareRow}>
-              <Text style={styles.fareLabel}>TRIP FARE</Text>
-              <Text style={styles.fareAmount}>₦{Number(fare).toLocaleString()}</Text>
+          {/* Trip chips */}
+          <View style={s.chipsRow}>
+            <View style={s.chip}>
+              <Ionicons name="navigate-outline" size={13} color="#666" />
+              <Text style={s.chipText}>{distKm ? `${distKm} km` : "—"}</Text>
             </View>
-            
-            {distanceToTarget !== null && timeToTarget !== null && (
-              <View style={styles.distanceRow}>
-                <View style={styles.distanceItem}>
-                  <Ionicons name="time-outline" size={18} color="#666" />
-                  <Text style={styles.distanceText}>{timeToTarget} min</Text>
-                </View>
-                <View style={styles.distanceItem}>
-                  <Ionicons name="location-outline" size={18} color="#666" />
-                  <Text style={styles.distanceText}>{distanceToTarget} km {tripPhase === 'pickup' ? 'away' : 'to go'}</Text>
-                </View>
-              </View>
-            )}
-            
-            <View style={styles.paymentMethodRow}>
-              <Ionicons name="cash-outline" size={16} color="#666" />
-              <Text style={styles.paymentMethodText}>Payment: Cash</Text>
+            <View style={s.chipDivider} />
+            <View style={s.chip}>
+              <Ionicons name="time-outline" size={13} color="#666" />
+              <Text style={s.chipText}>{etaMin ? `${etaMin} min` : "—"}</Text>
+            </View>
+            <View style={s.chipDivider} />
+            <View style={s.chip}>
+              <Ionicons name="cash-outline" size={13} color="#666" />
+              <Text style={s.chipText}>₦{Number(fare).toLocaleString()}</Text>
             </View>
           </View>
 
-          <View style={styles.actionButtons}>
-            <TouchableOpacity style={styles.navigateButton} onPress={openNavigation}>
-              <Ionicons name="navigate" size={22} color="#007AFF" />
-              <Text style={styles.navigateText}>Navigate</Text>
+          {/* Payment notice — now correctly shows free_ride messaging */}
+          <View
+            style={[
+              s.paymentNotice,
+              { backgroundColor: pmeta.bg, borderLeftColor: pmeta.color },
+            ]}
+          >
+            <Ionicons name={pmeta.icon} size={15} color={pmeta.color} />
+            <Text style={[s.paymentNoticeText, { color: pmeta.color }]}>
+              {pmeta.driverNote}
+            </Text>
+          </View>
+
+          {/* Action buttons */}
+          <View style={s.actionsRow}>
+            <TouchableOpacity
+              style={s.navBtn}
+              onPress={openNavigation}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="navigate" size={20} color="#1A1A1A" />
+              <Text style={s.navBtnText}>Navigate</Text>
             </TouchableOpacity>
-            
-            {tripPhase === 'pickup' ? (
-              <TouchableOpacity 
-                style={[styles.primaryButton, (!tripValid || tripStatus !== 'assigned') && styles.disabledButton]} 
+
+            {tripPhase === "pickup" ? (
+              <TouchableOpacity
+                style={[
+                  s.primaryBtn,
+                  (loading || !tripValid || tripStatus !== "assigned") &&
+                    s.primaryBtnDisabled,
+                ]}
                 onPress={startTrip}
-                disabled={loading || !tripValid || tripStatus !== 'assigned'}
+                disabled={loading || !tripValid || tripStatus !== "assigned"}
+                activeOpacity={0.88}
               >
                 {loading ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
+                  <ActivityIndicator color="#fff" size="small" />
                 ) : (
                   <>
-                    <Ionicons name="play-circle-outline" size={22} color="#FFFFFF" />
-                    <Text style={styles.primaryButtonText}>Start Trip</Text>
+                    <Ionicons name="play-circle" size={20} color="#fff" />
+                    <Text style={s.primaryBtnText}>Start Trip</Text>
                   </>
                 )}
               </TouchableOpacity>
             ) : (
-              <TouchableOpacity 
-                style={[styles.primaryButton, styles.finishButton, !tripValid && styles.disabledButton]} 
+              <TouchableOpacity
+                style={[
+                  s.primaryBtn,
+                  !tripValid && s.primaryBtnDisabled,
+                  {
+                    backgroundColor: isFreeRide
+                      ? "#7C3AED"
+                      : isWallet
+                        ? "#10B981"
+                        : "#1A1A1A",
+                  },
+                ]}
                 onPress={finishTrip}
                 disabled={!tripValid}
+                activeOpacity={0.88}
               >
-                <Ionicons name="checkmark-circle-outline" size={22} color="#FFFFFF" />
-                <Text style={styles.primaryButtonText}>Finish Trip</Text>
+                <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                <Text style={s.primaryBtnText}>{pmeta.completeBtnLabel}</Text>
               </TouchableOpacity>
             )}
           </View>
 
           {tripValid && (
-            <TouchableOpacity style={styles.cancelButton} onPress={cancelTrip}>
-              <Ionicons name="close-circle-outline" size={18} color="#FF3B30" />
-              <Text style={styles.cancelText}>Cancel Trip</Text>
+            <TouchableOpacity
+              style={s.cancelBtn}
+              onPress={cancelTrip}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="close-circle-outline" size={16} color="#EF4444" />
+              <Text style={s.cancelBtnText}>Cancel Trip</Text>
             </TouchableOpacity>
           )}
         </ScrollView>
-      </View>
+      </Animated.View>
 
-      <Modal visible={showCompleteModal} transparent={true} animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScrollContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Complete Trip</Text>
-                <TouchableOpacity onPress={() => !completingTrip && setShowCompleteModal(false)} disabled={completingTrip}>
-                  <Ionicons name="close" size={24} color="#666" />
-                </TouchableOpacity>
-              </View>
-              
-              <View style={styles.modalSection}>
-                <Text style={styles.modalLabel}>Trip Summary</Text>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Passenger:</Text>
-                  <Text style={styles.summaryValue}>{passengerName}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Service:</Text>
-                  <Text style={styles.summaryValue}>{serviceType.replace(/_/g, ' ').toUpperCase()}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Payment Method:</Text>
-                  <Text style={styles.summaryValue}>Cash</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Fare:</Text>
-                  <Text style={styles.summaryValueHighlight}>₦{Number(fare).toLocaleString()}</Text>
-                </View>
-              </View>
+      {/* ── COMPLETE MODAL ── */}
+      <Modal
+        visible={showCompleteModal}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+      >
+        <TouchableOpacity
+          style={s.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => !completingTrip && setShowCompleteModal(false)}
+        />
+        <View style={s.modalSheet}>
+          <View style={s.sheetHandle} />
 
-              <View style={styles.modalSection}>
-                <Text style={styles.modalLabel}>Confirmation</Text>
-                <Text style={styles.confirmationText}>
-                  Confirm you received ₦{Number(fare).toLocaleString()} cash from the passenger.
+          <View style={s.modalHeaderRow}>
+            <View>
+              <Text style={s.modalHeaderLabel}>COMPLETE TRIP</Text>
+              <Text style={s.modalHeaderTitle}>Confirm & Finish</Text>
+            </View>
+            <TouchableOpacity
+              style={s.modalCloseBtn}
+              onPress={() => !completingTrip && setShowCompleteModal(false)}
+              disabled={completingTrip}
+            >
+              <Ionicons name="close" size={18} color="#666" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Payment banner */}
+          <View
+            style={[
+              s.modalPaymentBanner,
+              { backgroundColor: pmeta.bg, borderColor: pmeta.borderColor },
+            ]}
+          >
+            <View
+              style={[
+                s.modalPaymentIconWrap,
+                {
+                  backgroundColor: isFreeRide
+                    ? "#EDE9FE"
+                    : isWallet
+                      ? "#ECFDF5"
+                      : "#F0F0F0",
+                },
+              ]}
+            >
+              <Ionicons name={pmeta.icon} size={20} color={pmeta.color} />
+            </View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={[s.modalPaymentTitle, { color: pmeta.color }]}>
+                {pmeta.label} Trip
+              </Text>
+              <Text style={[s.modalPaymentNote, { color: pmeta.color }]}>
+                {pmeta.confirmNote}
+              </Text>
+            </View>
+          </View>
+
+          {/* Summary */}
+          <View style={s.summaryCard}>
+            {[
+              { label: "Passenger", value: passengerName },
+              { label: "Service", value: svcConfig.label },
+            ].map((row) => (
+              <View key={row.label} style={s.summaryRow}>
+                <Text style={s.summaryLabel}>{row.label}</Text>
+                <Text style={s.summaryValue}>{row.value}</Text>
+              </View>
+            ))}
+            <View style={s.summaryRow}>
+              <Text style={s.summaryLabel}>Payment</Text>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
+              >
+                <Ionicons name={pmeta.icon} size={14} color={pmeta.color} />
+                <Text style={[s.summaryValue, { color: pmeta.color }]}>
+                  {pmeta.label}
                 </Text>
               </View>
+            </View>
+            <View style={[s.summaryRow, { borderBottomWidth: 0 }]}>
+              <Text style={s.summaryLabel}>Fare</Text>
+              <Text style={s.summaryFare}>
+                ₦{Number(fare).toLocaleString()}
+              </Text>
+            </View>
+          </View>
 
-              <View style={styles.modalButtons}>
-                <TouchableOpacity 
-                  style={styles.modalButtonSecondary} 
-                  onPress={() => !completingTrip && setShowCompleteModal(false)}
-                  disabled={completingTrip}
+          <View style={s.modalActionsRow}>
+            <TouchableOpacity
+              style={s.modalSecondaryBtn}
+              onPress={() => !completingTrip && setShowCompleteModal(false)}
+              disabled={completingTrip}
+              activeOpacity={0.8}
+            >
+              <Text style={s.modalSecondaryBtnText}>Go Back</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                s.modalPrimaryBtn,
+                {
+                  backgroundColor: isFreeRide
+                    ? "#7C3AED"
+                    : isWallet
+                      ? "#10B981"
+                      : "#1A1A1A",
+                },
+                completingTrip && s.primaryBtnDisabled,
+              ]}
+              onPress={completeTrip}
+              disabled={completingTrip}
+              activeOpacity={0.88}
+            >
+              {completingTrip ? (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
                 >
-                  <Text style={styles.modalButtonSecondaryText}>Cancel</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={[styles.modalButtonPrimary, completingTrip && styles.disabledButton]} 
-                  onPress={completeTrip}
-                  disabled={completingTrip}
-                >
-                  {completingTrip ? (
-                    <View style={styles.loadingButtonContent}>
-                      <ActivityIndicator color="#FFFFFF" size="small" />
-                      <Text style={styles.modalButtonPrimaryText}>Completing...</Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.modalButtonPrimaryText}>Confirm Cash Received</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
+                  <ActivityIndicator color="#fff" size="small" />
+                  <Text style={s.modalPrimaryBtnText}>Completing…</Text>
+                </View>
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                  <Text style={s.modalPrimaryBtnText}>
+                    {pmeta.completeBtnLabel}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' },
-  loadingText: { color: '#000', marginTop: 20, fontSize: 18, fontWeight: '600' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 10 : 20, paddingBottom: 16, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E5EA', zIndex: 10 },
-  backButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', borderRadius: 20 },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#000', textAlign: 'center', flex: 1 },
-  headerRight: { width: 100, alignItems: 'flex-end' },
-  statusBadge: { backgroundColor: '#E3F2FD', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
-  statusBadgeActive: { backgroundColor: '#E8F5E9' },
-  statusBadgeText: { color: '#007AFF', fontSize: 12, fontWeight: '600' },
-  statusBadgeTextActive: { color: '#34C759' },
-  mapContainer: { flex: 1 },
-  map: { flex: 1, width: '100%', height: '100%' },
-  driverMarker: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#007AFF', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 5 },
-  pickupMarker: { alignItems: 'center' },
-  pickupPin: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#007AFF', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#FFFFFF', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 5 },
-  destinationMarker: { alignItems: 'center' },
-  destinationPin: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#34C759', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#FFFFFF', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 5 },
-  bottomCard: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 20, paddingBottom: Platform.OS === 'ios' ? 34 : 24, maxHeight: height * 0.55, shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 10 },
-  scrollContent: { paddingBottom: 10 },
-  passengerSection: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  passengerAvatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#007AFF', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  avatarText: { color: '#FFFFFF', fontSize: 20, fontWeight: 'bold' },
+// ─────────────────────────────────────────────────────────────────────────────
+// STYLES
+// ─────────────────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F5F5F0" },
+  map: { flex: 1 },
+
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: "#F5F5F0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingCard: {
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    padding: 40,
+    alignItems: "center",
+    width: width * 0.72,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  loadingIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 20,
+    backgroundColor: "#F0F0F0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginTop: 16,
+  },
+  loadingSubtitle: { fontSize: 13, color: "#999", marginTop: 4 },
+
+  topBar: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 54 : 44,
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    zIndex: 10,
+  },
+  iconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  topCenter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    backgroundColor: "#fff",
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  topStatusDot: { width: 8, height: 8, borderRadius: 4 },
+  topCenterText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    letterSpacing: 0.3,
+  },
+
+  routeLoadingBadge: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 114 : 104,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  routeLoadingText: { fontSize: 13, fontWeight: "600", color: "#666" },
+
+  driverPin: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#1A1A1A",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 3,
+    borderColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 7,
+  },
+  pickupPinWrap: { alignItems: "center" },
+  pickupPin: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#10B981",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 3,
+    borderColor: "#fff",
+    shadowColor: "#10B981",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  pinTailGreen: {
+    width: 0,
+    height: 0,
+    backgroundColor: "transparent",
+    borderStyle: "solid",
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 10,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#10B981",
+    marginTop: -1,
+  },
+  dropoffPinWrap: { alignItems: "center" },
+  dropoffPin: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#EF4444",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 3,
+    borderColor: "#fff",
+    shadowColor: "#EF4444",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  pinTailRed: {
+    width: 0,
+    height: 0,
+    backgroundColor: "transparent",
+    borderStyle: "solid",
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 10,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#EF4444",
+    marginTop: -1,
+  },
+
+  bottomCard: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === "ios" ? 36 : 20,
+    maxHeight: height * 0.58,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 16,
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#E0E0E0",
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  scrollContent: { paddingBottom: 4 },
+
+  passengerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 14,
+    gap: 12,
+  },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#1A1A1A",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarText: { color: "#fff", fontSize: 20, fontWeight: "800" },
   passengerInfo: { flex: 1 },
-  passengerName: { fontSize: 18, fontWeight: '700', color: '#000', marginBottom: 2 },
-  serviceType: { fontSize: 13, color: '#666', fontWeight: '600' },
-  callButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#34C759', justifyContent: 'center', alignItems: 'center' },
-  locationSection: { backgroundColor: '#F8F9FA', borderRadius: 16, padding: 16, marginBottom: 20 },
-  locationRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  locationDot: { width: 12, height: 12, borderRadius: 6, marginRight: 12, marginTop: 4 },
-  locationDetails: { flex: 1 },
-  locationLabel: { fontSize: 12, color: '#666', marginBottom: 4, fontWeight: '600', letterSpacing: 0.5 },
-  locationAddress: { fontSize: 16, color: '#000', lineHeight: 22, fontWeight: '500' },
-  tripDetails: { marginBottom: 20 },
-  fareRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  fareLabel: { fontSize: 13, color: '#666', fontWeight: '600', letterSpacing: 0.5 },
-  fareAmount: { fontSize: 28, fontWeight: '800', color: '#007AFF' },
-  distanceRow: { flexDirection: 'row', justifyContent: 'space-around', backgroundColor: '#F8F9FA', borderRadius: 12, paddingVertical: 12, marginBottom: 12 },
-  distanceItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  distanceText: { fontSize: 15, color: '#666', fontWeight: '600' },
-  paymentMethodRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#F8F9FA', borderRadius: 8, alignSelf: 'flex-start' },
-  paymentMethodText: { fontSize: 14, color: '#666', fontWeight: '500' },
-  actionButtons: { flexDirection: 'row', gap: 12, marginBottom: 16 },
-  navigateButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F0F8FF', paddingVertical: 16, borderRadius: 12, gap: 8 },
-  navigateText: { color: '#007AFF', fontSize: 16, fontWeight: '600' },
-  primaryButton: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#007AFF', paddingVertical: 16, borderRadius: 12, gap: 8 },
-  finishButton: { backgroundColor: '#34C759' },
-  disabledButton: { backgroundColor: '#CCCCCC' },
-  primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-  cancelButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, gap: 8 },
-  cancelText: { color: '#FF3B30', fontSize: 16, fontWeight: '600' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: height * 0.85 },
-  modalScrollContent: { paddingBottom: 20 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  modalTitle: { fontSize: 24, fontWeight: '700', color: '#000' },
-  modalSection: { marginBottom: 24 },
-  modalLabel: { fontSize: 16, fontWeight: '600', color: '#000', marginBottom: 12 },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  summaryLabel: { fontSize: 15, color: '#666', fontWeight: '500' },
-  summaryValue: { fontSize: 15, color: '#000', fontWeight: '600' },
-  summaryValueHighlight: { fontSize: 18, color: '#34C759', fontWeight: '700' },
-  confirmationText: { fontSize: 16, color: '#666', lineHeight: 22 },
-  modalButtons: { flexDirection: 'row', gap: 12, marginTop: 16 },
-  modalButtonSecondary: { flex: 1, paddingVertical: 16, borderRadius: 12, backgroundColor: '#F0F0F0', alignItems: 'center' },
-  modalButtonSecondaryText: { fontSize: 16, fontWeight: '600', color: '#666' },
-  modalButtonPrimary: { flex: 1, paddingVertical: 16, borderRadius: 12, backgroundColor: '#34C759', alignItems: 'center' },
-  loadingButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  modalButtonPrimaryText: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
+  passengerName: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 5,
+  },
+  serviceChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    alignSelf: "flex-start",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  serviceChipText: { fontSize: 11, fontWeight: "700" },
+  callBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#1A1A1A",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  callBtnDisabled: { backgroundColor: "#E0E0E0" },
+
+  // ✅ NEW: Free ride banner style
+  freeRideBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#F5F3FF",
+    borderWidth: 1.5,
+    borderColor: "#DDD6FE",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+  freeRideBannerText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#7C3AED",
+    lineHeight: 18,
+  },
+
+  routeCard: {
+    backgroundColor: "#F8F8F8",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+  },
+  routeRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  routeDotGreen: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#10B981",
+    marginTop: 4,
+  },
+  routeDotRed: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#EF4444",
+    marginTop: 4,
+  },
+  routeTextBlock: { flex: 1 },
+  routeRowLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#bbb",
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  routeRowAddress: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1A1A1A",
+    lineHeight: 20,
+  },
+  routeConnector: { paddingLeft: 5, paddingVertical: 4 },
+  routeConnectorLine: { width: 2, height: 16, backgroundColor: "#E5E5E5" },
+
+  chipsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  chip: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12 },
+  chipText: { fontSize: 13, color: "#666", fontWeight: "600", marginLeft: 5 },
+  chipDivider: { width: 1, height: 14, backgroundColor: "#E0E0E0" },
+
+  paymentNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderLeftWidth: 3,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 14,
+  },
+  paymentNoticeText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 17,
+  },
+
+  actionsRow: { flexDirection: "row", gap: 12, marginBottom: 10 },
+  navBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    backgroundColor: "#F5F5F0",
+    borderRadius: 14,
+    paddingVertical: 15,
+    borderWidth: 1.5,
+    borderColor: "#E5E5E5",
+  },
+  navBtnText: { color: "#1A1A1A", fontSize: 14, fontWeight: "700" },
+  primaryBtn: {
+    flex: 1.8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#1A1A1A",
+    borderRadius: 14,
+    paddingVertical: 15,
+  },
+  primaryBtnDisabled: { backgroundColor: "#C0C0C0" },
+  primaryBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  cancelBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingVertical: 10,
+  },
+  cancelBtnText: { color: "#EF4444", fontSize: 14, fontWeight: "700" },
+
+  modalBackdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.38)",
+  },
+  modalSheet: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === "ios" ? 36 : 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
+    elevation: 20,
+  },
+  modalHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  modalHeaderLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#bbb",
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  modalHeaderTitle: { fontSize: 22, fontWeight: "800", color: "#1A1A1A" },
+  modalCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#F5F5F0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalPaymentBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: 1.5,
+    padding: 14,
+    marginBottom: 16,
+  },
+  modalPaymentIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalPaymentTitle: { fontSize: 14, fontWeight: "800", marginBottom: 3 },
+  modalPaymentNote: { fontSize: 12, fontWeight: "500", lineHeight: 17 },
+
+  summaryCard: {
+    backgroundColor: "#F8F8F8",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 18,
+  },
+  summaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EFEFEF",
+  },
+  summaryLabel: { fontSize: 13, color: "#888", fontWeight: "600" },
+  summaryValue: { fontSize: 14, color: "#1A1A1A", fontWeight: "700" },
+  summaryFare: { fontSize: 20, fontWeight: "900", color: "#1A1A1A" },
+
+  modalActionsRow: { flexDirection: "row", gap: 12 },
+  modalSecondaryBtn: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 14,
+    backgroundColor: "#F5F5F0",
+    borderWidth: 1.5,
+    borderColor: "#E5E5E5",
+    alignItems: "center",
+  },
+  modalSecondaryBtnText: { color: "#666", fontSize: 14, fontWeight: "700" },
+  modalPrimaryBtn: {
+    flex: 1.8,
+    paddingVertical: 16,
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  modalPrimaryBtnText: { color: "#fff", fontSize: 14, fontWeight: "800" },
+
+  completionScreen: {
+    flex: 1,
+    backgroundColor: "#F5F5F0",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+    paddingBottom: Platform.OS === "ios" ? 36 : 20,
+  },
+  completionCheck: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  completionLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#aaa",
+    letterSpacing: 1.5,
+    marginBottom: 8,
+  },
+  completionFare: {
+    fontSize: 48,
+    fontWeight: "900",
+    color: "#1A1A1A",
+    marginBottom: 16,
+  },
+  completionBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginBottom: 20,
+  },
+  completionBadgeText: { fontSize: 14, fontWeight: "700" },
+  completionMsgCard: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    borderLeftWidth: 4,
+    padding: 16,
+    marginBottom: 28,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  completionMsgTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    marginBottom: 4,
+  },
+  completionMsgBody: { fontSize: 13, color: "#555", lineHeight: 19 },
+  completionMsgBalance: { fontSize: 13, fontWeight: "700", marginTop: 8 },
+  doneBtnLarge: {
+    borderRadius: 16,
+    paddingVertical: 17,
+    paddingHorizontal: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    width: "100%",
+    justifyContent: "center",
+  },
+  doneBtnLargeText: { color: "#fff", fontSize: 17, fontWeight: "800" },
 });

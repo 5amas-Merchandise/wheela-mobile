@@ -35,6 +35,15 @@ const LATITUDE_DELTA = 0.012;
 const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
 const GOOGLE_API_KEY = "AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo";
 const BASE_URL = "https://wheels-backend-7ydc.onrender.com";
+const TRIPS_REQUIRED = 5;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BUG 3 FIX: Free ride is ONLY valid when fare ≤ this amount.
+// If the trip costs MORE than ₦5,000, the free ride does NOT apply at all —
+// the passenger pays normally (cash/wallet) and the entitlement is PRESERVED
+// for a cheaper future trip. It is never partially applied.
+// ─────────────────────────────────────────────────────────────────────────────
+const FREE_RIDE_MAX_FARE_NAIRA = 5000;
 
 const DEFAULT_REGION = {
   latitude: 9.0765,
@@ -137,7 +146,7 @@ const RIDE_TYPES = [
     icon: "car-sport",
     color: "#1A1A1A",
     bg: "#F0F0F0",
-    multiplier: 1.5,
+    multiplier: 1.6,
     eta: "3 min",
     desc: "Affordable everyday rides",
   },
@@ -173,11 +182,491 @@ const RIDE_TYPES = [
   },
 ];
 
-// ── Fare is always stored and sent in NAIRA (no *100) ────────────────────────
 function calcFareNaira(distanceKm, multiplier) {
   return Math.round(500 + distanceKm * 150 * multiplier);
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// LOYALTY MINI WIDGET — shows on the home screen above the search card
+// ══════════════════════════════════════════════════════════════════════════════
+function LoyaltyMiniWidget({ loyalty, onPress, visible }) {
+  const slideAnim = useRef(new Animated.Value(-80)).current;
+  const progressAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const glowAnim = useRef(new Animated.Value(0)).current;
+
+  const freeRideAvailable =
+    loyalty?.freeRideAvailable && loyalty?.freeRideStillValid;
+  const tripCount = loyalty?.tripCount ?? 0;
+  const progressPercent = loyalty?.progressPercent ?? 0;
+
+  useEffect(() => {
+    if (!visible) return;
+    // Slide in
+    Animated.spring(slideAnim, {
+      toValue: 0,
+      tension: 70,
+      friction: 10,
+      useNativeDriver: true,
+    }).start();
+
+    // Progress bar fill
+    Animated.timing(progressAnim, {
+      toValue: progressPercent / 100,
+      duration: 1000,
+      delay: 400,
+      useNativeDriver: false,
+    }).start();
+
+    // If free ride unlocked — pulse the widget
+    if (freeRideAvailable) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.02,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ]),
+      ).start();
+
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(glowAnim, {
+            toValue: 1,
+            duration: 1200,
+            useNativeDriver: false,
+          }),
+          Animated.timing(glowAnim, {
+            toValue: 0,
+            duration: 1200,
+            useNativeDriver: false,
+          }),
+        ]),
+      ).start();
+    }
+  }, [visible, progressPercent, freeRideAvailable]);
+
+  const progressBarWidth = progressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0%", "100%"],
+  });
+
+  const glowOpacity = glowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.4, 1],
+  });
+
+  if (!visible) return null;
+
+  return (
+    <Animated.View
+      style={[
+        lw.wrap,
+        { transform: [{ translateY: slideAnim }, { scale: pulseAnim }] },
+      ]}
+    >
+      <TouchableOpacity
+        onPress={onPress}
+        activeOpacity={0.88}
+        style={[lw.card, freeRideAvailable && lw.cardFree]}
+      >
+        {freeRideAvailable ? (
+          // ── FREE RIDE UNLOCKED STATE ────────────────────────────────────
+          <>
+            <Animated.View style={[lw.freeGlow, { opacity: glowOpacity }]} />
+            <View style={lw.freeLeft}>
+              <Text style={lw.freeEmoji}>🎁</Text>
+              <View>
+                <Text style={lw.freeTitle}>FREE RIDE READY!</Text>
+                {/* BUG 3: Tell passenger the fare limit right on the widget */}
+                <Text style={lw.freeSub}>
+                  Valid on trips up to ₦
+                  {FREE_RIDE_MAX_FARE_NAIRA.toLocaleString()}
+                </Text>
+              </View>
+            </View>
+            <View style={lw.freeArrow}>
+              <Ionicons name="arrow-forward-circle" size={28} color="#22C55E" />
+            </View>
+          </>
+        ) : (
+          // ── PROGRESS STATE ────────────────────────────────────────────────
+          <>
+            {/* Left: trophy + text */}
+            <View style={lw.left}>
+              <View style={lw.iconWrap}>
+                <Ionicons name="trophy" size={16} color="#C9A84C" />
+              </View>
+              <View style={lw.textBlock}>
+                <View style={lw.titleRow}>
+                  <Text style={lw.title}>Kilometre Club</Text>
+                  <View style={lw.countBadge}>
+                    <Text style={lw.countText}>
+                      {tripCount}/{TRIPS_REQUIRED}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Progress bar */}
+                <View style={lw.barTrack}>
+                  <Animated.View
+                    style={[lw.barFill, { width: progressBarWidth }]}
+                  />
+                  {/* Dot markers */}
+                  <View style={lw.dotsOverlay}>
+                    {Array.from({ length: TRIPS_REQUIRED - 1 }).map((_, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          lw.barDot,
+                          {
+                            left: `${((i + 1) / TRIPS_REQUIRED) * 100}%`,
+                            backgroundColor:
+                              i < tripCount - 1 ? "#C9A84C" : "#D1D5DB",
+                          },
+                        ]}
+                      />
+                    ))}
+                  </View>
+                </View>
+
+                <Text style={lw.sub}>
+                  {TRIPS_REQUIRED - tripCount === 1
+                    ? "1 more ride for a FREE trip! 🔥"
+                    : `${TRIPS_REQUIRED - tripCount} rides until your next free trip`}
+                </Text>
+              </View>
+            </View>
+
+            {/* Right: chevron */}
+            <Ionicons name="chevron-forward" size={16} color="#aaa" />
+          </>
+        )}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+const lw = StyleSheet.create({
+  wrap: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 114 : 104,
+    left: 16,
+    right: 16,
+    zIndex: 9,
+  },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 6,
+    borderWidth: 1.5,
+    borderColor: "transparent",
+    overflow: "hidden",
+  },
+  cardFree: {
+    borderColor: "#22C55E",
+    backgroundColor: "#F0FDF4",
+  },
+
+  // Free ride state
+  freeGlow: {
+    position: "absolute",
+    top: -20,
+    left: -20,
+    right: -20,
+    bottom: -20,
+    backgroundColor: "rgba(34,197,94,0.06)",
+    borderRadius: 20,
+  },
+  freeLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  freeEmoji: {
+    fontSize: 26,
+  },
+  freeTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#15803D",
+    letterSpacing: 0.5,
+  },
+  freeSub: {
+    fontSize: 11,
+    color: "#4ADE80",
+    marginTop: 2,
+  },
+  freeArrow: {
+    marginLeft: 8,
+  },
+
+  // Progress state
+  left: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginRight: 6,
+  },
+  iconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "rgba(201,168,76,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  textBlock: {
+    flex: 1,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  title: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    letterSpacing: 0.2,
+  },
+  countBadge: {
+    backgroundColor: "rgba(201,168,76,0.15)",
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  countText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#92700A",
+  },
+  barTrack: {
+    height: 6,
+    backgroundColor: "#F0F0F0",
+    borderRadius: 3,
+    overflow: "visible",
+    marginBottom: 5,
+    position: "relative",
+  },
+  barFill: {
+    height: "100%",
+    borderRadius: 3,
+    backgroundColor: "#C9A84C",
+  },
+  dotsOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: "row",
+  },
+  barDot: {
+    position: "absolute",
+    top: 1,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    marginLeft: -2,
+  },
+  sub: {
+    fontSize: 10,
+    color: "#888",
+    fontWeight: "500",
+  },
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FREE RIDE BANNER — shown when free ride IS applied (fare ≤ ₦5,000)
+// ══════════════════════════════════════════════════════════════════════════════
+function FreeRideBottomBanner({ visible }) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.spring(anim, {
+      toValue: visible ? 1 : 0,
+      tension: 80,
+      friction: 9,
+      useNativeDriver: true,
+    }).start();
+  }, [visible]);
+
+  if (!visible) return null;
+
+  return (
+    <Animated.View
+      style={[
+        frb.wrap,
+        {
+          opacity: anim,
+          transform: [
+            {
+              scale: anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.95, 1],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      <View style={frb.inner}>
+        <Text style={frb.emoji}>🎁</Text>
+        <View style={frb.text}>
+          <Text style={frb.title}>Kilometre Club Free Ride Applied!</Text>
+          <Text style={frb.sub}>
+            You pay nothing — the platform covers the full fare for this trip.
+          </Text>
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+
+const frb = StyleSheet.create({
+  wrap: {
+    marginBottom: 12,
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  inner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#F0FDF4",
+    borderWidth: 1.5,
+    borderColor: "#86EFAC",
+    borderRadius: 14,
+    padding: 14,
+  },
+  emoji: {
+    fontSize: 24,
+  },
+  text: {
+    flex: 1,
+  },
+  title: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#15803D",
+    marginBottom: 2,
+  },
+  sub: {
+    fontSize: 11,
+    color: "#4ADE80",
+    lineHeight: 15,
+  },
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BUG 3: FREE RIDE BLOCKED BANNER
+// Shown when a free ride is banked but fare > ₦5,000.
+// Passenger must pay. Entitlement is NOT consumed — saved for a cheaper trip.
+// ══════════════════════════════════════════════════════════════════════════════
+function FreeRideBlockedBanner({ visible, fare }) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.spring(anim, {
+      toValue: visible ? 1 : 0,
+      tension: 80,
+      friction: 9,
+      useNativeDriver: true,
+    }).start();
+  }, [visible]);
+
+  if (!visible) return null;
+
+  return (
+    <Animated.View
+      style={[
+        fbb.wrap,
+        {
+          opacity: anim,
+          transform: [
+            {
+              scale: anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.95, 1],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      <View style={fbb.inner}>
+        <Ionicons
+          name="information-circle"
+          size={22}
+          color="#D97706"
+          style={{ marginTop: 1 }}
+        />
+        <View style={fbb.text}>
+          <Text style={fbb.title}>Free Ride Can't Be Used Here</Text>
+          <Text style={fbb.sub}>
+            This trip (₦{fare?.toLocaleString()}) exceeds the ₦
+            {FREE_RIDE_MAX_FARE_NAIRA.toLocaleString()} limit. Please pay
+            normally — your free ride is saved for a cheaper trip!
+          </Text>
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+
+const fbb = StyleSheet.create({
+  wrap: {
+    marginBottom: 12,
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  inner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1.5,
+    borderColor: "#FCD34D",
+    borderRadius: 14,
+    padding: 14,
+  },
+  text: {
+    flex: 1,
+  },
+  title: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#92400E",
+    marginBottom: 3,
+  },
+  sub: {
+    fontSize: 11,
+    color: "#B45309",
+    lineHeight: 16,
+  },
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN SCREEN
+// ══════════════════════════════════════════════════════════════════════════════
 export default function PassengerHomeScreen() {
   const navigation = useNavigation();
   const mapRef = useRef(null);
@@ -193,7 +682,6 @@ export default function PassengerHomeScreen() {
   const [pickupAddress, setPickupAddress] = useState("Getting your location…");
   const [dropoffAddress, setDropoffAddress] = useState("");
   const [selectedRideType, setSelectedRideType] = useState("CITY_RIDE");
-  // estimatedFare is NAIRA — always. No *100 anywhere in this file.
   const [estimatedFare, setEstimatedFare] = useState(null);
   const [routeCoords, setRouteCoords] = useState([]);
   const [routeDistance, setRouteDistance] = useState(0);
@@ -201,10 +689,14 @@ export default function PassengerHomeScreen() {
   const [loading, setLoading] = useState(false);
 
   // Payment
-  const [paymentMethod, setPaymentMethod] = useState("cash"); // 'cash' | 'wallet'
-  // walletBalance is KOBO as returned by the backend GET /wallet
+  const [paymentMethod, setPaymentMethod] = useState("cash");
   const [walletBalance, setWalletBalance] = useState(null);
   const [walletLoading, setWalletLoading] = useState(false);
+
+  // ── LOYALTY STATE ─────────────────────────────────────────────────────────
+  const [loyalty, setLoyalty] = useState(null);
+  const [loyaltyLoading, setLoyaltyLoading] = useState(false);
+  const [loyaltyReady, setLoyaltyReady] = useState(false);
 
   // UI
   const [showRideModal, setShowRideModal] = useState(false);
@@ -226,13 +718,30 @@ export default function PassengerHomeScreen() {
   const [driverData, setDriverData] = useState(null);
   const [driverLocation, setDriverLocation] = useState(null);
 
-  // ── Derived: wallet in naira for comparison against fare (naira) ─────────
+  // ── Derived ──────────────────────────────────────────────────────────────
   const walletBalanceNaira =
     walletBalance !== null ? walletBalance / 100 : null;
   const walletInsufficient =
     walletBalanceNaira !== null &&
     estimatedFare !== null &&
     walletBalanceNaira < estimatedFare;
+
+  // Does the account have a free ride banked at all?
+  const loyaltyFreeRideBanked =
+    loyalty?.freeRideAvailable && loyalty?.freeRideStillValid;
+
+  // BUG 3: Is the current fare within the allowed threshold?
+  const fareWithinCap =
+    estimatedFare !== null && estimatedFare <= FREE_RIDE_MAX_FARE_NAIRA;
+
+  // BUG 3: Single source of truth — free ride ONLY applies when BOTH:
+  //   (a) entitlement exists AND (b) fare ≤ ₦5,000
+  // If fare > ₦5,000 this is always false — passenger pays normally.
+  const freeRideApplied = loyaltyFreeRideBanked && fareWithinCap;
+
+  // BUG 3: Show warning when banked but blocked by high fare.
+  const freeRideBlocked =
+    loyaltyFreeRideBanked && !fareWithinCap && estimatedFare !== null;
 
   // ── Auth header ──────────────────────────────────────────────────────────
   const authH = async () => {
@@ -250,7 +759,7 @@ export default function PassengerHomeScreen() {
       const res = await fetch(`${BASE_URL}/wallet`, { headers: await authH() });
       if (!res.ok) return;
       const body = await res.json();
-      setWalletBalance(body.wallet?.balance ?? 0); // kobo from backend
+      setWalletBalance(body.wallet?.balance ?? 0);
     } catch (e) {
       console.warn("wallet fetch:", e.message);
     } finally {
@@ -258,14 +767,66 @@ export default function PassengerHomeScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    if (estimatedFare && dropoffLocation) fetchWalletBalance();
-  }, [estimatedFare, dropoffLocation]);
+  // ── Loyalty fetch ────────────────────────────────────────────────────────
+  const fetchLoyalty = useCallback(async () => {
+    try {
+      setLoyaltyLoading(true);
+      const res = await fetch(`${BASE_URL}/trips/loyalty`, {
+        headers: await authH(),
+      });
+      if (!res.ok) return;
+      const body = await res.json();
+      setLoyalty(body.loyalty);
+      setLoyaltyReady(true);
+    } catch (e) {
+      console.warn("loyalty fetch:", e.message);
+    } finally {
+      setLoyaltyLoading(false);
+    }
+  }, []);
 
-  // Revert to cash automatically if wallet becomes insufficient
+  // Fetch loyalty on mount
   useEffect(() => {
-    if (walletInsufficient && paymentMethod === "wallet")
+    fetchLoyalty();
+  }, []);
+
+  // Re-fetch loyalty when screen comes back into focus (after a trip completes)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", () => {
+      fetchLoyalty();
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  // Fetch wallet + loyalty when bottom sheet appears
+  useEffect(() => {
+    if (dropoffLocation) {
+      fetchWalletBalance();
+      fetchLoyalty();
+    }
+  }, [dropoffLocation]);
+
+  // BUG 3: Auto-apply or auto-revoke free_ride payment method based on
+  // whether the current fare qualifies. Runs whenever estimatedFare changes
+  // (e.g. passenger picks a different ride type).
+  //   • fare ≤ ₦5,000 + entitlement → set "free_ride"
+  //   • fare > ₦5,000 and method is "free_ride" → revert to "cash"
+  useEffect(() => {
+    if (!dropoffLocation) return;
+
+    if (freeRideApplied) {
+      setPaymentMethod("free_ride");
+    } else if (paymentMethod === "free_ride") {
+      // Fare went above cap (e.g. switched to Luxury) — revert to cash
       setPaymentMethod("cash");
+    }
+  }, [freeRideApplied, dropoffLocation]);
+
+  // Revert to cash if wallet becomes insufficient
+  useEffect(() => {
+    if (walletInsufficient && paymentMethod === "wallet") {
+      setPaymentMethod("cash");
+    }
   }, [walletInsufficient]);
 
   // ── Animations ───────────────────────────────────────────────────────────
@@ -428,6 +989,8 @@ export default function PassengerHomeScreen() {
       setTripStatus("trip_completed");
       setDriverData(null);
       setDriverLocation(null);
+      // Refresh loyalty after trip completes so progress bar updates
+      setTimeout(() => fetchLoyalty(), 1500);
     };
     addListener("trip:accepted", onAccepted);
     addListener("trip:driver_location", onDriverLocation);
@@ -439,6 +1002,29 @@ export default function PassengerHomeScreen() {
       removeListener("trip:started", onStarted);
       removeListener("trip:completed", onCompleted);
     };
+  }, [wsReady]);
+
+  // ── WebSocket: loyalty unlock push ───────────────────────────────────────
+  useEffect(() => {
+    if (!wsReady) return;
+    const onLoyaltyUnlocked = () => {
+      fetchLoyalty();
+      Alert.alert(
+        "🏆 Free Ride Unlocked!",
+        // BUG 3: Alert now mentions the ₦5,000 fare limit
+        `You've completed 5 rides with The Kilometre Club. Your next ride up to ₦${FREE_RIDE_MAX_FARE_NAIRA.toLocaleString()} is FREE!`,
+        [
+          {
+            text: "View My Club",
+            onPress: () => navigation.navigate("KilometreClub"),
+          },
+          { text: "Book Now", style: "default" },
+        ],
+      );
+    };
+    addListener("loyalty_free_ride_unlocked", onLoyaltyUnlocked);
+    return () =>
+      removeListener("loyalty_free_ride_unlocked", onLoyaltyUnlocked);
   }, [wsReady]);
 
   // ── Google helpers ───────────────────────────────────────────────────────
@@ -513,7 +1099,6 @@ export default function PassengerHomeScreen() {
       setRouteDistance(routeData.distance);
       setRouteDuration(routeData.duration);
       const ride = RIDE_TYPES.find((r) => r.id === selectedRideType);
-      // ✅ NAIRA — no *100
       setEstimatedFare(calcFareNaira(routeData.distance, ride.multiplier));
       if (mapRef.current && isMapReady) {
         mapRef.current.fitToCoordinates(routeData.coordinates, {
@@ -580,7 +1165,8 @@ export default function PassengerHomeScreen() {
     setShowRideModal(false);
     if (routeDistance > 0) {
       const ride = RIDE_TYPES.find((r) => r.id === rideId);
-      // ✅ NAIRA — no *100
+      // BUG 3: Setting fare triggers the freeRideApplied useEffect which
+      // auto-reverts paymentMethod to "cash" if new fare exceeds the cap.
       setEstimatedFare(calcFareNaira(routeDistance, ride.multiplier));
     }
   };
@@ -624,7 +1210,25 @@ export default function PassengerHomeScreen() {
     outputRange: [60, 0],
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // How tall is the widget so the search card offsets correctly
+  const loyaltyWidgetShowing = loyaltyReady && !tripStatus;
+  const searchCardTop = loyaltyWidgetShowing
+    ? Platform.OS === "ios"
+      ? 185
+      : 175
+    : Platform.OS === "ios"
+      ? 114
+      : 104;
+
+  // Payment method label for the request button
+  const paymentLabel =
+    paymentMethod === "free_ride"
+      ? "Free Ride 🎁"
+      : paymentMethod === "wallet"
+        ? "Wallet"
+        : "Cash";
+
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
     <View style={s.container}>
       <StatusBar
@@ -728,6 +1332,15 @@ export default function PassengerHomeScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* ── LOYALTY MINI WIDGET ── */}
+      {!tripStatus && (
+        <LoyaltyMiniWidget
+          loyalty={loyalty}
+          visible={loyaltyReady}
+          onPress={() => navigation.navigate("KilometreClub")}
+        />
+      )}
+
       {/* PICKUP SEARCH OVERLAY */}
       {showPickupSearch && (
         <View style={s.searchOverlay}>
@@ -804,12 +1417,13 @@ export default function PassengerHomeScreen() {
         </View>
       )}
 
-      {/* SEARCH CARD */}
+      {/* SEARCH CARD — offset down when loyalty widget is visible */}
       {!tripStatus && (
         <Animated.View
           style={[
             s.searchCard,
             {
+              top: searchCardTop,
               transform: [{ translateY: searchCardTranslateY }],
               opacity: searchCardAnim,
             },
@@ -871,6 +1485,15 @@ export default function PassengerHomeScreen() {
         >
           <View style={s.sheetHandle} />
 
+          {/* BUG 3: Two mutually exclusive banners.
+              Case A — fare ≤ ₦5,000: green "Free Ride Applied" banner.
+              Case B — fare > ₦5,000: amber "Blocked" banner (entitlement preserved). */}
+          <FreeRideBottomBanner visible={freeRideApplied} />
+          <FreeRideBlockedBanner
+            visible={freeRideBlocked}
+            fare={estimatedFare}
+          />
+
           {/* Ride picker */}
           <TouchableOpacity
             style={s.ridePickerRow}
@@ -893,10 +1516,19 @@ export default function PassengerHomeScreen() {
               </Text>
             </View>
             <View style={s.ridePickerRight}>
-              {/* estimatedFare is naira — display directly, no division */}
-              <Text style={s.ridePickerFare}>
-                ₦{estimatedFare.toLocaleString()}
-              </Text>
+              {/* BUG 3: FREE badge only shown when fare is within cap */}
+              {freeRideApplied ? (
+                <View style={s.freeFareBadge}>
+                  <Text style={s.freeFareOld}>
+                    ₦{estimatedFare.toLocaleString()}
+                  </Text>
+                  <Text style={s.freeFareNew}>FREE</Text>
+                </View>
+              ) : (
+                <Text style={s.ridePickerFare}>
+                  ₦{estimatedFare.toLocaleString()}
+                </Text>
+              )}
               <View style={s.changeTag}>
                 <Text style={s.changeTagText}>Change</Text>
               </View>
@@ -919,164 +1551,180 @@ export default function PassengerHomeScreen() {
             <View style={s.tripChipDivider} />
             <View style={s.tripChip}>
               <Ionicons name="cash-outline" size={13} color="#666" />
-              <Text style={s.tripChipText}>
-                {paymentMethod === "wallet" ? "Wallet" : "Cash"}
-              </Text>
+              <Text style={s.tripChipText}>{paymentLabel}</Text>
             </View>
           </View>
 
-          {/* ── PAYMENT METHOD SELECTOR ── */}
-          <View style={s.paymentSection}>
-            <Text style={s.paymentLabel}>PAYMENT METHOD</Text>
-            <View style={s.paymentRow}>
-              {/* Cash */}
-              <TouchableOpacity
-                style={[
-                  s.paymentOption,
-                  paymentMethod === "cash" && s.paymentOptionSelected,
-                ]}
-                onPress={() => setPaymentMethod("cash")}
-                activeOpacity={0.8}
-              >
-                <View
+          {/* PAYMENT METHOD SELECTOR
+              BUG 3: Hidden ONLY when freeRideApplied (fare ≤ ₦5,000).
+              When fare > ₦5,000 this is ALWAYS shown — even if the passenger
+              has a free ride banked — because they must pay for this trip. */}
+          {!freeRideApplied && (
+            <View style={s.paymentSection}>
+              <Text style={s.paymentLabel}>PAYMENT METHOD</Text>
+              <View style={s.paymentRow}>
+                {/* Cash */}
+                <TouchableOpacity
                   style={[
-                    s.paymentOptionIcon,
-                    {
-                      backgroundColor:
-                        paymentMethod === "cash" ? "#1A1A1A" : "#F5F5F0",
-                    },
+                    s.paymentOption,
+                    paymentMethod === "cash" && s.paymentOptionSelected,
                   ]}
+                  onPress={() => setPaymentMethod("cash")}
+                  activeOpacity={0.8}
                 >
-                  <Ionicons
-                    name="cash"
-                    size={18}
-                    color={paymentMethod === "cash" ? "#fff" : "#666"}
-                  />
-                </View>
-                <View style={s.paymentOptionText}>
-                  <Text
+                  <View
                     style={[
-                      s.paymentOptionTitle,
-                      paymentMethod === "cash" && s.paymentOptionTitleSelected,
+                      s.paymentOptionIcon,
+                      {
+                        backgroundColor:
+                          paymentMethod === "cash" ? "#1A1A1A" : "#F5F5F0",
+                      },
                     ]}
                   >
-                    Cash
-                  </Text>
-                  <Text style={s.paymentOptionSub}>Pay driver directly</Text>
-                </View>
-                {paymentMethod === "cash" && (
-                  <View style={s.paymentCheckCircle}>
-                    <Ionicons name="checkmark" size={12} color="#fff" />
-                  </View>
-                )}
-              </TouchableOpacity>
-
-              {/* Wallet */}
-              <TouchableOpacity
-                style={[
-                  s.paymentOption,
-                  paymentMethod === "wallet" && s.paymentOptionSelected,
-                  walletInsufficient && s.paymentOptionDisabled,
-                ]}
-                onPress={() => {
-                  if (!walletInsufficient) setPaymentMethod("wallet");
-                }}
-                activeOpacity={walletInsufficient ? 1 : 0.8}
-                disabled={walletInsufficient}
-              >
-                <View
-                  style={[
-                    s.paymentOptionIcon,
-                    {
-                      backgroundColor: walletInsufficient
-                        ? "#F0F0F0"
-                        : paymentMethod === "wallet"
-                          ? "#1A1A1A"
-                          : "#F5F5F0",
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name="wallet"
-                    size={18}
-                    color={
-                      walletInsufficient
-                        ? "#ccc"
-                        : paymentMethod === "wallet"
-                          ? "#fff"
-                          : "#666"
-                    }
-                  />
-                </View>
-                <View style={s.paymentOptionText}>
-                  <Text
-                    style={[
-                      s.paymentOptionTitle,
-                      paymentMethod === "wallet" &&
-                        !walletInsufficient &&
-                        s.paymentOptionTitleSelected,
-                      walletInsufficient && s.paymentOptionTitleDisabled,
-                    ]}
-                  >
-                    Wallet
-                  </Text>
-                  {walletLoading ? (
-                    <ActivityIndicator
-                      size="small"
-                      color="#ccc"
-                      style={{ alignSelf: "flex-start", marginTop: 2 }}
+                    <Ionicons
+                      name="cash"
+                      size={18}
+                      color={paymentMethod === "cash" ? "#fff" : "#666"}
                     />
-                  ) : walletInsufficient ? (
-                    <Text style={s.paymentOptionInsufficient}>
-                      ₦
-                      {walletBalanceNaira?.toLocaleString("en-NG", {
-                        minimumFractionDigits: 2,
-                      })}{" "}
-                      — insufficient
+                  </View>
+                  <View style={s.paymentOptionText}>
+                    <Text
+                      style={[
+                        s.paymentOptionTitle,
+                        paymentMethod === "cash" &&
+                          s.paymentOptionTitleSelected,
+                      ]}
+                    >
+                      Cash
                     </Text>
-                  ) : walletBalanceNaira !== null ? (
-                    <Text style={s.paymentOptionSub}>
-                      Balance: ₦
-                      {walletBalanceNaira?.toLocaleString("en-NG", {
-                        minimumFractionDigits: 2,
-                      })}
-                    </Text>
-                  ) : (
-                    <Text style={s.paymentOptionSub}>Tap to use</Text>
+                    <Text style={s.paymentOptionSub}>Pay driver directly</Text>
+                  </View>
+                  {paymentMethod === "cash" && (
+                    <View style={s.paymentCheckCircle}>
+                      <Ionicons name="checkmark" size={12} color="#fff" />
+                    </View>
                   )}
-                </View>
-                {walletInsufficient ? (
-                  <View style={s.paymentLockBadge}>
-                    <Ionicons name="lock-closed" size={11} color="#EF4444" />
-                  </View>
-                ) : paymentMethod === "wallet" ? (
-                  <View style={s.paymentCheckCircle}>
-                    <Ionicons name="checkmark" size={12} color="#fff" />
-                  </View>
-                ) : null}
-              </TouchableOpacity>
-            </View>
+                </TouchableOpacity>
 
-            {/* Insufficient banner */}
-            {walletInsufficient && (
-              <View style={s.insufficientBanner}>
-                <Ionicons name="information-circle" size={14} color="#EF4444" />
-                <Text style={s.insufficientBannerText}>
-                  Your wallet (₦
-                  {walletBalanceNaira?.toLocaleString("en-NG", {
-                    minimumFractionDigits: 2,
-                  })}
-                  ) is less than the fare (₦{estimatedFare?.toLocaleString()}).
-                  Please top up or pay cash.
-                </Text>
+                {/* Wallet */}
+                <TouchableOpacity
+                  style={[
+                    s.paymentOption,
+                    paymentMethod === "wallet" && s.paymentOptionSelected,
+                    walletInsufficient && s.paymentOptionDisabled,
+                  ]}
+                  onPress={() => {
+                    if (walletInsufficient) return;
+                    if (walletBalanceNaira === null) {
+                      Alert.alert(
+                        "Wallet Unavailable",
+                        "Could not load your wallet balance. Please try again or pay with cash.",
+                      );
+                      return;
+                    }
+                    setPaymentMethod("wallet");
+                  }}
+                  activeOpacity={walletInsufficient ? 1 : 0.8}
+                  disabled={walletInsufficient}
+                >
+                  <View
+                    style={[
+                      s.paymentOptionIcon,
+                      {
+                        backgroundColor: walletInsufficient
+                          ? "#F0F0F0"
+                          : paymentMethod === "wallet"
+                            ? "#1A1A1A"
+                            : "#F5F5F0",
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="wallet"
+                      size={18}
+                      color={
+                        walletInsufficient
+                          ? "#ccc"
+                          : paymentMethod === "wallet"
+                            ? "#fff"
+                            : "#666"
+                      }
+                    />
+                  </View>
+                  <View style={s.paymentOptionText}>
+                    <Text
+                      style={[
+                        s.paymentOptionTitle,
+                        paymentMethod === "wallet" &&
+                          !walletInsufficient &&
+                          s.paymentOptionTitleSelected,
+                        walletInsufficient && s.paymentOptionTitleDisabled,
+                      ]}
+                    >
+                      Wallet
+                    </Text>
+                    {walletLoading ? (
+                      <ActivityIndicator
+                        size="small"
+                        color="#ccc"
+                        style={{ alignSelf: "flex-start", marginTop: 2 }}
+                      />
+                    ) : walletInsufficient ? (
+                      <Text style={s.paymentOptionInsufficient}>
+                        ₦
+                        {walletBalanceNaira?.toLocaleString("en-NG", {
+                          minimumFractionDigits: 2,
+                        })}{" "}
+                        — insufficient
+                      </Text>
+                    ) : walletBalanceNaira !== null ? (
+                      <Text style={s.paymentOptionSub}>
+                        Balance: ₦
+                        {walletBalanceNaira?.toLocaleString("en-NG", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </Text>
+                    ) : (
+                      <Text style={s.paymentOptionSub}>Tap to use</Text>
+                    )}
+                  </View>
+                  {walletInsufficient ? (
+                    <View style={s.paymentLockBadge}>
+                      <Ionicons name="lock-closed" size={11} color="#EF4444" />
+                    </View>
+                  ) : paymentMethod === "wallet" ? (
+                    <View style={s.paymentCheckCircle}>
+                      <Ionicons name="checkmark" size={12} color="#fff" />
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
               </View>
-            )}
-          </View>
+
+              {walletInsufficient && (
+                <View style={s.insufficientBanner}>
+                  <Ionicons
+                    name="information-circle"
+                    size={14}
+                    color="#EF4444"
+                  />
+                  <Text style={s.insufficientBannerText}>
+                    Your wallet (₦
+                    {walletBalanceNaira?.toLocaleString("en-NG", {
+                      minimumFractionDigits: 2,
+                    })}
+                    ) is less than the fare (₦{estimatedFare?.toLocaleString()}
+                    ). Please top up or pay cash.
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
 
           {/* Request button */}
           <TouchableOpacity
             style={[
               s.requestBtn,
+              freeRideApplied && s.requestBtnFree,
               (!wsReady || !locationPermissionGranted) && s.requestBtnDisabled,
             ]}
             onPress={() => {
@@ -1100,10 +1748,12 @@ export default function PassengerHomeScreen() {
                 pickupAddress,
                 dropoffAddress,
                 serviceType: selectedRideType,
-                estimatedFare, // ✅ naira — same unit the backend has always expected
+                estimatedFare,
                 distance: routeDistance,
                 duration: routeDuration,
-                paymentMethod, // 'cash' | 'wallet'
+                // BUG 3: Only pass "free_ride" when fare is within the cap.
+                // If fare > ₦5,000, always passes cash/wallet — never free_ride.
+                paymentMethod: freeRideApplied ? "free_ride" : paymentMethod,
               });
             }}
             activeOpacity={0.88}
@@ -1117,7 +1767,9 @@ export default function PassengerHomeScreen() {
                     ? "Location Required"
                     : !wsReady
                       ? "Reconnecting…"
-                      : `Request Ride · ${paymentMethod === "wallet" ? "Wallet" : "Cash"}`}
+                      : freeRideApplied
+                        ? "🎁 Request Free Ride"
+                        : `Request Ride · ${paymentLabel}`}
                 </Text>
                 <Ionicons
                   name="arrow-forward"
@@ -1147,14 +1799,31 @@ export default function PassengerHomeScreen() {
           <View style={s.sheetHandle} />
           <View style={s.rideModalHeader}>
             <Text style={s.rideModalTitle}>Choose ride type</Text>
+            {/* BUG 3: Remind passenger of the cap when they have a free ride banked */}
+            {loyaltyFreeRideBanked && (
+              <Text style={s.rideModalCapHint}>
+                🎁 Free ride applies on trips ₦
+                {FREE_RIDE_MAX_FARE_NAIRA.toLocaleString()} and under
+              </Text>
+            )}
           </View>
           {RIDE_TYPES.map((ride) => {
             const isSelected = selectedRideType === ride.id;
-            // ✅ naira — no *100
             const rideFare =
               routeDistance > 0
                 ? calcFareNaira(routeDistance, ride.multiplier)
                 : null;
+
+            // BUG 3: Per-ride eligibility — each option independently decides.
+            const rideQualifies =
+              loyaltyFreeRideBanked &&
+              rideFare !== null &&
+              rideFare <= FREE_RIDE_MAX_FARE_NAIRA;
+            const rideExceedsCap =
+              loyaltyFreeRideBanked &&
+              rideFare !== null &&
+              rideFare > FREE_RIDE_MAX_FARE_NAIRA;
+
             return (
               <TouchableOpacity
                 key={ride.id}
@@ -1172,11 +1841,39 @@ export default function PassengerHomeScreen() {
                   </Text>
                 </View>
                 <View style={s.rideOptionRight}>
-                  {rideFare && (
-                    <Text style={s.rideOptionFare}>
-                      ₦{rideFare.toLocaleString()}
-                    </Text>
-                  )}
+                  {rideFare &&
+                    (rideQualifies ? (
+                      // Fare ≤ ₦5,000 — show FREE
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text
+                          style={[
+                            s.rideOptionFare,
+                            {
+                              textDecorationLine: "line-through",
+                              color: "#aaa",
+                              fontSize: 13,
+                            },
+                          ]}
+                        >
+                          ₦{rideFare.toLocaleString()}
+                        </Text>
+                        <Text style={[s.rideOptionFare, { color: "#22C55E" }]}>
+                          FREE
+                        </Text>
+                      </View>
+                    ) : rideExceedsCap ? (
+                      // Fare > ₦5,000 — show normal fare + "pay normally" note
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text style={s.rideOptionFare}>
+                          ₦{rideFare.toLocaleString()}
+                        </Text>
+                        <Text style={s.rideOptionCapNote}>Pay normally</Text>
+                      </View>
+                    ) : (
+                      <Text style={s.rideOptionFare}>
+                        ₦{rideFare.toLocaleString()}
+                      </Text>
+                    ))}
                   {isSelected && (
                     <View style={s.rideOptionCheck}>
                       <Ionicons name="checkmark" size={14} color="#fff" />
@@ -1458,7 +2155,6 @@ const s = StyleSheet.create({
 
   searchCard: {
     position: "absolute",
-    top: Platform.OS === "ios" ? 114 : 104,
     left: 16,
     right: 16,
     backgroundColor: "#fff",
@@ -1569,6 +2265,16 @@ const s = StyleSheet.create({
     color: "#1A1A1A",
     marginBottom: 6,
   },
+
+  // Free fare display in ride picker
+  freeFareBadge: { alignItems: "flex-end", marginBottom: 6 },
+  freeFareOld: {
+    fontSize: 12,
+    color: "#aaa",
+    textDecorationLine: "line-through",
+  },
+  freeFareNew: { fontSize: 18, fontWeight: "800", color: "#22C55E" },
+
   changeTag: {
     backgroundColor: "#1A1A1A",
     borderRadius: 8,
@@ -1694,6 +2400,9 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  requestBtnFree: {
+    backgroundColor: "#15803D",
+  },
   requestBtnDisabled: { backgroundColor: "#C0C0C0" },
   requestBtnText: {
     color: "#fff",
@@ -1728,6 +2437,13 @@ const s = StyleSheet.create({
     borderBottomColor: "#F0F0F0",
   },
   rideModalTitle: { fontSize: 18, fontWeight: "800", color: "#1A1A1A" },
+  // BUG 3: Cap hint shown under the modal title when a free ride is banked
+  rideModalCapHint: {
+    fontSize: 11,
+    color: "#22C55E",
+    fontWeight: "600",
+    marginTop: 4,
+  },
   rideOption: {
     flexDirection: "row",
     alignItems: "center",
@@ -1762,6 +2478,13 @@ const s = StyleSheet.create({
     backgroundColor: "#10B981",
     justifyContent: "center",
     alignItems: "center",
+  },
+  // BUG 3: Amber note on ride options that exceed the ₦5,000 cap
+  rideOptionCapNote: {
+    fontSize: 9,
+    color: "#D97706",
+    fontWeight: "600",
+    marginTop: 1,
   },
 
   tripCard: {

@@ -1,51 +1,136 @@
 // src/screens/driver/DriverOnlineMapScreen.js
-import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ActivityIndicator, 
-  TouchableOpacity, 
-  Alert, 
-  Dimensions, 
-  Platform, 
-  Animated, 
+import React, { useEffect, useState, useRef, useCallback } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+  TouchableOpacity,
+  Alert,
+  Dimensions,
+  Platform,
+  Animated,
   Modal,
   Vibration,
-  Image
-} from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, Circle } from 'react-native-maps';
-import * as Location from 'expo-location';
-import { Audio } from 'expo-av';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
-import { getAuthToken } from '../../utils/auth';
-import { 
-  initWebSocket, 
-  sendWS, 
-  addListener, 
-  removeListener, 
-  isWebSocketConnected, 
-  closeWebSocket 
-} from '../../utils/socket';
-import * as Notifications from 'expo-notifications';
+  StatusBar,
+  Image,
+} from "react-native";
+import MapView, {
+  Marker,
+  PROVIDER_GOOGLE,
+  Circle,
+  Polyline,
+} from "react-native-maps";
+import * as Location from "expo-location";
+import { Audio } from "expo-av";
+import { LinearGradient } from "expo-linear-gradient";
+import { useNavigation } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
+import { getAuthToken } from "../../utils/auth";
+import {
+  initWebSocket,
+  sendWS,
+  addListener,
+  removeListener,
+  isWebSocketConnected,
+  closeWebSocket,
+} from "../../utils/socket";
+import * as Notifications from "expo-notifications";
 
-const baseUrl = 'https://wheels-backend-7ydc.onrender.com';
-const { width, height } = Dimensions.get('window');
-const LATITUDE_DELTA = 0.005;
+const baseUrl = "https://wheels-backend-7ydc.onrender.com";
+const { width, height } = Dimensions.get("window");
+const LATITUDE_DELTA = 0.008;
 const LONGITUDE_DELTA = LATITUDE_DELTA * (width / height);
-const CAR_MARKER = require('../../../assets/car-marker.png');
 
-// Try to load the logo
-let WHEELS_LOGO = null;
-try {
-  WHEELS_LOGO = require('../../../assets/logo.jpg');
-} catch (error) {
-  console.warn('Logo not found');
-}
+// ─── Map style matching passenger home ───────────────────────────────────────
+const MAP_STYLE = [
+  { elementType: "geometry", stylers: [{ color: "#f5f5f0" }] },
+  { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#616161" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#f5f5f5" }] },
+  {
+    featureType: "administrative.land_parcel",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#bdbdbd" }],
+  },
+  {
+    featureType: "poi",
+    elementType: "geometry",
+    stylers: [{ color: "#eeeeee" }],
+  },
+  {
+    featureType: "poi",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#757575" }],
+  },
+  {
+    featureType: "poi.park",
+    elementType: "geometry",
+    stylers: [{ color: "#d5e8d4" }],
+  },
+  {
+    featureType: "poi.park",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#9e9e9e" }],
+  },
+  {
+    featureType: "road",
+    elementType: "geometry",
+    stylers: [{ color: "#ffffff" }],
+  },
+  {
+    featureType: "road.arterial",
+    elementType: "geometry",
+    stylers: [{ color: "#ffffff" }],
+  },
+  {
+    featureType: "road.arterial",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#757575" }],
+  },
+  {
+    featureType: "road.highway",
+    elementType: "geometry",
+    stylers: [{ color: "#f8e8a0" }],
+  },
+  {
+    featureType: "road.highway",
+    elementType: "geometry.stroke",
+    stylers: [{ color: "#e8d870" }],
+  },
+  {
+    featureType: "road.highway",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#616161" }],
+  },
+  {
+    featureType: "road.local",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#9e9e9e" }],
+  },
+  {
+    featureType: "transit.line",
+    elementType: "geometry",
+    stylers: [{ color: "#e5e5e5" }],
+  },
+  {
+    featureType: "transit.station",
+    elementType: "geometry",
+    stylers: [{ color: "#eeeeee" }],
+  },
+  {
+    featureType: "water",
+    elementType: "geometry",
+    stylers: [{ color: "#b8d4e8" }],
+  },
+  {
+    featureType: "water",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#9e9e9e" }],
+  },
+];
 
-// Configure notifications with custom icon
+// ─── Notification setup ───────────────────────────────────────────────────────
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -54,279 +139,315 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// Set default notification channel for Android
-if (Platform.OS === 'android') {
-  Notifications.setNotificationChannelAsync('default', {
-    name: 'Wheels Driver Notifications',
+if (Platform.OS === "android") {
+  Notifications.setNotificationChannelAsync("wheels_driver", {
+    name: "Wheels Driver",
     importance: Notifications.AndroidImportance.HIGH,
     vibrationPattern: [0, 250, 250, 250],
-    lightColor: '#0066FF',
-    sound: 'default',
+    lightColor: "#1A1A1A",
+    sound: "default",
     enableVibrate: true,
     showBadge: true,
-  }).catch(error => {
-    console.warn('Error setting notification channel:', error);
-  });
+  }).catch(() => {});
 }
+
+// ─── Service type config ──────────────────────────────────────────────────────
+const SERVICE_CONFIG = {
+  CITY_RIDE: {
+    icon: "car-sport",
+    color: "#1A1A1A",
+    bg: "#F0F0F0",
+    label: "City Ride",
+  },
+  DELIVERY_BIKE: {
+    icon: "bicycle",
+    color: "#059669",
+    bg: "#ECFDF5",
+    label: "Delivery Bike",
+  },
+  KEKE: { icon: "triangle", color: "#D97706", bg: "#FFFBEB", label: "Keke" },
+  LUXURY_RENTAL: {
+    icon: "diamond",
+    color: "#7C3AED",
+    bg: "#F5F3FF",
+    label: "Luxury",
+  },
+};
 
 export default function DriverOnlineMapScreen() {
   const navigation = useNavigation();
   const mapRef = useRef(null);
   const notificationListener = useRef();
+  const soundIntervalRef = useRef(null);
+  const pollingRef = useRef(null);
+  const slideAnim = useRef(new Animated.Value(height)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const statusCardAnim = useRef(new Animated.Value(0)).current;
+  const earningsCountAnim = useRef(new Animated.Value(0)).current;
+
   const [token, setToken] = useState(null);
   const [location, setLocation] = useState(null);
   const [heading, setHeading] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(false);
   const [locationSubscription, setLocationSubscription] = useState(null);
-  const [pulseAnim] = useState(new Animated.Value(1));
   const [incomingRequest, setIncomingRequest] = useState(null);
-  const [wsStatus, setWsStatus] = useState('connecting');
+  const [wsStatus, setWsStatus] = useState("connecting");
   const [offerVisible, setOfferVisible] = useState(false);
-  const slideAnim = useRef(new Animated.Value(height)).current;
   const [offerTimeout, setOfferTimeout] = useState(null);
   const [timeLeft, setTimeLeft] = useState(20);
-  const [pickupAddress, setPickupAddress] = useState('Fetching pickup location...');
-  const [destinationAddress, setDestinationAddress] = useState('Destination will be shared after acceptance');
+  const [pickupAddress, setPickupAddress] = useState("Fetching pickup…");
+  const [destinationAddress, setDestinationAddress] = useState(
+    "Shared after acceptance",
+  );
   const [sound, setSound] = useState(null);
-  const soundIntervalRef = useRef(null);
-  const pollingRef = useRef(null);
-  const [pollCount, setPollCount] = useState(0);
+  const [todayTrips, setTodayTrips] = useState(0);
+  const [isMapReady, setIsMapReady] = useState(false);
+  const [wsConnecting, setWsConnecting] = useState(true);
+  const [connectionAttempts, setConnectionAttempts] = useState(0);
 
-  // ────────────────────────────────────────────────
-  // NOTIFICATION SYSTEM
-  // ────────────────────────────────────────────────
-  useEffect(() => {
-    registerForPushNotificationsAsync();
-    
-    // Listen for notifications while app is foregrounded
-    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
-      console.log('Driver notification received:', notification);
-      Vibration.vibrate(300);
-    });
-
-    return () => {
-      if (notificationListener.current) {
-        notificationListener.current.remove();
-      }
-      Notifications.removeAllListeners?.();
-    };
-  }, []);
-
-  // Send notification helper function
-  const sendNotification = async (title, body, data = {}) => {
+  // ── Notification helper ────────────────────────────────────────────────────
+  const sendNotification = useCallback(async (title, body, data = {}) => {
     try {
-      const notificationContent = {
-        title,
-        body,
-        data: { 
-          ...data, 
-          screen: 'DriverOnlineMap',
-          logo: WHEELS_LOGO ? 'wheels_logo' : 'default_icon'
-        },
-        sound: true,
-        vibrate: [0, 250, 250],
-      };
-
-      if (data.badgeCount) {
-        notificationContent.badge = data.badgeCount;
-      }
-
       await Notifications.scheduleNotificationAsync({
-        content: notificationContent,
+        content: { title, body, data, sound: true },
         trigger: null,
       });
-      
-      console.log(`📱 Notification sent: ${title}`);
-    } catch (error) {
-      console.error('Error sending notification:', error);
-    }
-  };
+    } catch {}
+  }, []);
 
-  // Register for push notifications
-  async function registerForPushNotificationsAsync() {
-    try {
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-      
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-      
-      if (finalStatus !== 'granted') {
-        console.log('Failed to get push notification permission');
-        return null;
-      }
-
-      const token = await Notifications.getExpoPushTokenAsync({
-        projectId: '89ca3ed1-d2fb-429a-9fdb-614202a280e5',
-      });
-
-      console.log('Push token:', token.data);
-      
-      if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('default', {
-          name: 'default',
-          importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#0066FF',
-        });
-      }
-
-      return token.data;
-    } catch (error) {
-      console.error('Error getting push token:', error);
-      return null;
-    }
-  }
-
-  // ────────────────────────────────────────────────
-  // LOAD NOTIFICATION SOUND
-  // ────────────────────────────────────────────────
+  // ── Register notifications ────────────────────────────────────────────────
   useEffect(() => {
-    const loadSound = async () => {
+    (async () => {
       try {
-        const { sound: notificationSound } = await Audio.Sound.createAsync(
-          require('../../../assets/sound/sound1.mp3'),
-          { shouldPlay: false, isLooping: false }
+        const { status: existing } = await Notifications.getPermissionsAsync();
+        if (existing !== "granted")
+          await Notifications.requestPermissionsAsync();
+        if (Platform.OS === "android") {
+          await Notifications.setNotificationChannelAsync("wheels_driver", {
+            name: "Wheels Driver",
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: "#1A1A1A",
+          });
+        }
+      } catch {}
+    })();
+    notificationListener.current =
+      Notifications.addNotificationReceivedListener(() => {
+        Vibration.vibrate(200);
+      });
+    return () => notificationListener.current?.remove();
+  }, []);
+
+  // ── Load sound ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        const { sound: s } = await Audio.Sound.createAsync(
+          require("../../../assets/sound/sound1.mp3"),
+          { shouldPlay: false, isLooping: false },
         );
-        setSound(notificationSound);
-        console.log('🔊 Sound loaded successfully');
-      } catch (err) {
-        console.warn('Sound load failed:', err);
-      }
-    };
-
-    loadSound();
-
+        setSound(s);
+      } catch {}
+    })();
     return () => {
-      if (sound) {
-        sound.unloadAsync().catch(() => {});
-      }
-      if (soundIntervalRef.current) {
-        clearInterval(soundIntervalRef.current);
-      }
+      sound?.unloadAsync().catch(() => {});
+      if (soundIntervalRef.current) clearInterval(soundIntervalRef.current);
     };
   }, []);
 
-  // ────────────────────────────────────────────────
-  // WEBSOCKET CONNECTION & LISTENERS
-  // ────────────────────────────────────────────────
+  // ── Status card entrance ───────────────────────────────────────────────────
   useEffect(() => {
-    const setupWebSocket = async () => {
+    Animated.spring(statusCardAnim, {
+      toValue: 1,
+      tension: 60,
+      friction: 9,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  // ── Pulse animation ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (isOnline) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.5,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ]),
+      ).start();
+    } else {
+      pulseAnim.stopAnimation();
+      pulseAnim.setValue(1);
+    }
+  }, [isOnline]);
+
+  // ── WebSocket ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const setup = async () => {
       try {
         await initWebSocket();
-        addListener('connect', () => {
-          setWsStatus('connected');
-          sendNotification(
-            '✅ Connected',
-            'You are now connected to ride requests',
-            { 
-              action: 'websocket_connected',
-              icon: 'connection_icon',
-              color: '#34C759',
-            }
-          );
+        addListener("connect", () => {
+          setWsStatus("connected");
+          setWsConnecting(false);
+          setConnectionAttempts(0);
+          sendNotification("Connected", "Now receiving ride requests.");
         });
-        addListener('disconnect', () => {
-          setWsStatus('disconnected');
-          sendNotification(
-            '⚠️ Connection Lost',
-            'Reconnecting to ride requests...',
-            { 
-              action: 'websocket_disconnected',
-              icon: 'warning_icon',
-              color: '#FF9500',
-            }
-          );
+        addListener("disconnect", () => {
+          setWsStatus("disconnected");
+          setWsConnecting(true);
+          sendNotification("Connection lost", "Reconnecting…");
         });
-        addListener('error', () => {
-          setWsStatus('error');
-          sendNotification(
-            '❌ Connection Error',
-            'Please check your internet connection',
-            { 
-              action: 'websocket_error',
-              icon: 'error_icon',
-              color: '#FF3B30',
-            }
-          );
+        addListener("error", () => setWsStatus("error"));
+        addListener("trip_offered", handleIncomingOffer);
+        addListener("notification", (d) => {
+          if (
+            d.type === "trip_offered" ||
+            d.notificationType === "trip_offered"
+          )
+            handleIncomingOffer(d.data || d);
         });
-        addListener('trip_offered', handleIncomingOffer);
-        addListener('notification', (data) => {
-          if (data.type === 'trip_offered' || data.notificationType === 'trip_offered') {
-            handleIncomingOffer(data.data || data);
-          }
-        });
-      } catch (err) {
-        console.error('WebSocket setup failed:', err);
-        sendNotification(
-          '❌ WebSocket Error',
-          'Failed to establish live connection',
-          { 
-            action: 'websocket_setup_failed',
-            icon: 'error_icon',
-            color: '#FF3B30',
-          }
-        );
-      }
+      } catch {}
     };
-
-    setupWebSocket();
-
+    setup();
     return () => {
-      removeListener('connect');
-      removeListener('disconnect');
-      removeListener('error');
-      removeListener('trip_offered');
-      removeListener('notification');
+      removeListener("connect");
+      removeListener("disconnect");
+      removeListener("error");
+      removeListener("trip_offered");
+      removeListener("notification");
     };
   }, []);
 
-  // ────────────────────────────────────────────────
-  // HANDLE INCOMING RIDE OFFER
-  // ────────────────────────────────────────────────
+  // ── Fetch offer details ────────────────────────────────────────────────────
+  const fetchOfferDetails = useCallback(async () => {
+    try {
+      const authToken = token || (await getAuthToken());
+      const res = await fetch(`${baseUrl}/drivers/offered-request`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.request || null;
+    } catch {
+      return null;
+    }
+  }, [token]);
+
+  // ── Sound helpers ──────────────────────────────────────────────────────────
+  const startSoundLoop = useCallback(async () => {
+    if (!sound) return;
+    try {
+      if (soundIntervalRef.current) clearInterval(soundIntervalRef.current);
+      await sound.replayAsync();
+      soundIntervalRef.current = setInterval(async () => {
+        try {
+          await sound.replayAsync();
+        } catch {}
+      }, 3000);
+    } catch {}
+  }, [sound]);
+
+  const stopSoundLoop = useCallback(async () => {
+    if (soundIntervalRef.current) {
+      clearInterval(soundIntervalRef.current);
+      soundIntervalRef.current = null;
+    }
+    try {
+      await sound?.stopAsync();
+    } catch {}
+  }, [sound]);
+
+  // ── Show/hide offer card ───────────────────────────────────────────────────
+  const showOfferCard = useCallback(() => {
+    setOfferVisible(true);
+    Animated.spring(slideAnim, {
+      toValue: 0,
+      tension: 75,
+      friction: 10,
+      useNativeDriver: true,
+    }).start();
+  }, [slideAnim]);
+
+  const hideOfferCard = useCallback(
+    (cb) => {
+      stopSoundLoop();
+      Animated.timing(slideAnim, {
+        toValue: height,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        setOfferVisible(false);
+        setIncomingRequest(null);
+        if (offerTimeout) {
+          clearTimeout(offerTimeout);
+          setOfferTimeout(null);
+        }
+        if (cb) setTimeout(cb, 80);
+      });
+    },
+    [slideAnim, stopSoundLoop, offerTimeout],
+  );
+
+  const startOfferTimer = useCallback(() => {
+    if (offerTimeout) clearTimeout(offerTimeout);
+    setTimeLeft(20);
+    const tid = setTimeout(() => {
+      sendNotification("Ride Expired", "Request timed out.");
+      rejectRide();
+    }, 20000);
+    setOfferTimeout(tid);
+    const cd = setInterval(() => {
+      setTimeLeft((p) => {
+        if (p <= 1) {
+          clearInterval(cd);
+          return 0;
+        }
+        return p - 1;
+      });
+    }, 1000);
+  }, [offerTimeout]);
+
+  // ── Handle incoming offer ──────────────────────────────────────────────────
   const handleIncomingOffer = useCallback(
     async (data) => {
       const requestId = data.requestId || data.tripId;
-
-      if (!requestId || (incomingRequest?.requestId === requestId && offerVisible)) {
-        console.log('🔄 Duplicate or invalid offer ignored');
+      if (
+        !requestId ||
+        (incomingRequest?.requestId === requestId && offerVisible)
+      )
         return;
-      }
 
-      console.log('📨 Incoming offer:', data);
-
-      // Send push notification for new ride
-      sendNotification(
-        '🚗 New Ride Request!',
-        'Tap to view the ride details',
-        { 
-          requestId: requestId,
-          action: 'new_ride_request',
-          icon: 'ride_request_icon',
-          color: '#007AFF',
-          badgeCount: 1,
-        }
-      );
+      sendNotification("🚗 New Ride Request", "Tap to view details.");
+      Vibration.vibrate([0, 300, 100, 300]);
 
       try {
-        const details = await fetchOfferDetails(requestId);
+        const details = await fetchOfferDetails();
         if (!details) return;
 
         const offer = {
           requestId: details.requestId,
-          passengerName: details.passengerName || 'Unknown Passenger',
-          passengerPhone: details.passengerPhone || '',
-          serviceType: details.serviceType || 'CITY_RIDE',
+          passengerName: details.passengerName || "Passenger",
+          passengerPhone: details.passengerPhone || "",
+          serviceType: details.serviceType || "CITY_RIDE",
           fare: details.estimatedFare || details.fare || 0,
           pickup: details.pickup,
           destination: details.dropoff || null,
-          offeredAt: details.offeredAt || new Date().toISOString(),
+          paymentMethod: details.paymentMethod || "cash",
+          distance: details.distance || 0,
+          duration: details.duration || 0,
+          pickupAddress: details.pickupAddress || "Fetching…",
+          destinationAddress:
+            details.dropoffAddress || "Shared after acceptance",
           passengerId: details.passengerId,
-          pickupAddress: details.pickupAddress || 'Fetching...',
-          destinationAddress: details.dropoffAddress || 'Destination will be shared after acceptance',
         };
 
         setIncomingRequest(offer);
@@ -335,608 +456,366 @@ export default function DriverOnlineMapScreen() {
         if (offer.pickup?.coordinates?.length === 2) {
           const [lng, lat] = offer.pickup.coordinates;
           try {
-            const addresses = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-            if (addresses?.[0]) {
-              const addr = addresses[0];
-              const formatted = [addr.name, addr.street, addr.city, addr.region].filter(Boolean).join(', ') || 'Pickup location in Abuja';
-              setPickupAddress(formatted);
+            const addrs = await Location.reverseGeocodeAsync({
+              latitude: lat,
+              longitude: lng,
+            });
+            if (addrs?.[0]) {
+              const a = addrs[0];
+              setPickupAddress(
+                [a.name, a.street, a.city].filter(Boolean).join(", ") ||
+                  "Pickup nearby",
+              );
             }
-          } catch (err) {
-            console.warn('Pickup geocoding failed:', err);
-            setPickupAddress(details.pickupAddress || 'Pickup nearby');
+          } catch {
+            setPickupAddress(details.pickupAddress || "Pickup nearby");
           }
-        } else {
-          setPickupAddress(details.pickupAddress || 'Pickup nearby');
-        }
+        } else setPickupAddress(details.pickupAddress || "Pickup nearby");
 
-        // Destination address
+        // Reverse geocode dropoff
         if (details.dropoffAddress) {
           setDestinationAddress(details.dropoffAddress);
         } else if (details.dropoff?.coordinates?.length === 2) {
           const [lng, lat] = details.dropoff.coordinates;
           try {
-            const addresses = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-            if (addresses?.[0]) {
-              const addr = addresses[0];
-              const formatted = [addr.name, addr.street, addr.city, addr.region].filter(Boolean).join(', ');
-              setDestinationAddress(formatted);
+            const addrs = await Location.reverseGeocodeAsync({
+              latitude: lat,
+              longitude: lng,
+            });
+            if (addrs?.[0]) {
+              const a = addrs[0];
+              setDestinationAddress(
+                [a.name, a.street, a.city].filter(Boolean).join(", ") ||
+                  "Destination nearby",
+              );
             }
-          } catch (err) {
-            console.warn('Dropoff geocoding failed:', err);
-            setDestinationAddress('Destination nearby');
+          } catch {
+            setDestinationAddress("Destination nearby");
           }
-        } else {
-          setDestinationAddress('Destination will be shared after acceptance');
-        }
+        } else setDestinationAddress("Shared after acceptance");
 
         showOfferCard();
         startOfferTimer();
         startSoundLoop();
-      } catch (err) {
-        console.error('Error processing incoming offer:', err);
-        sendNotification(
-          '⚠️ Ride Request Error',
-          'Failed to load ride details',
-          { 
-            action: 'ride_request_error',
-            icon: 'error_icon',
-            color: '#FF9500',
-          }
-        );
-      }
+      } catch {}
     },
-    [incomingRequest, offerVisible]
+    [
+      incomingRequest,
+      offerVisible,
+      fetchOfferDetails,
+      showOfferCard,
+      startOfferTimer,
+      startSoundLoop,
+      sendNotification,
+    ],
   );
 
-  // ────────────────────────────────────────────────
-  // FETCH CURRENT OFFERED RIDE DETAILS
-  // ────────────────────────────────────────────────
-  const fetchOfferDetails = async (requestId) => {
+  // ── Driver state cleanup ───────────────────────────────────────────────────
+  const checkAndCleanupDriverState = useCallback(async () => {
     try {
       const authToken = token || (await getAuthToken());
-      const response = await fetch(`${baseUrl}/drivers/offered-request`, {
+      if (!authToken) return false;
+      const res = await fetch(`${baseUrl}/drivers/current-state`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
-
-      if (!response.ok) {
-        console.log(`Offer fetch failed: ${response.status}`);
-        return null;
-      }
-
-      const json = await response.json();
-      return json.request || null;
-    } catch (err) {
-      console.error('Fetch offer details error:', err);
-      return null;
-    }
-  };
-
-  const showOfferCard = () => {
-    setOfferVisible(true);
-    Animated.spring(slideAnim, {
-      toValue: 0,
-      tension: 80,
-      friction: 9,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const startOfferTimer = () => {
-    if (offerTimeout) clearTimeout(offerTimeout);
-    setTimeLeft(20);
-
-    const timeoutId = setTimeout(() => {
-      console.log('Offer timed out → auto reject');
-      sendNotification(
-        '⏰ Ride Expired',
-        'The ride request has expired',
-        { 
-          action: 'ride_expired',
-          icon: 'timeout_icon',
-          color: '#FF9500',
-        }
-      );
-      rejectRide();
-    }, 20000);
-
-    setOfferTimeout(timeoutId);
-
-    const countdown = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(countdown);
-          return 0;
-        }
-        return prev - 1;
+      if (!res.ok) return false;
+      const state = await res.json();
+      if (!state.needsCleanup) return false;
+      const cleanup = await fetch(`${baseUrl}/drivers/cleanup-state`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
       });
-    }, 1000);
-  };
-
-  const startSoundLoop = async () => {
-    if (!sound) return;
-
-    try {
-      if (soundIntervalRef.current) {
-        clearInterval(soundIntervalRef.current);
-      }
-
-      await sound.replayAsync();
-      soundIntervalRef.current = setInterval(async () => {
-        try {
-          await sound.replayAsync();
-        } catch (e) {
-          console.warn('Sound replay failed:', e);
-        }
-      }, 3000);
-    } catch (err) {
-      console.warn('Cannot start sound loop:', err);
-    }
-  };
-
-  const stopSoundLoop = async () => {
-    if (soundIntervalRef.current) {
-      clearInterval(soundIntervalRef.current);
-      soundIntervalRef.current = null;
-    }
-    if (sound) {
-      try {
-        await sound.stopAsync();
-      } catch {}
-    }
-  };
-
-  const hideOfferCard = (callback) => {
-    stopSoundLoop();
-    Animated.timing(slideAnim, {
-      toValue: height,
-      duration: 320,
-      useNativeDriver: true,
-    }).start(() => {
-      setOfferVisible(false);
-      setIncomingRequest(null);
-      if (offerTimeout) {
-        clearTimeout(offerTimeout);
-        setOfferTimeout(null);
-      }
-      if (callback) {
-        setTimeout(callback, 100);
-      }
-    });
-  };
-
-  const checkAndCleanupDriverState = async () => {
-    try {
-      const authToken = token || await getAuthToken();
-      if (!authToken) {
-        console.log('No auth token for cleanup check');
-        return;
-      }
-
-      console.log('🔍 Checking driver state...');
-
-      const stateResponse = await fetch(`${baseUrl}/drivers/current-state`, {
-        headers: { Authorization: `Bearer ${authToken}` }
-      });
-
-      if (!stateResponse.ok) {
-        console.log('Failed to get driver state');
-        return;
-      }
-
-      const state = await stateResponse.json();
-      console.log('Driver state:', state);
-
-      if (state.needsCleanup) {
-        console.log('⚠️ Driver state needs cleanup - performing automatic cleanup...');
-
-        sendNotification(
-          '🔄 Cleaning Up',
-          'Your driver status is being refreshed...',
-          { 
-            action: 'driver_cleanup_started',
-            icon: 'refresh_icon',
-            color: '#FF9500',
-          }
-        );
-
-        const cleanupResponse = await fetch(`${baseUrl}/drivers/cleanup-state`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${authToken}`
-          }
-        });
-
-        if (cleanupResponse.ok) {
-          const result = await cleanupResponse.json();
-          console.log('✅ Cleanup result:', result);
-
-          sendNotification(
-            '✅ Status Refreshed',
-            'Your driver status has been cleaned up. You can now accept new rides.',
-            { 
-              action: 'driver_cleanup_completed',
-              icon: 'success_icon',
-              color: '#34C759',
-            }
-          );
-
-          return true;
-        } else {
-          console.error('Cleanup failed');
-          sendNotification(
-            '❌ Cleanup Failed',
-            'Could not refresh driver status',
-            { 
-              action: 'driver_cleanup_failed',
-              icon: 'error_icon',
-              color: '#FF3B30',
-            }
-          );
-          return false;
-        }
-      } else {
-        console.log('✅ Driver state is clean - no cleanup needed');
-        return false;
-      }
-
-    } catch (err) {
-      console.error('State check/cleanup error:', err);
-      sendNotification(
-        '❌ Cleanup Error',
-        'Error checking driver status',
-        { 
-          action: 'driver_cleanup_error',
-          icon: 'error_icon',
-          color: '#FF3B30',
-        }
-      );
+      return cleanup.ok;
+    } catch {
       return false;
     }
-  };
+  }, [token]);
 
-  // ✅ UPDATED: Accept Ride with Pre-Check and Notifications
-  const acceptRide = async () => {
-    console.log('=== ACCEPT RIDE CALLED ===');
-    console.log('Incoming request:', incomingRequest);
-    
+  // ── Accept ride ────────────────────────────────────────────────────────────
+  const acceptRide = useCallback(async () => {
     if (!incomingRequest?.requestId) {
-      Alert.alert('Error', 'Invalid trip request');
       hideOfferCard();
       return;
     }
-
-    if (offerVisible === false) {
-      console.log('⚠️ Already processing, ignoring duplicate tap');
-      return;
-    }
-
     try {
       stopSoundLoop();
       if (offerTimeout) {
         clearTimeout(offerTimeout);
         setOfferTimeout(null);
       }
-
-      // ✅ PRE-CHECK: Verify and cleanup driver state BEFORE accepting
-      console.log('🔍 Pre-checking driver state before accept...');
       await checkAndCleanupDriverState();
 
-      // Send accepting notification
-      sendNotification(
-        '🔄 Processing...',
-        'Accepting ride request...',
-        { 
-          action: 'ride_accept_started',
-          icon: 'processing_icon',
-          color: '#FF9500',
-        }
-      );
-
-      const authToken = token || await getAuthToken();
+      const authToken = token || (await getAuthToken());
       if (!authToken) {
-        Alert.alert(
-          'Session Error',
-          'Please go offline and online again to refresh your session.',
-          [{ text: 'OK', onPress: () => navigation.replace('DriverHomeOffline') }]
-        );
+        Alert.alert("Session Error", "Please go offline and online again.", [
+          {
+            text: "OK",
+            onPress: () => navigation.replace("DriverHomeOffline"),
+          },
+        ]);
         return;
       }
 
-      const idempotencyKey = `accept_${incomingRequest.requestId}_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-      
-      console.log('🚗 Sending accept request');
-      console.log('Request ID:', incomingRequest.requestId);
-      console.log('Idempotency Key:', idempotencyKey);
-
+      const idempotencyKey = `accept_${incomingRequest.requestId}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        controller.abort();
-        console.log('⏰ Request aborted due to timeout');
-      }, 30000);
+      const tOut = setTimeout(() => controller.abort(), 30000);
 
-      const response = await fetch(`${baseUrl}/trips/accept`, {
-        method: 'POST',
+      const res = await fetch(`${baseUrl}/trips/accept`, {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'X-Idempotency-Key': idempotencyKey,
-          'Authorization': `Bearer ${authToken}`,
+          "Content-Type": "application/json",
+          "X-Idempotency-Key": idempotencyKey,
+          Authorization: `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           requestId: incomingRequest.requestId,
-          idempotencyKey: idempotencyKey
+          idempotencyKey,
         }),
-        signal: controller.signal
+        signal: controller.signal,
       });
-
-      clearTimeout(timeoutId);
-
-      const responseText = await response.text();
-      console.log('Response status:', response.status);
-      console.log('Response body:', responseText);
+      clearTimeout(tOut);
 
       let data;
       try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('❌ JSON parse error:', parseError);
-        throw new Error('Invalid server response. Please try again.');
+        data = JSON.parse(await res.text());
+      } catch {
+        throw new Error("Invalid server response.");
       }
 
-      if (response.ok && data.success) {
-        console.log('✅ Ride accepted successfully');
-        console.log('Trip ID:', data.tripId);
-        
-        // Send success notification
-        sendNotification(
-          '✅ Ride Accepted!',
-          'Navigating to ride details...',
-          { 
-            tripId: data.tripId,
-            passengerName: incomingRequest.passengerName,
-            action: 'ride_accepted',
-            icon: 'success_icon',
-            color: '#34C759',
-            badgeCount: 0, // Clear badge
-          }
-        );
-        
+      if (res.ok && data.success) {
+        setTodayTrips((p) => p + 1);
+        sendNotification("Ride Accepted!", "Navigating to trip…");
         hideOfferCard(() => {
           setTimeout(() => {
-            navigation.replace('RideRequest', {
+            navigation.replace("RideRequest", {
               tripId: data.tripId,
               requestId: data.requestId || incomingRequest.requestId,
-              passengerName: incomingRequest.passengerName || 'Passenger',
-              passengerPhone: incomingRequest.passengerPhone || '',
-              serviceType: incomingRequest.serviceType || 'CITY_RIDE',
-              fare: incomingRequest.fare || 0,
+              passengerName: incomingRequest.passengerName,
+              passengerPhone: incomingRequest.passengerPhone,
+              serviceType: incomingRequest.serviceType,
+              fare: incomingRequest.fare,
               pickup: incomingRequest.pickup,
               destination: incomingRequest.destination,
-              pickupAddress: pickupAddress || 'Pickup location',
-              destinationAddress: destinationAddress || 'Destination',
+              pickupAddress,
+              destinationAddress,
               driverId: data.driverId,
             });
           }, 300);
         });
-        
       } else {
-        const errorMsg = data?.error?.message || 'Could not accept ride';
-        const errorCode = data?.error?.code;
-        
-        console.error('❌ Accept failed:', errorMsg, errorCode);
-        
-        // Send error notification
-        sendNotification(
-          '❌ Accept Failed',
-          errorMsg,
-          { 
-            action: 'ride_accept_failed',
-            icon: 'error_icon',
-            color: '#FF3B30',
-          }
-        );
-        
-        let alertTitle = 'Accept Failed';
-        let alertMessage = errorMsg;
-        
-        if (errorMsg.includes('already on') || errorCode === 'TRIP_UNAVAILABLE') {
-          Alert.alert(
-            'Status Issue Detected',
-            'Your driver status needs to be refreshed. Would you like to fix this now?',
-            [
-              {
-                text: 'Cancel',
-                style: 'cancel',
-                onPress: () => hideOfferCard()
+        const errMsg = data?.error?.message || "Could not accept ride.";
+        const errCode = data?.error?.code;
+        if (errMsg.includes("already on") || errCode === "TRIP_UNAVAILABLE") {
+          Alert.alert("Status Issue", "Driver status needs refresh. Fix now?", [
+            { text: "Cancel", style: "cancel", onPress: () => hideOfferCard() },
+            {
+              text: "Fix & Retry",
+              onPress: async () => {
+                const cleaned = await checkAndCleanupDriverState();
+                if (cleaned) setTimeout(() => acceptRide(), 500);
+                else hideOfferCard();
               },
-              {
-                text: 'Fix Now',
-                onPress: async () => {
-                  const cleaned = await checkAndCleanupDriverState();
-                  if (cleaned) {
-                    // After cleanup, try accepting again automatically
-                    setTimeout(() => acceptRide(), 500);
-                  } else {
-                    hideOfferCard();
-                  }
-                }
-              }
-            ]
-          );
+            },
+          ]);
           return;
         }
-        
-        if (errorCode === 'TRIP_ALREADY_ASSIGNED') {
-          alertMessage = 'This trip was already assigned to another driver.';
-        } else if (errorCode === 'DUPLICATE_REQUEST') {
-          alertMessage = 'This ride has already been processed.';
-        }
-        
-        Alert.alert(alertTitle, alertMessage, [
-          { text: 'OK', onPress: () => hideOfferCard() }
+        Alert.alert("Accept Failed", errMsg, [
+          { text: "OK", onPress: () => hideOfferCard() },
         ]);
       }
-
-    } catch (error) {
-      console.error('❌ Accept ride error:', error);
-      
-      let errorMessage = 'Failed to accept ride. Please check your connection and try again.';
-      
-      if (error.name === 'AbortError') {
-        errorMessage = 'Request timed out. The ride may have been assigned to another driver.';
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      // Send error notification
-      sendNotification(
-        '❌ Accept Error',
-        errorMessage,
-        { 
-          action: 'ride_accept_error',
-          icon: 'error_icon',
-          color: '#FF3B30',
-        }
-      );
-      
-      Alert.alert('Error', errorMessage, [
-        { text: 'OK', onPress: () => hideOfferCard() }
+    } catch (err) {
+      const msg =
+        err.name === "AbortError"
+          ? "Request timed out. The ride may have been assigned already."
+          : err.message || "Failed to accept ride.";
+      Alert.alert("Error", msg, [
+        { text: "OK", onPress: () => hideOfferCard() },
       ]);
     }
-  };
+  }, [
+    incomingRequest,
+    token,
+    hideOfferCard,
+    stopSoundLoop,
+    offerTimeout,
+    checkAndCleanupDriverState,
+    pickupAddress,
+    destinationAddress,
+    navigation,
+    sendNotification,
+  ]);
 
-  const rejectRide = async () => {
+  // ── Reject ride ────────────────────────────────────────────────────────────
+  const rejectRide = useCallback(async () => {
     if (!incomingRequest?.requestId) {
       hideOfferCard();
       return;
     }
-
-    const authToken = token || await getAuthToken();
-    if (!authToken) {
-      hideOfferCard();
-      return;
-    }
-
     stopSoundLoop();
-
-    // Send rejection notification
-    sendNotification(
-      '❌ Ride Declined',
-      'You declined the ride request',
-      { 
-        action: 'ride_declined',
-        icon: 'decline_icon',
-        color: '#FF3B30',
-      }
-    );
-
+    const authToken = token || (await getAuthToken());
     try {
-      await fetch(`${baseUrl}/trips/reject`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ requestId: incomingRequest.requestId }),
-      });
-    } catch (err) {
-      console.error('Reject failed:', err);
-    }
-
+      if (authToken) {
+        await fetch(`${baseUrl}/trips/reject`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({ requestId: incomingRequest.requestId }),
+        });
+      }
+    } catch {}
     hideOfferCard();
-  };
+  }, [incomingRequest, token, hideOfferCard, stopSoundLoop]);
 
-  // ────────────────────────────────────────────────
-  // POLLING FALLBACK (when WS is unreliable)
-  // ────────────────────────────────────────────────
+  // ── Polling fallback ───────────────────────────────────────────────────────
   const startPolling = useCallback(() => {
     if (pollingRef.current) clearInterval(pollingRef.current);
-
     pollingRef.current = setInterval(async () => {
       if (!token || !isOnline || offerVisible) return;
-
       try {
         const res = await fetch(`${baseUrl}/drivers/offered-request`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-
         if (res.ok) {
           const json = await res.json();
-          if (json.request) {
-            handleIncomingOffer({ requestId: json.request.requestId, offeredAt: json.request.offeredAt });
-          }
+          if (json.request)
+            handleIncomingOffer({ requestId: json.request.requestId });
         }
-      } catch (err) {
-        console.warn('Polling error:', err);
-      }
+      } catch {}
     }, 5000);
   }, [token, isOnline, offerVisible, handleIncomingOffer]);
 
   useEffect(() => {
-    if (isOnline && token && !offerVisible) {
-      startPolling();
-    }
+    if (isOnline && token && !offerVisible) startPolling();
     return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-      }
+      if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, [isOnline, token, offerVisible, startPolling]);
 
-  // ────────────────────────────────────────────────
-  // INITIALIZATION + LOCATION TRACKING
-  // ────────────────────────────────────────────────
-  useEffect(() => {
-    let subscription = null;
-    let mounted = true;
+  // ── Go online helper ───────────────────────────────────────────────────────
+  const goOnline = useCallback(async (coords, authToken) => {
+    try {
+      const res = await fetch(`${baseUrl}/drivers/availability`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          isAvailable: true,
+          location: {
+            type: "Point",
+            coordinates: [coords.longitude, coords.latitude],
+          },
+        }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }, []);
 
-    const initialize = async () => {
-      try {
-        console.log('🚗 Initializing DriverOnlineMapScreen...');
-        
-        // Send notification for going online
-        sendNotification(
-          '🚗 Going Online',
-          'You are now available for ride requests',
-          { 
-            action: 'driver_online',
-            icon: 'online_icon',
-            color: '#34C759',
+  // ── Location tracking ──────────────────────────────────────────────────────
+  const startLocationTracking = useCallback(async (authToken) => {
+    try {
+      const sub = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.BestForNavigation,
+          timeInterval: 5000,
+          distanceInterval: 10,
+        },
+        async (pos) => {
+          if (!pos) return;
+          const newLoc = {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            heading: pos.coords.heading ?? 0,
+          };
+          setLocation(newLoc);
+          setHeading(newLoc.heading);
+
+          if (isWebSocketConnected()) {
+            sendWS({
+              type: "driver:location",
+              ...newLoc,
+              timestamp: Date.now(),
+            });
           }
-        );
 
+          try {
+            await fetch(`${baseUrl}/drivers/availability`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${authToken}`,
+              },
+              body: JSON.stringify({
+                isAvailable: true,
+                location: {
+                  type: "Point",
+                  coordinates: [newLoc.longitude, newLoc.latitude],
+                },
+              }),
+            });
+          } catch {}
+
+          mapRef.current?.animateToRegion(
+            {
+              ...newLoc,
+              latitudeDelta: LATITUDE_DELTA,
+              longitudeDelta: LONGITUDE_DELTA,
+            },
+            1200,
+          );
+        },
+      );
+      setLocationSubscription(sub);
+      return sub;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // ── Initialization ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    let mounted = true;
+    let sub = null;
+
+    (async () => {
+      try {
         const authToken = await getAuthToken();
         if (!authToken) {
-          console.log('❌ No auth token found');
-          navigation.replace('Login');
+          navigation.replace("Login");
           return;
         }
-        
-        if (mounted) {
-          setToken(authToken);
-        }
+        if (mounted) setToken(authToken);
 
-        console.log('📍 Requesting location permission...');
         const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          console.log('❌ Location permission denied');
+        if (status !== "granted") {
           Alert.alert(
-            'Location Permission Required',
-            'This app needs location access to show your position on the map and receive ride requests.',
-            [{ text: 'OK', onPress: () => navigation.replace('DriverHomeOffline') }]
+            "Location Required",
+            "Enable location to receive ride requests.",
+            [
+              {
+                text: "OK",
+                onPress: () => navigation.replace("DriverHomeOffline"),
+              },
+            ],
           );
           return;
         }
 
-        console.log('📍 Getting current position...');
-        const position = await Location.getCurrentPositionAsync({
+        const pos = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.BestForNavigation,
         });
-
         const coords = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          heading: position.coords.heading || 0,
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          heading: pos.coords.heading || 0,
         };
 
         if (mounted) {
@@ -945,641 +824,924 @@ export default function DriverOnlineMapScreen() {
           setLoading(false);
         }
 
-        console.log('✅ Going online...');
         await goOnline(coords, authToken);
-        
-        if (mounted) {
-          setIsOnline(true);
-        }
+        if (mounted) setIsOnline(true);
 
-        console.log('📍 Starting location tracking...');
-        subscription = await startLocationTracking(authToken);
-        
-        console.log('✅ DriverOnlineMapScreen initialized successfully');
+        sub = await startLocationTracking(authToken);
       } catch (err) {
-        console.error('❌ Initialization failed:', err);
         if (mounted) {
-          Alert.alert(
-            'Initialization Error',
-            'Failed to initialize the map. Please try again.',
-            [{ text: 'OK', onPress: () => navigation.replace('DriverHomeOffline') }]
-          );
+          Alert.alert("Error", "Failed to initialize. Please try again.", [
+            {
+              text: "OK",
+              onPress: () => navigation.replace("DriverHomeOffline"),
+            },
+          ]);
         }
       }
-    };
-
-    initialize();
+    })();
 
     return () => {
       mounted = false;
-      if (subscription) subscription.remove();
+      sub?.remove();
       if (pollingRef.current) clearInterval(pollingRef.current);
       stopSoundLoop();
     };
   }, []);
 
-  const goOnline = async (coords, authToken) => {
-    try {
-      const res = await fetch(`${baseUrl}/drivers/availability`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          isAvailable: true,
-          location: { type: 'Point', coordinates: [coords.longitude, coords.latitude] },
-        }),
-      });
-
-      if (res.ok) {
-        console.log('✅ Driver is now online');
-        return true;
-      } else {
-        console.error('❌ Failed to go online, status:', res.status);
-        return false;
-      }
-    } catch (err) {
-      console.error('❌ Failed to go online:', err);
-      return false;
-    }
-  };
-
-  const startLocationTracking = async (authToken) => {
-    try {
-      const subscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: 5000,
-          distanceInterval: 10,
-        },
-        async (position) => {
-          if (!position) return;
-          
-          const newLocation = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            heading: position.coords.heading ?? heading,
-          };
-
-          setLocation(newLocation);
-          setHeading(newLocation.heading);
-
-          if (isWebSocketConnected()) {
-            sendWS({
-              type: 'driver:location',
-              latitude: newLocation.latitude,
-              longitude: newLocation.longitude,
-              heading: newLocation.heading,
-              timestamp: Date.now(),
-            });
-          }
-
-          try {
-            await fetch(`${baseUrl}/drivers/availability`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${authToken}`,
-              },
-              body: JSON.stringify({
-                isAvailable: true,
-                location: { type: 'Point', coordinates: [newLocation.longitude, newLocation.latitude] },
-              }),
-            });
-          } catch (updateErr) {
-            console.warn('Location update failed:', updateErr.message);
-          }
-
-          if (mapRef.current) {
-            mapRef.current.animateToRegion(
-              {
-                ...newLocation,
-                latitudeDelta: LATITUDE_DELTA,
-                longitudeDelta: LONGITUDE_DELTA,
-              },
-              1000
-            );
-          }
-        }
-      );
-
-      setLocationSubscription(subscription);
-      return subscription;
-    } catch (err) {
-      console.error('❌ Failed to start location tracking:', err);
-      return null;
-    }
-  };
-
-  const goOffline = () => {
-    Alert.alert('Go Offline?', 'You will stop receiving new ride requests.', [
-      { text: 'Cancel', style: 'cancel' },
+  // ── Go offline ─────────────────────────────────────────────────────────────
+  const goOffline = useCallback(() => {
+    Alert.alert("Go Offline?", "You will stop receiving new ride requests.", [
+      { text: "Cancel", style: "cancel" },
       {
-        text: 'Go Offline',
-        style: 'destructive',
+        text: "Go Offline",
+        style: "destructive",
         onPress: async () => {
           try {
-            const authToken = token || await getAuthToken();
+            const authToken = token || (await getAuthToken());
             if (authToken) {
               await fetch(`${baseUrl}/drivers/availability`, {
-                method: 'POST',
+                method: "POST",
                 headers: {
-                  'Content-Type': 'application/json',
+                  "Content-Type": "application/json",
                   Authorization: `Bearer ${authToken}`,
                 },
                 body: JSON.stringify({ isAvailable: false }),
               });
             }
           } catch {}
-
-          // Send offline notification
-          sendNotification(
-            '🔴 Going Offline',
-            'You are now offline and will not receive ride requests',
-            { 
-              action: 'driver_offline',
-              icon: 'offline_icon',
-              color: '#FF3B30',
-            }
-          );
-
           setIsOnline(false);
           locationSubscription?.remove();
           if (pollingRef.current) clearInterval(pollingRef.current);
           stopSoundLoop();
           closeWebSocket();
-          navigation.replace('DriverHomeOffline');
+          navigation.replace("DriverHomeOffline");
         },
       },
     ]);
-  };
+  }, [token, locationSubscription, stopSoundLoop, navigation]);
 
-  // Test notification function
-  const handleTestNotification = () => {
-    sendNotification(
-      '🔔 Test Notification',
-      'This is a test notification from Wheels Driver app',
-      { 
-        action: 'test_notification',
-        icon: WHEELS_LOGO ? 'wheels_logo' : 'default_icon',
-        color: '#0066FF',
-        badgeCount: 1,
-      }
-    );
-  };
+  // ── Derived ────────────────────────────────────────────────────────────────
+  const serviceConfig =
+    SERVICE_CONFIG[incomingRequest?.serviceType] || SERVICE_CONFIG.CITY_RIDE;
+  const wsColor =
+    wsStatus === "connected"
+      ? "#10B981"
+      : wsStatus === "connecting"
+        ? "#F59E0B"
+        : "#EF4444";
+  const wsLabel =
+    wsStatus === "connected"
+      ? "Live"
+      : wsStatus === "connecting"
+        ? "Syncing…"
+        : "Offline";
 
-  // Clear all notifications
-  const clearAllNotifications = async () => {
-    try {
-      await Notifications.cancelAllScheduledNotificationsAsync();
-      await Notifications.dismissAllNotificationsAsync();
-      Alert.alert('Success', 'All notifications cleared.');
-    } catch (error) {
-      console.error('Error clearing notifications:', error);
-      Alert.alert('Error', 'Could not clear notifications.');
-    }
-  };
+  const statusCardTranslateY = statusCardAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-80, 0],
+  });
 
-  // Pulse animation when online
-  useEffect(() => {
-    if (isOnline) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, { toValue: 1.4, duration: 900, useNativeDriver: true }),
-          Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true }),
-        ])
-      ).start();
-    } else {
-      pulseAnim.setValue(1);
-    }
-  }, [isOnline]);
-
+  // ─────────────────────────────────────────────────────────────────────────
+  // LOADING STATE
+  // ─────────────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <View style={styles.loading}>
-        {WHEELS_LOGO && (
-          <Image source={WHEELS_LOGO} style={styles.loadingLogo} resizeMode="contain" />
-        )}
-        <ActivityIndicator size="large" color="#00B0F3" />
-        <Text style={styles.loadingText}>Loading map...</Text>
+      <View style={s.loadingContainer}>
+        <StatusBar
+          barStyle="dark-content"
+          backgroundColor="transparent"
+          translucent
+        />
+        <View style={s.loadingCard}>
+          <View style={s.loadingIconWrap}>
+            <Ionicons name="car-sport" size={36} color="#1A1A1A" />
+          </View>
+          <ActivityIndicator
+            size="large"
+            color="#1A1A1A"
+            style={{ marginTop: 20 }}
+          />
+          <Text style={s.loadingTitle}>Getting ready…</Text>
+          <Text style={s.loadingSubtitle}>Acquiring your location</Text>
+        </View>
       </View>
     );
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // MAIN RENDER
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <View style={styles.container}>
+    <View style={s.container}>
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="transparent"
+        translucent
+      />
+
+      {/* ── MAP ── */}
       <MapView
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
-        style={styles.map}
+        style={s.map}
+        customMapStyle={MAP_STYLE}
         initialRegion={{
           latitude: location?.latitude || 9.0765,
           longitude: location?.longitude || 7.3986,
           latitudeDelta: LATITUDE_DELTA,
           longitudeDelta: LONGITUDE_DELTA,
         }}
-        showsTraffic={true}
+        showsTraffic={false}
         showsUserLocation={false}
         showsMyLocationButton={false}
+        showsCompass={false}
+        onMapReady={() => setIsMapReady(true)}
       >
         {location && (
           <>
-            <Circle 
-              center={location} 
-              radius={120} 
-              strokeColor="rgba(0,176,243,0.4)" 
-              fillColor="rgba(0,176,243,0.15)" 
+            {/* Accuracy pulse ring */}
+            <Circle
+              center={location}
+              radius={80}
+              strokeColor="rgba(16,185,129,0.25)"
+              fillColor="rgba(16,185,129,0.08)"
             />
-            <Marker coordinate={location} anchor={{ x: 0.5, y: 0.5 }}>
-              <Animated.Image
-                source={CAR_MARKER}
+            {/* Driver marker */}
+            <Marker coordinate={location} anchor={{ x: 0.5, y: 0.5 }} flat>
+              <Animated.View
                 style={[
-                  styles.carMarker,
-                  {
-                    transform: [{ rotate: `${heading}deg` }, { scale: pulseAnim }],
-                  },
+                  s.driverMarkerOuter,
+                  { transform: [{ scale: pulseAnim }] },
                 ]}
-              />
+              >
+                <View style={s.driverMarkerInner}>
+                  <Ionicons name="car-sport" size={22} color="#fff" />
+                </View>
+              </Animated.View>
             </Marker>
           </>
         )}
       </MapView>
 
-      {/* Status indicators */}
-      <View style={styles.statusBar}>
-        <View style={styles.statusItem}>
-          <View style={[styles.dot, { backgroundColor: isOnline ? '#34C759' : '#FF3B30' }]} />
-          <Text style={styles.statusText}>{isOnline ? 'Online' : 'Offline'}</Text>
-        </View>
-
-        <View style={styles.statusItem}>
-          <View
-            style={[
-              styles.dot,
-              {
-                backgroundColor: wsStatus === 'connected' ? '#34C759' : wsStatus === 'connecting' ? '#FF9500' : '#FF3B30',
-              },
-            ]}
-          />
-          <Text style={styles.statusText}>
-            {wsStatus === 'connected' ? 'Live' : wsStatus === 'connecting' ? 'Connecting...' : 'Disconnected'}
+      {/* ── CONNECTION BANNER ── */}
+      {wsConnecting && (
+        <View style={s.connectionBanner}>
+          <ActivityIndicator size="small" color="#fff" />
+          <Text style={s.connectionBannerText}>
+            {connectionAttempts > 0
+              ? `Reconnecting… (${connectionAttempts})`
+              : "Connecting…"}
           </Text>
         </View>
-      </View>
+      )}
 
-      {/* Go Offline Button */}
-      <TouchableOpacity style={styles.goOfflineBtn} onPress={goOffline}>
-        <Ionicons name="power" size={22} color="white" />
-        <Text style={styles.goOfflineText}>Go Offline</Text>
-      </TouchableOpacity>
-
-      {/* Notification Test Button (hidden but accessible) */}
-      <TouchableOpacity 
-        style={styles.testNotificationBtn}
-        onPress={handleTestNotification}
+      {/* ── TOP BAR ── */}
+      <Animated.View
+        style={[
+          s.topBar,
+          {
+            transform: [{ translateY: statusCardTranslateY }],
+            opacity: statusCardAnim,
+          },
+        ]}
       >
-        <Ionicons name="notifications-outline" size={18} color="white" />
-      </TouchableOpacity>
+        {/* Menu */}
+        <TouchableOpacity
+          style={s.iconBtn}
+          activeOpacity={0.8}
+          onPress={() => navigation.openDrawer?.()}
+        >
+          <Ionicons name="menu" size={22} color="#1A1A1A" />
+        </TouchableOpacity>
 
-      {/* Incoming Ride Offer Modal */}
-      <Modal transparent visible={offerVisible} animationType="none">
-        <View style={styles.modalOverlay}>
-          <Animated.View style={[styles.offerCard, { transform: [{ translateY: slideAnim }] }]}>
-            <LinearGradient colors={['#007AFF', '#0051CC']} style={styles.headerGradient}>
-              {WHEELS_LOGO && (
-                <Image source={WHEELS_LOGO} style={styles.notificationLogo} resizeMode="contain" />
-              )}
-              <Text style={styles.headerTitle}>New Ride Request</Text>
-              <TouchableOpacity onPress={rejectRide}>
-                <Ionicons name="close-circle" size={32} color="white" />
-              </TouchableOpacity>
-            </LinearGradient>
+        {/* Center status pill */}
+        <View style={s.topCenter}>
+          <View
+            style={[
+              s.liveIndicator,
+              { backgroundColor: isOnline ? "#10B981" : "#EF4444" },
+            ]}
+          />
+          <Text style={s.topCenterLabel}>
+            {isOnline ? "Online" : "Offline"}
+          </Text>
+          <View style={s.topDivider} />
+          <View style={[s.wsIndicator, { backgroundColor: wsColor }]} />
+          <Text style={s.topCenterLabel}>{wsLabel}</Text>
+        </View>
 
-            <View style={styles.cardContent}>
-              <View style={styles.passengerInfo}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>
-                    {incomingRequest?.passengerName?.charAt(0)?.toUpperCase() || '?'}
-                  </Text>
-                </View>
-                <View style={styles.passengerDetails}>
-                  <Text style={styles.passengerName}>{incomingRequest?.passengerName}</Text>
-                  {incomingRequest?.passengerPhone && (
-                    <Text style={styles.passengerPhone}>{incomingRequest.passengerPhone}</Text>
-                  )}
-                </View>
+        {/* Locate me */}
+        <TouchableOpacity
+          style={s.iconBtn}
+          activeOpacity={0.8}
+          onPress={() =>
+            location &&
+            mapRef.current?.animateToRegion(
+              {
+                ...location,
+                latitudeDelta: LATITUDE_DELTA,
+                longitudeDelta: LONGITUDE_DELTA,
+              },
+              800,
+            )
+          }
+        >
+          <Ionicons name="locate" size={20} color="#1A1A1A" />
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* ── STATS CARD ── */}
+      <Animated.View
+        style={[
+          s.statsCard,
+          {
+            transform: [
+              {
+                translateY: statusCardAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [100, 0],
+                }),
+              },
+            ],
+            opacity: statusCardAnim,
+          },
+        ]}
+      >
+        {/* Online indicator chip */}
+        <View
+          style={[
+            s.statusChip,
+            { backgroundColor: isOnline ? "#ECFDF5" : "#FEF2F2" },
+          ]}
+        >
+          <View
+            style={[
+              s.statusChipDot,
+              { backgroundColor: isOnline ? "#10B981" : "#EF4444" },
+            ]}
+          />
+          <Text
+            style={[
+              s.statusChipText,
+              { color: isOnline ? "#065F46" : "#991B1B" },
+            ]}
+          >
+            {isOnline ? "Accepting rides" : "Not accepting rides"}
+          </Text>
+        </View>
+
+        {/* Trip count */}
+        <View style={s.statsRow}>
+          <View style={s.statItem}>
+            <Text style={s.statValue}>{todayTrips}</Text>
+            <Text style={s.statLabel}>Trips today</Text>
+          </View>
+          <View style={s.statDivider} />
+          <View style={s.statItem}>
+            <Text style={s.statValue}>{wsLabel}</Text>
+            <Text style={s.statLabel}>Connection</Text>
+          </View>
+          <View style={s.statDivider} />
+          <View style={s.statItem}>
+            <Text style={s.statValue}>{location ? "✓" : "…"}</Text>
+            <Text style={s.statLabel}>Location</Text>
+          </View>
+        </View>
+
+        {/* Go offline button */}
+        <TouchableOpacity
+          style={s.goOfflineBtn}
+          onPress={goOffline}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="power" size={16} color="#EF4444" />
+          <Text style={s.goOfflineBtnText}>Go Offline</Text>
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* ── INCOMING RIDE OFFER MODAL ── */}
+      <Modal
+        transparent
+        visible={offerVisible}
+        animationType="none"
+        statusBarTranslucent
+      >
+        {/* Backdrop */}
+        <TouchableOpacity
+          style={s.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => {}}
+        />
+
+        <Animated.View
+          style={[s.offerSheet, { transform: [{ translateY: slideAnim }] }]}
+        >
+          {/* Sheet handle */}
+          <View style={s.sheetHandle} />
+
+          {/* Header */}
+          <View style={s.offerHeader}>
+            <View style={s.offerHeaderLeft}>
+              <View
+                style={[
+                  s.serviceIconWrap,
+                  { backgroundColor: serviceConfig.bg },
+                ]}
+              >
+                <Ionicons
+                  name={serviceConfig.icon}
+                  size={22}
+                  color={serviceConfig.color}
+                />
               </View>
-
-              <View style={styles.routeSection}>
-                <View style={styles.routePoint}>
-                  <View style={[styles.routeDot, { backgroundColor: '#34C759' }]} />
-                  <Text style={styles.addressText} numberOfLines={2}>
-                    {pickupAddress}
-                  </Text>
-                </View>
-
-                <View style={styles.routeConnector}>
-                  <View style={styles.connectorLine} />
-                </View>
-
-                <View style={styles.routePoint}>
-                  <View style={[styles.routeDot, { backgroundColor: '#FF3B30' }]} />
-                  <Text style={styles.addressText} numberOfLines={2}>
-                    {destinationAddress}
-                  </Text>
-                </View>
+              <View>
+                <Text style={s.offerHeaderLabel}>NEW REQUEST</Text>
+                <Text style={s.offerHeaderTitle}>{serviceConfig.label}</Text>
               </View>
+            </View>
+            <TouchableOpacity
+              style={s.offerCloseBtn}
+              onPress={rejectRide}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="close" size={18} color="#666" />
+            </TouchableOpacity>
+          </View>
 
-              <View style={styles.fareBox}>
-                <Text style={styles.fareLabel}>Estimated Fare</Text>
-                <Text style={styles.fareAmount}>
-                  {incomingRequest?.fare && incomingRequest.fare > 0
-                    ? `₦${Number(incomingRequest.fare).toLocaleString()}`
-                    : 'Calculating...'}
+          {/* Timer bar */}
+          <View style={s.timerBarTrack}>
+            <Animated.View
+              style={[
+                s.timerBarFill,
+                {
+                  width: `${(timeLeft / 20) * 100}%`,
+                  backgroundColor:
+                    timeLeft > 10
+                      ? "#10B981"
+                      : timeLeft > 5
+                        ? "#F59E0B"
+                        : "#EF4444",
+                },
+              ]}
+            />
+          </View>
+          <Text style={s.timerLabel}>{timeLeft}s remaining</Text>
+
+          {/* Passenger */}
+          <View style={s.passengerRow}>
+            <View style={s.avatar}>
+              <Text style={s.avatarText}>
+                {(incomingRequest?.passengerName || "P")
+                  .charAt(0)
+                  .toUpperCase()}
+              </Text>
+            </View>
+            <View style={s.passengerInfo}>
+              <Text style={s.passengerName}>
+                {incomingRequest?.passengerName || "Passenger"}
+              </Text>
+              {incomingRequest?.passengerPhone ? (
+                <Text style={s.passengerPhone}>
+                  {incomingRequest.passengerPhone}
+                </Text>
+              ) : null}
+            </View>
+            {/* Payment badge */}
+            <View
+              style={[
+                s.paymentBadge,
+                {
+                  backgroundColor:
+                    incomingRequest?.paymentMethod === "wallet"
+                      ? "#F5F3FF"
+                      : "#F0FDF4",
+                },
+              ]}
+            >
+              <Ionicons
+                name={
+                  incomingRequest?.paymentMethod === "wallet"
+                    ? "wallet"
+                    : "cash"
+                }
+                size={13}
+                color={
+                  incomingRequest?.paymentMethod === "wallet"
+                    ? "#7C3AED"
+                    : "#059669"
+                }
+              />
+              <Text
+                style={[
+                  s.paymentBadgeText,
+                  {
+                    color:
+                      incomingRequest?.paymentMethod === "wallet"
+                        ? "#7C3AED"
+                        : "#059669",
+                  },
+                ]}
+              >
+                {incomingRequest?.paymentMethod === "wallet"
+                  ? "Wallet"
+                  : "Cash"}
+              </Text>
+            </View>
+          </View>
+
+          {/* Route card */}
+          <View style={s.routeCard}>
+            <View style={s.routePoint}>
+              <View style={s.routeDotGreen} />
+              <View style={s.routeTextWrap}>
+                <Text style={s.routePointLabel}>PICKUP</Text>
+                <Text style={s.routePointText} numberOfLines={2}>
+                  {pickupAddress}
                 </Text>
               </View>
-
-              <View style={styles.timerBox}>
-                <Ionicons name="time-outline" size={18} color="#333" />
-                <Text style={styles.timerText}>Accept within {timeLeft} seconds</Text>
+            </View>
+            <View style={s.routeConnectorRow}>
+              <View style={s.routeConnectorLine} />
+            </View>
+            <View style={s.routePoint}>
+              <View style={s.routeDotRed} />
+              <View style={s.routeTextWrap}>
+                <Text style={s.routePointLabel}>DESTINATION</Text>
+                <Text style={s.routePointText} numberOfLines={2}>
+                  {destinationAddress}
+                </Text>
               </View>
             </View>
+          </View>
 
-            <View style={styles.actionButtons}>
-              <TouchableOpacity 
-                style={styles.declineButton} 
-                onPress={rejectRide}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.declineText}>Decline</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.acceptButton} 
-                onPress={acceptRide}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.acceptText}>Accept Ride</Text>
-              </TouchableOpacity>
+          {/* Trip chips */}
+          {(incomingRequest?.distance > 0 || incomingRequest?.duration > 0) && (
+            <View style={s.tripChipsRow}>
+              {incomingRequest?.distance > 0 && (
+                <View style={s.tripChip}>
+                  <Ionicons name="navigate-outline" size={13} color="#666" />
+                  <Text style={s.tripChipText}>
+                    {incomingRequest.distance.toFixed(1)} km
+                  </Text>
+                </View>
+              )}
+              {incomingRequest?.distance > 0 &&
+                incomingRequest?.duration > 0 && (
+                  <View style={s.tripChipDivider} />
+                )}
+              {incomingRequest?.duration > 0 && (
+                <View style={s.tripChip}>
+                  <Ionicons name="time-outline" size={13} color="#666" />
+                  <Text style={s.tripChipText}>
+                    {Math.round(incomingRequest.duration / 60)} min
+                  </Text>
+                </View>
+              )}
             </View>
-          </Animated.View>
-        </View>
+          )}
+
+          {/* Fare */}
+          <View style={s.fareRow}>
+            <Text style={s.fareLabel}>Your earnings</Text>
+            <Text style={s.fareAmount}>
+              {incomingRequest?.fare && incomingRequest.fare > 0
+                ? `₦${Number(incomingRequest.fare).toLocaleString()}`
+                : "Calculating…"}
+            </Text>
+          </View>
+
+          {/* Action buttons */}
+          <View style={s.actionRow}>
+            <TouchableOpacity
+              style={s.declineBtn}
+              onPress={rejectRide}
+              activeOpacity={0.85}
+            >
+              <Text style={s.declineBtnText}>Decline</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.acceptBtn}
+              onPress={acceptRide}
+              activeOpacity={0.88}
+            >
+              <Text style={s.acceptBtnText}>Accept Ride</Text>
+              <Ionicons
+                name="arrow-forward"
+                size={18}
+                color="#fff"
+                style={{ marginLeft: 8 }}
+              />
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
       </Modal>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#0A1733' 
+// ─────────────────────────────────────────────────────────────────────────────
+// STYLES — matching passenger home's refined, minimal, premium aesthetic
+// ─────────────────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F5F5F0" },
+  map: { flex: 1 },
+
+  // ── Loading ──────────────────────────────────────────────────────────────
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: "#F5F5F0",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  map: { 
-    flex: 1 
+  loadingCard: {
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    padding: 40,
+    alignItems: "center",
+    width: width * 0.7,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 24,
+    elevation: 10,
   },
-  loading: { 
-    flex: 1, 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    backgroundColor: '#0A1733' 
+  loadingIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 20,
+    backgroundColor: "#F0F0F0",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  loadingLogo: {
-    width: 100,
-    height: 100,
-    marginBottom: 20,
-    borderRadius: 10,
+  loadingTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginTop: 16,
   },
-  loadingText: { 
-    color: '#fff', 
-    marginTop: 16, 
-    fontSize: 16 
+  loadingSubtitle: { fontSize: 13, color: "#999", marginTop: 4 },
+
+  // ── Connection banner ─────────────────────────────────────────────────────
+  connectionBanner: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#1A1A1A",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: Platform.OS === "ios" ? 50 : 32,
+    paddingBottom: 10,
+    zIndex: 999,
   },
-  statusBar: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 50 : 40,
+  connectionBannerText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+    marginLeft: 8,
+  },
+
+  // ── Top bar ───────────────────────────────────────────────────────────────
+  topBar: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 54 : 44,
     left: 16,
     right: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(255,255,255,0.95)',
-    borderRadius: 16,
-    padding: 12,
-    elevation: 6,
-    shadowColor: '#000',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    zIndex: 10,
+  },
+  iconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  statusItem: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 8 
-  },
-  dot: { 
-    width: 10, 
-    height: 10, 
-    borderRadius: 5 
-  },
-  statusText: { 
-    fontWeight: '700', 
-    fontSize: 14 
-  },
-  goOfflineBtn: {
-    position: 'absolute',
-    bottom: 100,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    backgroundColor: 'rgba(255,59,48,0.93)',
-    paddingHorizontal: 28,
-    paddingVertical: 14,
-    borderRadius: 50,
-    alignItems: 'center',
+  topCenter: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 20,
     gap: 8,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
     shadowRadius: 6,
+    elevation: 3,
   },
-  goOfflineText: { 
-    color: 'white', 
-    fontSize: 16, 
-    fontWeight: '700' 
+  liveIndicator: { width: 8, height: 8, borderRadius: 4 },
+  wsIndicator: { width: 8, height: 8, borderRadius: 4 },
+  topCenterLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    letterSpacing: 0.3,
   },
-  testNotificationBtn: {
-    position: 'absolute',
-    bottom: 160,
-    right: 20,
-    backgroundColor: 'rgba(0,102,255,0.8)',
+  topDivider: { width: 1, height: 14, backgroundColor: "#E5E5E5" },
+
+  // ── Driver marker ─────────────────────────────────────────────────────────
+  driverMarkerOuter: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "rgba(16,185,129,0.18)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  driverMarkerInner: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
+    backgroundColor: "#1A1A1A",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 3,
+    borderColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
-  modalOverlay: { 
-    flex: 1, 
-    backgroundColor: 'rgba(0,0,0,0.65)', 
-    justifyContent: 'flex-end' 
+
+  // ── Stats card ────────────────────────────────────────────────────────────
+  statsCard: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === "ios" ? 36 : 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.09,
+    shadowRadius: 20,
+    elevation: 16,
   },
-  offerCard: { 
-    backgroundColor: 'white', 
-    borderTopLeftRadius: 36, 
-    borderTopRightRadius: 36, 
-    overflow: 'hidden' 
+  statusChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    marginBottom: 16,
+    gap: 7,
   },
-  headerGradient: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    paddingHorizontal: 24, 
-    paddingVertical: 20 
+  statusChipDot: { width: 8, height: 8, borderRadius: 4 },
+  statusChipText: { fontSize: 13, fontWeight: "700", letterSpacing: 0.2 },
+  statsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    marginBottom: 16,
   },
-  notificationLogo: {
-    width: 30,
-    height: 30,
-    borderRadius: 5,
-    marginRight: 10,
+  statItem: { alignItems: "center", flex: 1 },
+  statValue: { fontSize: 20, fontWeight: "800", color: "#1A1A1A" },
+  statLabel: {
+    fontSize: 11,
+    color: "#999",
+    fontWeight: "600",
+    marginTop: 2,
+    letterSpacing: 0.5,
   },
-  headerTitle: { 
-    fontSize: 24, 
-    fontWeight: '800', 
-    color: 'white',
+  statDivider: { width: 1, height: 32, backgroundColor: "#F0F0F0" },
+
+  goOfflineBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#EF4444",
+    borderRadius: 14,
+    paddingVertical: 13,
+    gap: 8,
+  },
+  goOfflineBtnText: { color: "#EF4444", fontSize: 15, fontWeight: "700" },
+
+  // ── Modal backdrop ────────────────────────────────────────────────────────
+  modalBackdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.38)",
+  },
+
+  // ── Offer bottom sheet ────────────────────────────────────────────────────
+  offerSheet: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === "ios" ? 36 : 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
+    elevation: 20,
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#E0E0E0",
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+
+  // ── Offer header ──────────────────────────────────────────────────────────
+  offerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  offerHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  serviceIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  offerHeaderLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#aaa",
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  offerHeaderTitle: { fontSize: 20, fontWeight: "800", color: "#1A1A1A" },
+  offerCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#F5F5F0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  // ── Timer bar ─────────────────────────────────────────────────────────────
+  timerBarTrack: {
+    height: 4,
+    backgroundColor: "#F0F0F0",
+    borderRadius: 2,
+    overflow: "hidden",
+    marginBottom: 6,
+  },
+  timerBarFill: { height: "100%", borderRadius: 2 },
+  timerLabel: {
+    fontSize: 11,
+    color: "#999",
+    fontWeight: "600",
+    marginBottom: 14,
+    letterSpacing: 0.3,
+  },
+
+  // ── Passenger row ─────────────────────────────────────────────────────────
+  passengerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 14,
+  },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#1A1A1A",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarText: { color: "#fff", fontSize: 20, fontWeight: "800" },
+  passengerInfo: { flex: 1 },
+  passengerName: { fontSize: 16, fontWeight: "700", color: "#1A1A1A" },
+  passengerPhone: { fontSize: 13, color: "#888", marginTop: 2 },
+  paymentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    gap: 5,
+  },
+  paymentBadgeText: { fontSize: 12, fontWeight: "700" },
+
+  // ── Route card ────────────────────────────────────────────────────────────
+  routeCard: {
+    backgroundColor: "#F8F8F8",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+  },
+  routePoint: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  routeDotGreen: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#10B981",
+    marginTop: 4,
+  },
+  routeDotRed: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#EF4444",
+    marginTop: 4,
+  },
+  routeTextWrap: { flex: 1 },
+  routePointLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#bbb",
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  routePointText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1A1A1A",
+    lineHeight: 20,
+  },
+  routeConnectorRow: { paddingLeft: 5, paddingVertical: 4 },
+  routeConnectorLine: { width: 2, height: 16, backgroundColor: "#E5E5E5" },
+
+  // ── Trip chips ────────────────────────────────────────────────────────────
+  tripChipsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  tripChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+  },
+  tripChipText: {
+    fontSize: 13,
+    color: "#666",
+    fontWeight: "600",
+    marginLeft: 5,
+  },
+  tripChipDivider: { width: 1, height: 14, backgroundColor: "#E0E0E0" },
+
+  // ── Fare ──────────────────────────────────────────────────────────────────
+  fareRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#F8F8F8",
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 16,
+  },
+  fareLabel: { fontSize: 13, color: "#888", fontWeight: "600" },
+  fareAmount: { fontSize: 24, fontWeight: "800", color: "#1A1A1A" },
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+  actionRow: { flexDirection: "row", gap: 12 },
+  declineBtn: {
     flex: 1,
+    paddingVertical: 16,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#E5E5E5",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  cardContent: { 
-    padding: 24, 
-    gap: 20 
+  declineBtnText: { color: "#EF4444", fontSize: 15, fontWeight: "700" },
+  acceptBtn: {
+    flex: 1.8,
+    paddingVertical: 16,
+    borderRadius: 14,
+    backgroundColor: "#1A1A1A",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  passengerInfo: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 16 
-  },
-  avatar: { 
-    width: 64, 
-    height: 64, 
-    borderRadius: 32, 
-    backgroundColor: '#007AFF', 
-    justifyContent: 'center', 
-    alignItems: 'center' 
-  },
-  avatarText: { 
-    color: 'white', 
-    fontSize: 28, 
-    fontWeight: 'bold' 
-  },
-  passengerDetails: { 
-    flex: 1 
-  },
-  passengerName: { 
-    fontSize: 20, 
-    fontWeight: '700', 
-    color: '#111' 
-  },
-  passengerPhone: { 
-    fontSize: 15, 
-    color: '#555', 
-    marginTop: 3 
-  },
-  routeSection: { 
-    backgroundColor: '#F8FAFC', 
-    borderRadius: 20, 
-    padding: 16, 
-    gap: 12 
-  },
-  routePoint: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 12 
-  },
-  routeDot: { 
-    width: 14, 
-    height: 14, 
-    borderRadius: 7 
-  },
-  addressText: { 
-    fontSize: 16, 
-    color: '#222', 
-    flex: 1, 
-    lineHeight: 22 
-  },
-  routeConnector: { 
-    alignItems: 'center', 
-    height: 28 
-  },
-  connectorLine: { 
-    width: 2, 
-    height: '100%', 
-    backgroundColor: '#CBD5E1' 
-  },
-  fareBox: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    backgroundColor: '#EFF6FF', 
-    padding: 16, 
-    borderRadius: 16 
-  },
-  fareLabel: { 
-    fontSize: 16, 
-    color: '#64748B', 
-    fontWeight: '600' 
-  },
-  fareAmount: { 
-    fontSize: 28, 
-    fontWeight: '800', 
-    color: '#1E40AF' 
-  },
-  timerBox: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    gap: 8, 
-    backgroundColor: '#FEF3C7', 
-    paddingVertical: 12, 
-    borderRadius: 12 
-  },
-  timerText: { 
-    fontSize: 15, 
-    fontWeight: '600', 
-    color: '#92400E' 
-  },
-  actionButtons: { 
-    flexDirection: 'row', 
-    gap: 16, 
-    paddingHorizontal: 24, 
-    paddingBottom: 28, 
-    paddingTop: 12 
-  },
-  declineButton: { 
-    flex: 1, 
-    paddingVertical: 18, 
-    borderWidth: 2, 
-    borderColor: '#EF4444', 
-    borderRadius: 16, 
-    alignItems: 'center' 
-  },
-  declineText: { 
-    color: '#EF4444', 
-    fontSize: 17, 
-    fontWeight: '700' 
-  },
-  acceptButton: { 
-    flex: 1.6, 
-    backgroundColor: '#10B981', 
-    paddingVertical: 18, 
-    borderRadius: 16, 
-    alignItems: 'center' 
-  },
-  acceptText: { 
-    color: 'white', 
-    fontSize: 17, 
-    fontWeight: '700' 
-  },
-  carMarker: { 
-    width: 56, 
-    height: 56 
-  },
+  acceptBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
 });

@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+// src/screens/auth/SignupScreen.js
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,37 +14,45 @@ import {
   Dimensions,
   Modal,
   Animated,
+  StatusBar,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 
 const WHEELA_LOGO = require('../../../assets/logo3.png');
 const { width, height } = Dimensions.get('window');
-
-const BASE_URL = "https://wheels-backend-7ydc.onrender.com";
+const BASE_URL = 'https://wheels-backend-7ydc.onrender.com';
 
 export default function SignupScreen() {
   const navigation = useNavigation();
-  const route = useRoute();
-  const role = route.params?.role || 'passenger';
+  const route      = useRoute();
+  const role       = route.params?.role || 'passenger';
 
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('+234');
-  const [password, setPassword] = useState('');
-  const [referralCode, setReferralCode] = useState(
-    route.params?.referralCode || ''
-  );
+  const [name, setName]           = useState('');
+  const [email, setEmail]         = useState('');
+  const [phone, setPhone]         = useState('+234');
+  const [password, setPassword]   = useState('');
+  const [showPw, setShowPw]       = useState(false);
+  const [referralCode, setReferralCode]   = useState(route.params?.referralCode || '');
   const [referralValid, setReferralValid] = useState(null);
   const [referralChecking, setReferralChecking] = useState(false);
-  const [referralName, setReferralName] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [successModalVisible, setSuccessModalVisible] = useState(false);
-  const [errorModalVisible, setErrorModalVisible] = useState(false);
+  const [referralName,    setReferralName]      = useState('');
+  const [loading, setLoading]         = useState(false);
+  const [successModal, setSuccessModal] = useState(false);
+  const [errorModal,   setErrorModal]   = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [passwordVisible, setPasswordVisible] = useState(false);
 
   const shakeAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim  = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim,  { toValue: 1, duration: 600, delay: 200, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 500, delay: 200, useNativeDriver: true }),
+    ]).start();
+  }, []);
 
   const triggerShake = () => {
     Animated.sequence([
@@ -56,418 +65,296 @@ export default function SignupScreen() {
   };
 
   // ── Phone formatting ────────────────────────────────────────────────────
-
   const formatPhone = (input) => {
     if (!input) return '+234';
-    let digitsOnly = input.replace(/\D/g, '');
-    if (digitsOnly.startsWith('234')) return '+' + digitsOnly;
-    if (digitsOnly.startsWith('0'))   return '+234' + digitsOnly.slice(1);
-    if (digitsOnly.length === 10 && !digitsOnly.startsWith('234')) return '+234' + digitsOnly;
-    if (!digitsOnly.startsWith('234')) digitsOnly = '234' + digitsOnly;
-    return '+' + digitsOnly.slice(0, 15);
+    let d = input.replace(/\D/g, '');
+    if (d.startsWith('234')) return '+' + d;
+    if (d.startsWith('0'))   return '+234' + d.slice(1);
+    if (d.length === 10 && !d.startsWith('234')) return '+234' + d;
+    if (!d.startsWith('234')) d = '234' + d;
+    return '+' + d.slice(0, 15);
   };
 
-  const handlePhoneChange = (text) => setPhone(formatPhone(text));
-
-  // ── Referral code validation (on-blur) ──────────────────────────────────
-
+  // ── Referral validation ─────────────────────────────────────────────────
   const handleReferralBlur = async () => {
     const code = referralCode.trim().toUpperCase();
-    if (!code) {
-      setReferralValid(null);
-      setReferralName('');
-      return;
-    }
-
+    if (!code) { setReferralValid(null); setReferralName(''); return; }
     setReferralChecking(true);
     try {
-      console.log('[Referral] Validating code:', code);
       const res = await axios.post(`${BASE_URL}/referrals/validate`, { code });
-      console.log('[Referral] Validate response:', JSON.stringify(res.data, null, 2));
-
-      if (res.data.valid) {
-        setReferralValid(true);
-        setReferralName(res.data.referrerName || 'your friend');
-      } else {
-        setReferralValid(false);
-        setReferralName('');
-        triggerShake();
-      }
-    } catch (err) {
-      console.error('[Referral] Validate error status:', err.response?.status);
-      console.error('[Referral] Validate error data:', JSON.stringify(err.response?.data, null, 2));
-      console.error('[Referral] Validate error message:', err.message);
-      setReferralValid(false);
-      setReferralName('');
-      triggerShake();
-    } finally {
-      setReferralChecking(false);
-    }
+      if (res.data.valid) { setReferralValid(true); setReferralName(res.data.referrerName || 'your friend'); }
+      else { setReferralValid(false); setReferralName(''); triggerShake(); }
+    } catch { setReferralValid(false); setReferralName(''); triggerShake(); }
+    finally  { setReferralChecking(false); }
   };
 
-  const handleReferralChange = (text) => {
-    setReferralCode(text.toUpperCase());
-    setReferralValid(null);
-    setReferralName('');
+  const handleReferralChange = (t) => {
+    setReferralCode(t.toUpperCase());
+    setReferralValid(null); setReferralName('');
   };
 
   // ── Signup ───────────────────────────────────────────────────────────────
+  const showError = (msg) => { setErrorMessage(msg); setErrorModal(true); };
 
   const handleSignup = async () => {
-    if (!name.trim()) {
-      setErrorMessage('Please enter your full name');
-      setErrorModalVisible(true);
-      return;
-    }
-    if (!phone.trim() || phone === '+234') {
-      setErrorMessage('Please enter a complete phone number');
-      setErrorModalVisible(true);
-      return;
-    }
-    if (phone.length < 12) {
-      setErrorMessage('Please enter a valid Nigerian phone number (e.g. +2348012345678)');
-      setErrorModalVisible(true);
-      return;
-    }
-    if (!password) {
-      setErrorMessage('Please enter a password');
-      setErrorModalVisible(true);
-      return;
-    }
+    if (!name.trim())                         return showError('Please enter your full name.');
+    if (!phone.trim() || phone === '+234')    return showError('Please enter a complete phone number.');
+    if (phone.length < 12)                    return showError('Enter a valid Nigerian phone number (e.g. +2348012345678).');
+    if (!password)                            return showError('Please enter a password.');
 
-    // If user typed a referral code but hasn't validated yet, validate now
     const code = referralCode.trim().toUpperCase();
     if (code && referralValid === null) {
       setReferralChecking(true);
       try {
-        console.log('[Signup] Pre-validating referral code:', code);
         const res = await axios.post(`${BASE_URL}/referrals/validate`, { code });
-        console.log('[Signup] Pre-validate response:', JSON.stringify(res.data, null, 2));
         setReferralValid(res.data.valid);
-        if (!res.data.valid) {
-          setReferralChecking(false);
-          setErrorMessage('The referral code you entered is invalid. Remove it or enter a correct one.');
-          setErrorModalVisible(true);
-          return;
-        }
+        if (!res.data.valid) { setReferralChecking(false); return showError('The referral code is invalid. Remove it or enter a correct one.'); }
         setReferralName(res.data.referrerName || '');
-      } catch (err) {
-        console.error('[Signup] Pre-validate error status:', err.response?.status);
-        console.error('[Signup] Pre-validate error data:', JSON.stringify(err.response?.data, null, 2));
-        console.error('[Signup] Pre-validate error message:', err.message);
-        setReferralChecking(false);
-        setErrorMessage('Could not verify referral code. Check your connection and try again.');
-        setErrorModalVisible(true);
-        return;
-      } finally {
-        setReferralChecking(false);
-      }
+      } catch { setReferralChecking(false); return showError('Could not verify referral code. Check your connection.'); }
+      finally  { setReferralChecking(false); }
     }
-
-    // Block signup if user typed a code and it's explicitly invalid
-    if (code && referralValid === false) {
-      setErrorMessage('Please remove the invalid referral code or enter a correct one.');
-      setErrorModalVisible(true);
-      return;
-    }
+    if (code && referralValid === false) return showError('Please remove the invalid referral code or enter a correct one.');
 
     setLoading(true);
     try {
-      const payload = {
-        name: name.trim(),
-        phone: phone.trim(),
-        password,
-      };
-      if (email.trim())      payload.email        = email.trim();
-      if (role === 'driver') payload.role          = 'driver';
-      if (code)              payload.referralCode  = code;
-
-      console.log('[Signup] Sending payload:', JSON.stringify(payload, null, 2));
-
-      const res = await axios.post(`${BASE_URL}/auth/signup`, payload);
-
-      console.log('[Signup] Success response status:', res.status);
-      console.log('[Signup] Success response data:', JSON.stringify(res.data, null, 2));
-
-      setSuccessModalVisible(true);
+      const payload = { name: name.trim(), phone: phone.trim(), password };
+      if (email.trim())      payload.email       = email.trim();
+      if (role === 'driver') payload.role         = 'driver';
+      if (code)              payload.referralCode = code;
+      await axios.post(`${BASE_URL}/auth/signup`, payload);
+      setSuccessModal(true);
     } catch (err) {
-      // ── Full error dump to console ──────────────────────────────────────
-      console.error('======= SIGNUP ERROR =======');
-      console.error('[Signup] HTTP status:', err.response?.status);
-      console.error('[Signup] Response headers:', JSON.stringify(err.response?.headers, null, 2));
-      console.error('[Signup] Response data:', JSON.stringify(err.response?.data, null, 2));
-      console.error('[Signup] Request config url:', err.config?.url);
-      console.error('[Signup] Request config data:', err.config?.data);
-      console.error('[Signup] Error message:', err.message);
-      console.error('[Signup] Full error:', err);
-      console.error('============================');
-
-      // ── User-facing error message ───────────────────────────────────────
-      let errMsg = 'Signup failed. Please try again.';
-      if (err.response?.data?.error?.message) {
-        const msg = err.response.data.error.message;
-        if (msg.includes('phone already in use'))       errMsg = 'This phone number is already registered.';
-        else if (msg.includes('Invalid phone format'))  errMsg = 'Invalid phone format. Use +234 format.';
-        else if (msg.includes('Invalid referral code')) errMsg = 'That referral code is not valid.';
-        else errMsg = msg;
-      } else if (err.response?.data?.message) {
-        // Some servers return { message: '...' } instead of { error: { message: '...' } }
-        errMsg = err.response.data.message;
+      let msg = 'Signup failed. Please try again.';
+      const d = err.response?.data;
+      if (d?.error?.message) {
+        const m = d.error.message;
+        if (m.includes('phone already in use'))      msg = 'This phone number is already registered.';
+        else if (m.includes('Invalid phone format')) msg = 'Invalid phone format. Use +234 format.';
+        else if (m.includes('Invalid referral'))     msg = 'That referral code is not valid.';
+        else msg = m;
+      } else if (d?.message) {
+        msg = d.message;
       } else if (err.message === 'Network Error') {
-        errMsg = 'Cannot connect to server. Check your internet.';
-      } else if (err.response?.status === 500) {
-        errMsg = 'Server error. Please try again in a moment.';
-      } else if (err.response?.status === 422) {
-        errMsg = 'Invalid data submitted. Please check your inputs.';
+        msg = 'Cannot connect to server. Check your internet.';
       }
-
-      setErrorMessage(errMsg);
-      setErrorModalVisible(true);
-    } finally {
-      setLoading(false);
-    }
+      showError(msg);
+    } finally { setLoading(false); }
   };
 
   const handleSuccessClose = () => {
-    setSuccessModalVisible(false);
+    setSuccessModal(false);
     navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
   };
 
-  // ── Referral input border colour ─────────────────────────────────────────
-
-  const referralBorderColor =
-    referralValid === true  ? '#22C55E' :
-    referralValid === false ? '#EF4444' :
-    '#E2E8F0';
-
-  const referralHintColor =
-    referralValid === true  ? '#22C55E' :
-    referralValid === false ? '#EF4444' :
-    '#94A3B8';
-
-  const referralHint =
-    referralChecking          ? 'Checking code…' :
-    referralValid === true    ? `✓ Code accepted! You and ${referralName} both get rewards` :
-    referralValid === false   ? '✕ Invalid referral code' :
+  // ── Referral UI helpers ──────────────────────────────────────────────────
+  const refBorderColor = referralValid === true ? '#10B981' : referralValid === false ? '#EF4444' : '#EBEBEB';
+  const refHintColor   = referralValid === true ? '#10B981' : referralValid === false ? '#EF4444' : '#aaa';
+  const refHint =
+    referralChecking        ? 'Checking code…' :
+    referralValid === true  ? `✓ Code accepted! You and ${referralName} both get rewards` :
+    referralValid === false ? '✕ Invalid referral code' :
     `${role === 'driver' ? 'Drivers' : 'Passengers'} who use a code get ₦300 off their first ride`;
 
+  const isDriver = role === 'driver';
+
   return (
-    <View style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.keyboardView}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContainer}
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Top Illustration */}
-          <View style={styles.illustrationContainer}>
+    <View style={s.container}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }} showsVerticalScrollIndicator={false} bounces={false} keyboardShouldPersistTaps="handled">
+
+          {/* ── HERO ── */}
+          <View style={s.heroContainer}>
             <Image
               source={{ uri: 'https://i.pinimg.com/736x/dc/25/fc/dc25fcaa998cd6a7a4cc76e89e7ce944.jpg' }}
-              style={styles.illustration}
+              style={s.heroImage}
               resizeMode="cover"
             />
-            <View style={styles.overlay} />
+
+
+            {/* Role badge on image */}
+        
           </View>
 
-          {/* White Content Card */}
-          <View style={styles.contentCard}>
-            <Text style={styles.title}>
-              Sign Up as {role === 'driver' ? 'Driver' : 'Passenger'}
-            </Text>
-            <Text style={styles.subtitle}>Create your account to get started</Text>
+          {/* ── LOGO BADGE ── */}
+          <View style={s.logoBadge}>
+            <Image source={WHEELA_LOGO} style={s.logo} resizeMode="contain" />
+          </View>
+
+          {/* ── CONTENT CARD ── */}
+          <Animated.View style={[s.contentCard, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+
+             <Text style={[s.heroBadgeText, isDriver && s.heroBadgeTextDriver]}>
+                  {isDriver ? 'Driver Account' : 'Passenger Account'}
+                </Text>
+
+            <Text style={s.title}>Create{'\n'}Account</Text>
+            <Text style={s.subtitle}>Sign up to start your journey</Text>
+            
 
             {/* Full Name */}
-            <TextInput
-              placeholder="Full Name"
-              placeholderTextColor="#94A3B8"
+            <InputField
+              label="FULL NAME"
+              icon="person-outline"
+              placeholder="e.g. Amaka Obi"
               value={name}
               onChangeText={setName}
-              style={styles.input}
               autoCapitalize="words"
             />
 
             {/* Phone */}
-            <TextInput
-              placeholder="Phone Number (e.g. +2348012345678)"
-              placeholderTextColor="#94A3B8"
+            <InputField
+              label="PHONE NUMBER"
+              icon="call-outline"
+              placeholder="+2348012345678"
               value={phone}
-              onChangeText={handlePhoneChange}
-              style={styles.input}
+              onChangeText={(t) => setPhone(formatPhone(t))}
               keyboardType="phone-pad"
-              autoComplete="tel"
             />
 
-            {/* Email (optional) */}
-            <TextInput
-              placeholder="Email"
-              placeholderTextColor="#94A3B8"
+            {/* Email */}
+            <InputField
+              label="EMAIL (OPTIONAL)"
+              icon="mail-outline"
+              placeholder="you@email.com"
               value={email}
               onChangeText={setEmail}
-              style={styles.input}
               keyboardType="email-address"
               autoCapitalize="none"
             />
 
             {/* Password */}
-            <View style={styles.passwordRow}>
-              <TextInput
-                placeholder="Password"
-                placeholderTextColor="#94A3B8"
-                value={password}
-                onChangeText={setPassword}
-                style={[styles.input, styles.passwordInput]}
-                secureTextEntry={!passwordVisible}
-                autoCapitalize="none"
-              />
-              <TouchableOpacity
-                style={styles.eyeButton}
-                onPress={() => setPasswordVisible(v => !v)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.eyeIcon}>{passwordVisible ? '🙈' : '👁️'}</Text>
-              </TouchableOpacity>
+            <View style={s.inputGroup}>
+              <Text style={s.inputLabel}>PASSWORD</Text>
+              <View style={s.inputWrap}>
+                <View style={s.inputIcon}>
+                  <Ionicons name="lock-closed-outline" size={16} color="#1A1A1A" />
+                </View>
+                <TextInput
+                  style={[s.input, { flex: 1 }]}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="Min. 8 characters"
+                  placeholderTextColor="#bbb"
+                  secureTextEntry={!showPw}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity onPress={() => setShowPw(v => !v)} style={s.eyeBtn} activeOpacity={0.7}>
+                  <Ionicons name={showPw ? 'eye-off-outline' : 'eye-outline'} size={18} color="#aaa" />
+                </TouchableOpacity>
+              </View>
             </View>
 
             {/* ── Referral Code ── */}
-            <View style={styles.referralSection}>
-              <Text style={styles.referralLabel}>
-                🎁 Have a referral code?{' '}
-                <Text style={styles.referralLabelOptional}>(Optional)</Text>
-              </Text>
+            <View style={s.referralSection}>
+              <View style={s.referralLabelRow}>
+                <Text style={s.inputLabel}>REFERRAL CODE</Text>
+                <View style={s.optionalPill}><Text style={s.optionalPillText}>Optional</Text></View>
+              </View>
 
               <Animated.View style={{ transform: [{ translateX: shakeAnim }] }}>
-                <View style={[styles.referralInputRow, { borderColor: referralBorderColor }]}>
+                <View style={[s.referralWrap, { borderColor: refBorderColor }]}>
+                  <View style={s.inputIcon}>
+                    <Ionicons name="ticket-outline" size={16} color="#1A1A1A" />
+                  </View>
                   <TextInput
-                    placeholder="Enter code e.g. AHM9XK3P"
-                    placeholderTextColor="#94A3B8"
+                    style={[s.input, { flex: 1, letterSpacing: 2, fontWeight: '800' }]}
                     value={referralCode}
                     onChangeText={handleReferralChange}
                     onBlur={handleReferralBlur}
-                    style={styles.referralInput}
+                    placeholder="e.g. AHM9XK3P"
+                    placeholderTextColor="#bbb"
                     autoCapitalize="characters"
                     maxLength={8}
                     autoCorrect={false}
                   />
-                  {referralChecking ? (
-                    <ActivityIndicator size="small" color="#00B0F3" style={styles.referralIcon} />
-                  ) : referralValid === true ? (
-                    <Text style={[styles.referralIcon, { color: '#22C55E', fontSize: 18 }]}>✓</Text>
-                  ) : referralValid === false ? (
-                    <Text style={[styles.referralIcon, { color: '#EF4444', fontSize: 18 }]}>✕</Text>
-                  ) : (
-                    <Text style={[styles.referralIcon, { color: '#94A3B8', fontSize: 16 }]}>🎟️</Text>
-                  )}
+                  {referralChecking
+                    ? <ActivityIndicator size="small" color="#3B82F6" style={{ marginRight: 4 }} />
+                    : referralValid === true
+                      ? <Ionicons name="checkmark-circle" size={20} color="#10B981" style={{ marginRight: 4 }} />
+                      : referralValid === false
+                        ? <Ionicons name="close-circle" size={20} color="#EF4444" style={{ marginRight: 4 }} />
+                        : null
+                  }
                 </View>
               </Animated.View>
 
-              <Text style={[styles.referralHint, { color: referralHintColor }]}>
-                {referralHint}
-              </Text>
+              <Text style={[s.referralHint, { color: refHintColor }]}>{refHint}</Text>
 
               {referralValid === true && (
-                <View style={styles.rewardBanner}>
-                  <Text style={styles.rewardBannerText}>
-                    🎉 You'll get <Text style={styles.rewardAmount}>₦300</Text> off your first ride!
+                <View style={s.rewardBanner}>
+                  <Ionicons name="gift-outline" size={16} color="#065F46" />
+                  <Text style={s.rewardBannerText}>
+                    You'll get <Text style={{ fontWeight: '900', color: '#065F46' }}>₦300</Text> off your first ride!
                   </Text>
                 </View>
               )}
             </View>
 
-            {/* Sign Up Button */}
+            {/* Sign Up button */}
             <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
+              style={[s.signupBtn, loading && { opacity: 0.6 }]}
               onPress={handleSignup}
               disabled={loading}
-              activeOpacity={0.8}
+              activeOpacity={0.88}
             >
-              {loading ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.buttonText}>Create Account</Text>
-              )}
+              {loading
+                ? <ActivityIndicator color="#fff" />
+                : <>
+                    <Text style={s.signupBtnText}>Create Account</Text>
+                    <Ionicons name="arrow-forward" size={18} color="#fff" />
+                  </>
+              }
             </TouchableOpacity>
 
             {/* Divider */}
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
+            <View style={s.divider}>
+              <View style={s.dividerLine} />
+              <Text style={s.dividerText}>or</Text>
+              <View style={s.dividerLine} />
             </View>
 
-            {/* Login Link */}
-            <TouchableOpacity
-              onPress={() => navigation.navigate('Login')}
-              style={styles.loginContainer}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.loginText}>
-                Already have an account?{' '}
-                <Text style={styles.loginLink}>Log in</Text>
-              </Text>
+            {/* Log in link */}
+            <TouchableOpacity onPress={() => navigation.navigate('Login')} style={s.loginRow} activeOpacity={0.7}>
+              <Text style={s.loginText}>Already have an account? </Text>
+              <Text style={s.loginLink}>Log in</Text>
             </TouchableOpacity>
-          </View>
-
-          {/* Logo overlapping the fold */}
-          <View style={styles.logoContainer}>
-            <Image source={WHEELA_LOGO} style={styles.logo} resizeMode="contain" />
-          </View>
+          </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* ── Success Modal ── */}
-      <Modal
-        animationType="fade"
-        transparent
-        visible={successModalVisible}
-        onRequestClose={handleSuccessClose}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.successIconContainer}>
-              <Text style={styles.successIcon}>✓</Text>
+      {/* ── SUCCESS MODAL ── */}
+      <Modal animationType="fade" transparent visible={successModal} onRequestClose={handleSuccessClose}>
+        <View style={s.modalOverlay}>
+          <View style={s.modalCard}>
+            <View style={[s.modalIconWrap, s.modalIconSuccess]}>
+              <Ionicons name="checkmark" size={36} color="#10B981" />
             </View>
-            <Text style={styles.modalTitle}>Welcome!</Text>
-            <Text style={styles.modalMessage}>
-              Your account has been created successfully.
-              {referralValid === true
-                ? `\n\nYour ₦300 referral bonus will be applied to your first ride. 🎉`
-                : ''}
+            <Text style={s.modalTitle}>Welcome!</Text>
+            <Text style={s.modalMsg}>
+              Your account has been created.
+              {referralValid === true ? '\n\nYour ₦300 referral bonus will be applied to your first ride. 🎉' : ''}
             </Text>
-            <TouchableOpacity
-              style={styles.modalButton}
-              onPress={handleSuccessClose}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.modalButtonText}>Continue to Login</Text>
+            <TouchableOpacity style={s.modalBtn} onPress={handleSuccessClose} activeOpacity={0.88}>
+              <Text style={s.modalBtnText}>Continue to Login</Text>
+              <Ionicons name="arrow-forward" size={16} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* ── Error Modal ── */}
-      <Modal
-        animationType="fade"
-        transparent
-        visible={errorModalVisible}
-        onRequestClose={() => setErrorModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.errorIconContainer}>
-              <Text style={styles.errorIcon}>✕</Text>
+      {/* ── ERROR MODAL ── */}
+      <Modal animationType="fade" transparent visible={errorModal} onRequestClose={() => setErrorModal(false)}>
+        <View style={s.modalOverlay}>
+          <View style={s.modalCard}>
+            <View style={[s.modalIconWrap, s.modalIconError]}>
+              <Ionicons name="close" size={36} color="#EF4444" />
             </View>
-            <Text style={styles.modalTitle}>Oops!</Text>
-            <Text style={styles.modalMessage}>{errorMessage}</Text>
-            <TouchableOpacity
-              style={styles.modalButton}
-              onPress={() => setErrorModalVisible(false)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.modalButtonText}>Try Again</Text>
+            <Text style={s.modalTitle}>Oops!</Text>
+            <Text style={s.modalMsg}>{errorMessage}</Text>
+            <TouchableOpacity style={[s.modalBtn, s.modalBtnError]} onPress={() => setErrorModal(false)} activeOpacity={0.88}>
+              <Text style={s.modalBtnText}>Try Again</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -476,286 +363,175 @@ export default function SignupScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
+// ── Reusable input field ───────────────────────────────────────────────────
+function InputField({ label, icon, value, onChangeText, placeholder, keyboardType, autoCapitalize, autoCorrect }) {
+  return (
+    <View style={s.inputGroup}>
+      <Text style={s.inputLabel}>{label}</Text>
+      <View style={s.inputWrap}>
+        <View style={s.inputIcon}>
+          <Ionicons name={icon} size={16} color="#1A1A1A" />
+        </View>
+        <TextInput
+          style={s.input}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor="#bbb"
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
+          autoCorrect={autoCorrect}
+        />
+      </View>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F5F5F0' },
+
+  // ── Hero ──
+  heroContainer: { width, height: height * 0.28, overflow: 'hidden' },
+  heroImage:     { width: '100%', height: '100%' },
+  heroOverlay:   { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.32)' },
+  heroBlueTint:  {
+    position: 'absolute', bottom: 0, left: 0, right: 0, height: 60,
+    backgroundColor: 'rgba(59,130,246,0.2)',
   },
-  keyboardView: {
-    flex: 1,
+  heroBadgeRow: {
+    position: 'absolute', bottom: 18, left: 0, right: 0, alignItems: 'center',
   },
-  scrollContainer: {
-    flexGrow: 1,
-    backgroundColor: '#FFFFFF',
-    paddingBottom: 40,
+  heroBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
   },
-  illustrationContainer: {
-    width,
-    height: height * 0.28,
-    overflow: 'hidden',
-  },
-  illustration: {
-    width: '100%',
-    height: '100%',
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 176, 243, 0.15)',
-  },
-  contentCard: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    paddingHorizontal: 32,
-    paddingTop: 70,
-    paddingBottom: 48,
-    marginTop: -30,
-    minHeight: height * 0.72,
-  },
-  logoContainer: {
+  heroBadgeDriver: {},
+  heroBadgeText:       { fontSize: 18, fontWeight: '700', color: '#1b1b1bff' },
+  heroBadgeTextDriver: { color: '#424141ff' },
+
+  // ── Logo badge ──
+  logoBadge: {
     position: 'absolute',
-    top: height * 0.28 - 60,
+    top: height * 0.28 - 48,
     alignSelf: 'center',
-    width: 100,
-    height: 100,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 10,
+    width: 88, height: 88, borderRadius: 25,
+    backgroundColor: '#fff',
+    justifyContent: 'center', alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.14, shadowRadius: 18, elevation: 12,
+    borderWidth: 3, borderColor: '#F5F5F0',
+     zIndex:99,
   },
-  logo: {
-    width: 65,
-    height: 65,
+  logo: { width: 58, height: 58 },
+
+  // ── Content card ──
+  contentCard: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 30, borderTopRightRadius: 30,
+    marginTop: -28, paddingHorizontal: 28,
+    paddingTop: 64, paddingBottom: 36,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.06, shadowRadius: 12, elevation: 8,
   },
   title: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#0A2540',
-    textAlign: 'center',
-    marginBottom: 8,
+    fontSize: 32, fontWeight: '900', color: '#1A1A1A',
+    letterSpacing: -1, lineHeight: 38, marginBottom: 8,
   },
-  subtitle: {
-    fontSize: 15,
-    color: '#64748B',
-    textAlign: 'center',
-    marginBottom: 32,
+  subtitle: { fontSize: 14, color: '#aaa', marginBottom: 24, fontWeight: '500' },
+
+  // ── Input group ──
+  inputGroup: { marginBottom: 14 },
+  inputLabel: {
+    fontSize: 10, fontWeight: '800', color: '#aaa',
+    letterSpacing: 0.8, marginBottom: 7, marginLeft: 2,
+  },
+  inputWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#F5F5F0', borderRadius: 14,
+    paddingHorizontal: 14,
+  },
+  inputIcon: {
+    width: 32, height: 32, borderRadius: 10,
+    backgroundColor: '#EBEBEB',
+    justifyContent: 'center', alignItems: 'center',
+    marginRight: 10,
   },
   input: {
-    backgroundColor: '#F8FAFC',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderRadius: 12,
-    fontSize: 16,
-    marginBottom: 14,
-    color: '#0A2540',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  passwordRow: {
-    position: 'relative',
-    marginBottom: 14,
-  },
-  passwordInput: {
-    marginBottom: 0,
-    paddingRight: 52,
-  },
-  eyeButton: {
-    position: 'absolute',
-    right: 16,
-    top: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  eyeIcon: {
-    fontSize: 18,
-  },
-  referralSection: {
-    marginBottom: 24,
-    marginTop: 4,
-  },
-  referralLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0A2540',
-    marginBottom: 10,
-  },
-  referralLabelOptional: {
-    fontWeight: '400',
-    color: '#94A3B8',
-    fontSize: 13,
-  },
-  referralInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    borderWidth: 1.5,
-    paddingHorizontal: 16,
-    paddingVertical: 2,
-  },
-  referralInput: {
-    flex: 1,
-    fontSize: 16,
+    flex: 1, fontSize: 15, fontWeight: '600', color: '#1A1A1A',
     paddingVertical: 14,
-    color: '#0A2540',
-    letterSpacing: 1.5,
-    fontWeight: '600',
   },
-  referralIcon: {
-    marginLeft: 8,
-    paddingVertical: 4,
+  eyeBtn: { padding: 4 },
+
+  // ── Referral ──
+  referralSection: { marginBottom: 22, marginTop: 4 },
+  referralLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 7 },
+  optionalPill: {
+    backgroundColor: '#F5F5F0', borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 3,
   },
-  referralHint: {
-    fontSize: 12,
-    marginTop: 8,
-    lineHeight: 18,
-  },
-  rewardBanner: {
-    marginTop: 10,
-    backgroundColor: '#F0FDF4',
-    borderRadius: 10,
-    paddingVertical: 10,
+  optionalPillText: { fontSize: 9, fontWeight: '800', color: '#aaa' },
+  referralWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#F5F5F0', borderRadius: 14,
     paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: '#BBF7D0',
+    borderWidth: 1.5, borderColor: '#EBEBEB',
   },
-  rewardBannerText: {
-    fontSize: 13,
-    color: '#166534',
-    fontWeight: '500',
-    textAlign: 'center',
+  referralHint: { fontSize: 12, marginTop: 8, lineHeight: 18 },
+  rewardBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#ECFDF5', borderRadius: 12,
+    paddingVertical: 10, paddingHorizontal: 14, marginTop: 10,
+    borderWidth: 1, borderColor: '#D1FAE5',
   },
-  rewardAmount: {
-    fontWeight: '800',
-    color: '#15803D',
+  rewardBannerText: { fontSize: 13, color: '#065F46', lineHeight: 18 },
+
+  // ── Sign up button ──
+  signupBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    backgroundColor: '#1A1A1A', borderRadius: 18,
+    paddingVertical: 17, marginBottom: 20,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18, shadowRadius: 14, elevation: 7,
   },
-  button: {
-    backgroundColor: '#00B0F3',
-    paddingVertical: 18,
-    borderRadius: 12,
-    alignItems: 'center',
-    shadowColor: '#00B0F3',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  buttonDisabled: {
-    backgroundColor: '#64B5F6',
-    opacity: 0.7,
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 20,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#E2E8F0',
-  },
-  dividerText: {
-    marginHorizontal: 12,
-    color: '#94A3B8',
-    fontSize: 14,
-  },
-  loginContainer: {
-    alignItems: 'center',
-  },
-  loginText: {
-    fontSize: 15,
-    color: '#64748B',
-  },
-  loginLink: {
-    color: '#00B0F3',
-    fontWeight: '600',
-  },
+  signupBtnText: { fontSize: 16, fontWeight: '800', color: '#fff' },
+
+  // ── Divider ──
+  divider: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#F0F0F0' },
+  dividerText: { fontSize: 12, color: '#ccc', marginHorizontal: 12, fontWeight: '600' },
+
+  // ── Login link ──
+  loginRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+  loginText: { fontSize: 14, color: '#aaa' },
+  loginLink: { fontSize: 14, color: '#3B82F6', fontWeight: '800' },
+
+  // ── Modal ──
   modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center', alignItems: 'center',
   },
-  modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 32,
-    width: width * 0.85,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 15,
+  modalCard: {
+    backgroundColor: '#fff', borderRadius: 26,
+    padding: 32, width: width * 0.85, alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25, shadowRadius: 24, elevation: 16,
   },
-  successIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#E8F8F5',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
+  modalIconWrap: {
+    width: 72, height: 72, borderRadius: 22,
+    justifyContent: 'center', alignItems: 'center', marginBottom: 20,
   },
-  successIcon: {
-    fontSize: 48,
-    color: '#00B0F3',
-    fontWeight: '700',
+  modalIconSuccess: { backgroundColor: '#ECFDF5' },
+  modalIconError:   { backgroundColor: '#FEF2F2' },
+  modalTitle: { fontSize: 22, fontWeight: '900', color: '#1A1A1A', marginBottom: 10, letterSpacing: -0.5 },
+  modalMsg:   { fontSize: 14, color: '#888', textAlign: 'center', lineHeight: 21, marginBottom: 24 },
+  modalBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#1A1A1A', borderRadius: 14,
+    paddingVertical: 15, width: '100%',
   },
-  errorIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#FEE',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  errorIcon: {
-    fontSize: 48,
-    color: '#EF4444',
-    fontWeight: '700',
-  },
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#0A2540',
-    marginBottom: 12,
-  },
-  modalMessage: {
-    fontSize: 16,
-    color: '#64748B',
-    textAlign: 'center',
-    marginBottom: 28,
-    lineHeight: 24,
-  },
-  modalButton: {
-    backgroundColor: '#00B0F3',
-    paddingVertical: 16,
-    paddingHorizontal: 40,
-    borderRadius: 12,
-    width: '100%',
-    alignItems: 'center',
-    shadowColor: '#00B0F3',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  modalButtonText: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '700',
-  },
+  modalBtnError: { backgroundColor: '#EF4444' },
+  modalBtnText: { fontSize: 15, fontWeight: '800', color: '#fff' },
 });
