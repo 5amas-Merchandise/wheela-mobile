@@ -34,12 +34,6 @@ const SERVICE_TYPES = [
   { label: 'City Car', value: 'CITY_CAR' },
   { label: 'Bike', value: 'BIKE' },
   { label: 'Keke / Tricycle', value: 'KEKE' },
-  { label: 'Truck / Logistics', value: 'TRUCK' },
-  { label: 'Luxury', value: 'LUXURY' },
-  { label: 'Van', value: 'VAN' },
-  { label: 'Interstate', value: 'INTERSTATE' },
-  { label: 'Delivery', value: 'DELIVERY' },
-  { label: 'Logistics', value: 'LOGISTICS' },
 ];
 
 export default function DriverProfileVerificationScreen({ navigation }) {
