@@ -2,7 +2,7 @@
   "expo": {
     "name": "Wheela",
     "slug": "wheela",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "orientation": "portrait",
     "icon": "./assets/logo3.png",
     "scheme": "wheelamobile",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.wheela.wheela",
-      "buildNumber": "4.0",
+      "buildNumber": "5.0",
       "config": {
         "googleMapsApiKey": "AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo"
       },
@@ -30,7 +30,7 @@
     },
     "android": {
       "package": "com.wheela.wheela",
-      "versionCode": 4,
+      "versionCode": 5,
       "privacyPolicy": "https://www.wheela.ng/privacy",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -98,7 +98,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/splash-icon.png",
+          "image": "./assets/logo3.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",

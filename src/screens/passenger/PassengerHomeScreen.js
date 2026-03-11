@@ -39,9 +39,6 @@ const TRIPS_REQUIRED = 5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BUG 3 FIX: Free ride is ONLY valid when fare ≤ this amount.
-// If the trip costs MORE than ₦5,000, the free ride does NOT apply at all —
-// the passenger pays normally (cash/wallet) and the entitlement is PRESERVED
-// for a cheaper future trip. It is never partially applied.
 // ─────────────────────────────────────────────────────────────────────────────
 const FREE_RIDE_MAX_FARE_NAIRA = 5000;
 
@@ -139,6 +136,10 @@ const MAP_STYLE = [
   },
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// RIDE_TYPES: UI metadata only — NO multipliers, NO fare calculation here.
+// All fares come exclusively from the backend /pricing/fare-estimate endpoint.
+// ─────────────────────────────────────────────────────────────────────────────
 const RIDE_TYPES = [
   {
     id: "CITY_RIDE",
@@ -146,17 +147,15 @@ const RIDE_TYPES = [
     icon: "car-sport",
     color: "#1A1A1A",
     bg: "#F0F0F0",
-    multiplier: 1.6,
     eta: "3 min",
     desc: "Affordable everyday rides",
   },
   {
-    id: "DELIVERY_BIKE",
+    id: "BIKE",
     name: "Delivery Bike",
     icon: "bicycle",
     color: "#059669",
     bg: "#ECFDF5",
-    multiplier: 1.0,
     eta: "2 min",
     desc: "Fast & cheap motorcycle",
   },
@@ -166,7 +165,6 @@ const RIDE_TYPES = [
     icon: "triangle",
     color: "#D97706",
     bg: "#FFFBEB",
-    multiplier: 0.8,
     eta: "4 min",
     desc: "Budget tricycle option",
   },
@@ -176,18 +174,13 @@ const RIDE_TYPES = [
     icon: "diamond",
     color: "#7C3AED",
     bg: "#F5F3FF",
-    multiplier: 2.5,
     eta: "8 min",
     desc: "Premium comfort rides",
   },
 ];
 
-function calcFareNaira(distanceKm, multiplier) {
-  return Math.round(500 + distanceKm * 150 * multiplier);
-}
-
 // ══════════════════════════════════════════════════════════════════════════════
-// LOYALTY MINI WIDGET — shows on the home screen above the search card
+// LOYALTY MINI WIDGET
 // ══════════════════════════════════════════════════════════════════════════════
 function LoyaltyMiniWidget({ loyalty, onPress, visible }) {
   const slideAnim = useRef(new Animated.Value(-80)).current;
@@ -202,7 +195,6 @@ function LoyaltyMiniWidget({ loyalty, onPress, visible }) {
 
   useEffect(() => {
     if (!visible) return;
-    // Slide in
     Animated.spring(slideAnim, {
       toValue: 0,
       tension: 70,
@@ -210,7 +202,6 @@ function LoyaltyMiniWidget({ loyalty, onPress, visible }) {
       useNativeDriver: true,
     }).start();
 
-    // Progress bar fill
     Animated.timing(progressAnim, {
       toValue: progressPercent / 100,
       duration: 1000,
@@ -218,7 +209,6 @@ function LoyaltyMiniWidget({ loyalty, onPress, visible }) {
       useNativeDriver: false,
     }).start();
 
-    // If free ride unlocked — pulse the widget
     if (freeRideAvailable) {
       Animated.loop(
         Animated.sequence([
@@ -277,14 +267,12 @@ function LoyaltyMiniWidget({ loyalty, onPress, visible }) {
         style={[lw.card, freeRideAvailable && lw.cardFree]}
       >
         {freeRideAvailable ? (
-          // ── FREE RIDE UNLOCKED STATE ────────────────────────────────────
           <>
             <Animated.View style={[lw.freeGlow, { opacity: glowOpacity }]} />
             <View style={lw.freeLeft}>
               <Text style={lw.freeEmoji}>🎁</Text>
               <View>
                 <Text style={lw.freeTitle}>FREE RIDE READY!</Text>
-                {/* BUG 3: Tell passenger the fare limit right on the widget */}
                 <Text style={lw.freeSub}>
                   Valid on trips up to ₦
                   {FREE_RIDE_MAX_FARE_NAIRA.toLocaleString()}
@@ -296,9 +284,7 @@ function LoyaltyMiniWidget({ loyalty, onPress, visible }) {
             </View>
           </>
         ) : (
-          // ── PROGRESS STATE ────────────────────────────────────────────────
           <>
-            {/* Left: trophy + text */}
             <View style={lw.left}>
               <View style={lw.iconWrap}>
                 <Ionicons name="trophy" size={16} color="#C9A84C" />
@@ -312,13 +298,10 @@ function LoyaltyMiniWidget({ loyalty, onPress, visible }) {
                     </Text>
                   </View>
                 </View>
-
-                {/* Progress bar */}
                 <View style={lw.barTrack}>
                   <Animated.View
                     style={[lw.barFill, { width: progressBarWidth }]}
                   />
-                  {/* Dot markers */}
                   <View style={lw.dotsOverlay}>
                     {Array.from({ length: TRIPS_REQUIRED - 1 }).map((_, i) => (
                       <View
@@ -335,7 +318,6 @@ function LoyaltyMiniWidget({ loyalty, onPress, visible }) {
                     ))}
                   </View>
                 </View>
-
                 <Text style={lw.sub}>
                   {TRIPS_REQUIRED - tripCount === 1
                     ? "1 more ride for a FREE trip! 🔥"
@@ -343,8 +325,6 @@ function LoyaltyMiniWidget({ loyalty, onPress, visible }) {
                 </Text>
               </View>
             </View>
-
-            {/* Right: chevron */}
             <Ionicons name="chevron-forward" size={16} color="#aaa" />
           </>
         )}
@@ -381,8 +361,6 @@ const lw = StyleSheet.create({
     borderColor: "#22C55E",
     backgroundColor: "#F0FDF4",
   },
-
-  // Free ride state
   freeGlow: {
     position: "absolute",
     top: -20,
@@ -398,25 +376,15 @@ const lw = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
-  freeEmoji: {
-    fontSize: 26,
-  },
+  freeEmoji: { fontSize: 26 },
   freeTitle: {
     fontSize: 13,
     fontWeight: "800",
     color: "#15803D",
     letterSpacing: 0.5,
   },
-  freeSub: {
-    fontSize: 11,
-    color: "#4ADE80",
-    marginTop: 2,
-  },
-  freeArrow: {
-    marginLeft: 8,
-  },
-
-  // Progress state
+  freeSub: { fontSize: 11, color: "#4ADE80", marginTop: 2 },
+  freeArrow: { marginLeft: 8 },
   left: {
     flex: 1,
     flexDirection: "row",
@@ -432,9 +400,7 @@ const lw = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  textBlock: {
-    flex: 1,
-  },
+  textBlock: { flex: 1 },
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -453,11 +419,7 @@ const lw = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
-  countText: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#92700A",
-  },
+  countText: { fontSize: 10, fontWeight: "800", color: "#92700A" },
   barTrack: {
     height: 6,
     backgroundColor: "#F0F0F0",
@@ -466,11 +428,7 @@ const lw = StyleSheet.create({
     marginBottom: 5,
     position: "relative",
   },
-  barFill: {
-    height: "100%",
-    borderRadius: 3,
-    backgroundColor: "#C9A84C",
-  },
+  barFill: { height: "100%", borderRadius: 3, backgroundColor: "#C9A84C" },
   dotsOverlay: {
     position: "absolute",
     top: 0,
@@ -487,15 +445,11 @@ const lw = StyleSheet.create({
     borderRadius: 2,
     marginLeft: -2,
   },
-  sub: {
-    fontSize: 10,
-    color: "#888",
-    fontWeight: "500",
-  },
+  sub: { fontSize: 10, color: "#888", fontWeight: "500" },
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-// FREE RIDE BANNER — shown when free ride IS applied (fare ≤ ₦5,000)
+// FREE RIDE BANNERS
 // ══════════════════════════════════════════════════════════════════════════════
 function FreeRideBottomBanner({ visible }) {
   const anim = useRef(new Animated.Value(0)).current;
@@ -542,11 +496,7 @@ function FreeRideBottomBanner({ visible }) {
 }
 
 const frb = StyleSheet.create({
-  wrap: {
-    marginBottom: 12,
-    borderRadius: 14,
-    overflow: "hidden",
-  },
+  wrap: { marginBottom: 12, borderRadius: 14, overflow: "hidden" },
   inner: {
     flexDirection: "row",
     alignItems: "center",
@@ -557,30 +507,12 @@ const frb = StyleSheet.create({
     borderRadius: 14,
     padding: 14,
   },
-  emoji: {
-    fontSize: 24,
-  },
-  text: {
-    flex: 1,
-  },
-  title: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#15803D",
-    marginBottom: 2,
-  },
-  sub: {
-    fontSize: 11,
-    color: "#4ADE80",
-    lineHeight: 15,
-  },
+  emoji: { fontSize: 24 },
+  text: { flex: 1 },
+  title: { fontSize: 13, fontWeight: "800", color: "#15803D", marginBottom: 2 },
+  sub: { fontSize: 11, color: "#4ADE80", lineHeight: 15 },
 });
 
-// ══════════════════════════════════════════════════════════════════════════════
-// BUG 3: FREE RIDE BLOCKED BANNER
-// Shown when a free ride is banked but fare > ₦5,000.
-// Passenger must pay. Entitlement is NOT consumed — saved for a cheaper trip.
-// ══════════════════════════════════════════════════════════════════════════════
 function FreeRideBlockedBanner({ visible, fare }) {
   const anim = useRef(new Animated.Value(0)).current;
 
@@ -633,11 +565,7 @@ function FreeRideBlockedBanner({ visible, fare }) {
 }
 
 const fbb = StyleSheet.create({
-  wrap: {
-    marginBottom: 12,
-    borderRadius: 14,
-    overflow: "hidden",
-  },
+  wrap: { marginBottom: 12, borderRadius: 14, overflow: "hidden" },
   inner: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -648,20 +576,14 @@ const fbb = StyleSheet.create({
     borderRadius: 14,
     padding: 14,
   },
-  text: {
-    flex: 1,
-  },
+  text: { flex: 1 },
   title: {
     fontSize: 13,
     fontWeight: "800",
     color: "#92400E",
     marginBottom: 3,
   },
-  sub: {
-    fontSize: 11,
-    color: "#B45309",
-    lineHeight: 16,
-  },
+  sub: { fontSize: 11, color: "#B45309", lineHeight: 16 },
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -682,10 +604,20 @@ export default function PassengerHomeScreen() {
   const [pickupAddress, setPickupAddress] = useState("Getting your location…");
   const [dropoffAddress, setDropoffAddress] = useState("");
   const [selectedRideType, setSelectedRideType] = useState("CITY_RIDE");
-  const [estimatedFare, setEstimatedFare] = useState(null);
+
+  // ── BACKEND-DRIVEN FARE STATE ─────────────────────────────────────────────
+  // faresByType: { CITY_RIDE: 1200, BIKE: 700, KEKE: 600, LUXURY_RENTAL: 2500 }
+  // Populated by calling POST /pricing/fare-estimate on the backend.
+  // The frontend NEVER calculates fares itself.
+  const [faresByType, setFaresByType] = useState({});
+  const [fareLoading, setFareLoading] = useState(false);
+  const [fareError, setFareError] = useState(null);
+
+  // Route display data (from backend fare-estimate response)
   const [routeCoords, setRouteCoords] = useState([]);
   const [routeDistance, setRouteDistance] = useState(0);
   const [routeDuration, setRouteDuration] = useState(0);
+
   const [loading, setLoading] = useState(false);
 
   // Payment
@@ -693,7 +625,7 @@ export default function PassengerHomeScreen() {
   const [walletBalance, setWalletBalance] = useState(null);
   const [walletLoading, setWalletLoading] = useState(false);
 
-  // ── LOYALTY STATE ─────────────────────────────────────────────────────────
+  // Loyalty
   const [loyalty, setLoyalty] = useState(null);
   const [loyaltyLoading, setLoyaltyLoading] = useState(false);
   const [loyaltyReady, setLoyaltyReady] = useState(false);
@@ -718,7 +650,11 @@ export default function PassengerHomeScreen() {
   const [driverData, setDriverData] = useState(null);
   const [driverLocation, setDriverLocation] = useState(null);
 
-  // ── Derived ──────────────────────────────────────────────────────────────
+  // ── Derived ───────────────────────────────────────────────────────────────
+  // estimatedFare is always the backend-authoritative fare for the currently
+  // selected ride type. It is null until a fare-estimate API call succeeds.
+  const estimatedFare = faresByType[selectedRideType] ?? null;
+
   const walletBalanceNaira =
     walletBalance !== null ? walletBalance / 100 : null;
   const walletInsufficient =
@@ -726,24 +662,20 @@ export default function PassengerHomeScreen() {
     estimatedFare !== null &&
     walletBalanceNaira < estimatedFare;
 
-  // Does the account have a free ride banked at all?
   const loyaltyFreeRideBanked =
     loyalty?.freeRideAvailable && loyalty?.freeRideStillValid;
 
-  // BUG 3: Is the current fare within the allowed threshold?
   const fareWithinCap =
     estimatedFare !== null && estimatedFare <= FREE_RIDE_MAX_FARE_NAIRA;
 
-  // BUG 3: Single source of truth — free ride ONLY applies when BOTH:
-  //   (a) entitlement exists AND (b) fare ≤ ₦5,000
-  // If fare > ₦5,000 this is always false — passenger pays normally.
   const freeRideApplied = loyaltyFreeRideBanked && fareWithinCap;
 
-  // BUG 3: Show warning when banked but blocked by high fare.
   const freeRideBlocked =
     loyaltyFreeRideBanked && !fareWithinCap && estimatedFare !== null;
 
-  // ── Auth header ──────────────────────────────────────────────────────────
+  const hasFares = Object.keys(faresByType).length > 0;
+
+  // ── Auth header ───────────────────────────────────────────────────────────
   const authH = async () => {
     const token = await getAuthToken();
     return {
@@ -752,7 +684,7 @@ export default function PassengerHomeScreen() {
     };
   };
 
-  // ── Wallet fetch ─────────────────────────────────────────────────────────
+  // ── Wallet fetch ──────────────────────────────────────────────────────────
   const fetchWalletBalance = useCallback(async () => {
     try {
       setWalletLoading(true);
@@ -767,7 +699,7 @@ export default function PassengerHomeScreen() {
     }
   }, []);
 
-  // ── Loyalty fetch ────────────────────────────────────────────────────────
+  // ── Loyalty fetch ─────────────────────────────────────────────────────────
   const fetchLoyalty = useCallback(async () => {
     try {
       setLoyaltyLoading(true);
@@ -785,12 +717,80 @@ export default function PassengerHomeScreen() {
     }
   }, []);
 
-  // Fetch loyalty on mount
+  // ── BACKEND FARE ESTIMATE ─────────────────────────────────────────────────
+  // Called whenever pickup or dropoff coordinates change.
+  // Sends both coordinate pairs to the backend which:
+  //   1. Calls Google Directions to get authoritative distance/duration
+  //   2. Applies the stored pricing config from the database
+  //   3. Returns fares for ALL service types + route polyline
+  // The frontend simply displays these values — zero local fare math.
+  const fetchFareEstimate = useCallback(
+    async (pickup, dropoff) => {
+      if (!pickup || !dropoff) return;
+
+      setFareLoading(true);
+      setFareError(null);
+
+      try {
+        const headers = await authH();
+        const res = await fetch(`${BASE_URL}/pricing/fare-estimate`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            pickup: {
+              coordinates: [pickup.longitude, pickup.latitude],
+            },
+            dropoff: {
+              coordinates: [dropoff.longitude, dropoff.latitude],
+            },
+          }),
+        });
+
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}));
+          throw new Error(errBody?.error?.message || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+
+        // data.fares: { CITY_RIDE: 1200, BIKE: 700, KEKE: 600, LUXURY_RENTAL: 2500 }
+        // data.route: { distanceKm, durationSeconds, polyline }
+        if (data.fares) {
+          setFaresByType(data.fares);
+        }
+
+        if (data.route) {
+          setRouteDistance(data.route.distanceKm ?? 0);
+          setRouteDuration(data.route.durationSeconds ?? 0);
+
+          if (data.route.polyline && data.route.polyline.length > 0) {
+            setRouteCoords(data.route.polyline);
+            if (mapRef.current && isMapReady) {
+              mapRef.current.fitToCoordinates(data.route.polyline, {
+                edgePadding: { top: 120, right: 60, bottom: 400, left: 60 },
+                animated: true,
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("fare estimate fetch:", e.message);
+        setFareError(e.message || "Could not load fare estimate");
+        // Clear stale fares so the UI shows the error state
+        setFaresByType({});
+      } finally {
+        setFareLoading(false);
+      }
+    },
+    [isMapReady],
+  );
+
+  // ── Effects ───────────────────────────────────────────────────────────────
+
   useEffect(() => {
     fetchLoyalty();
   }, []);
 
-  // Re-fetch loyalty when screen comes back into focus (after a trip completes)
   useEffect(() => {
     const unsubscribe = navigation.addListener("focus", () => {
       fetchLoyalty();
@@ -798,7 +798,6 @@ export default function PassengerHomeScreen() {
     return unsubscribe;
   }, [navigation]);
 
-  // Fetch wallet + loyalty when bottom sheet appears
   useEffect(() => {
     if (dropoffLocation) {
       fetchWalletBalance();
@@ -806,30 +805,24 @@ export default function PassengerHomeScreen() {
     }
   }, [dropoffLocation]);
 
-  // BUG 3: Auto-apply or auto-revoke free_ride payment method based on
-  // whether the current fare qualifies. Runs whenever estimatedFare changes
-  // (e.g. passenger picks a different ride type).
-  //   • fare ≤ ₦5,000 + entitlement → set "free_ride"
-  //   • fare > ₦5,000 and method is "free_ride" → revert to "cash"
+  // Auto-apply / revert free_ride payment method
   useEffect(() => {
     if (!dropoffLocation) return;
-
     if (freeRideApplied) {
       setPaymentMethod("free_ride");
     } else if (paymentMethod === "free_ride") {
-      // Fare went above cap (e.g. switched to Luxury) — revert to cash
       setPaymentMethod("cash");
     }
   }, [freeRideApplied, dropoffLocation]);
 
-  // Revert to cash if wallet becomes insufficient
+  // Revert wallet if insufficient
   useEffect(() => {
     if (walletInsufficient && paymentMethod === "wallet") {
       setPaymentMethod("cash");
     }
   }, [walletInsufficient]);
 
-  // ── Animations ───────────────────────────────────────────────────────────
+  // Animations
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
@@ -857,7 +850,7 @@ export default function PassengerHomeScreen() {
   }, []);
 
   useEffect(() => {
-    if (estimatedFare && dropoffLocation) {
+    if (hasFares && dropoffLocation) {
       Animated.spring(bottomSheetAnim, {
         toValue: 1,
         tension: 55,
@@ -871,9 +864,9 @@ export default function PassengerHomeScreen() {
         useNativeDriver: true,
       }).start();
     }
-  }, [estimatedFare, dropoffLocation]);
+  }, [hasFares, dropoffLocation]);
 
-  // ── Location ─────────────────────────────────────────────────────────────
+  // Location
   useEffect(() => {
     let isMounted = true;
     (async () => {
@@ -919,7 +912,7 @@ export default function PassengerHomeScreen() {
     }
   }, [isMapReady, locationPermissionGranted]);
 
-  // ── WebSocket ────────────────────────────────────────────────────────────
+  // WebSocket
   useEffect(() => {
     let mounted = true;
     let retryTimeout = null;
@@ -974,7 +967,7 @@ export default function PassengerHomeScreen() {
     };
   }, []);
 
-  // ── Trip events ──────────────────────────────────────────────────────────
+  // Trip events
   useEffect(() => {
     if (!wsReady) return;
     const onAccepted = (d) => {
@@ -989,7 +982,6 @@ export default function PassengerHomeScreen() {
       setTripStatus("trip_completed");
       setDriverData(null);
       setDriverLocation(null);
-      // Refresh loyalty after trip completes so progress bar updates
       setTimeout(() => fetchLoyalty(), 1500);
     };
     addListener("trip:accepted", onAccepted);
@@ -1004,14 +996,13 @@ export default function PassengerHomeScreen() {
     };
   }, [wsReady]);
 
-  // ── WebSocket: loyalty unlock push ───────────────────────────────────────
+  // Loyalty unlock push
   useEffect(() => {
     if (!wsReady) return;
     const onLoyaltyUnlocked = () => {
       fetchLoyalty();
       Alert.alert(
         "🏆 Free Ride Unlocked!",
-        // BUG 3: Alert now mentions the ₦5,000 fare limit
         `You've completed 5 rides with The Kilometre Club. Your next ride up to ₦${FREE_RIDE_MAX_FARE_NAIRA.toLocaleString()} is FREE!`,
         [
           {
@@ -1027,7 +1018,7 @@ export default function PassengerHomeScreen() {
       removeListener("loyalty_free_ride_unlocked", onLoyaltyUnlocked);
   }, [wsReady]);
 
-  // ── Google helpers ───────────────────────────────────────────────────────
+  // ── Google geocoding (reverse only — directions are now server-side) ───────
   const reverseGeocodeGoogle = async (coords, isPickup = false) => {
     try {
       const res = await fetch(
@@ -1041,76 +1032,7 @@ export default function PassengerHomeScreen() {
     } catch {}
   };
 
-  const fetchGoogleRoute = async (origin, dest) => {
-    try {
-      const res = await fetch(
-        `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${dest.latitude},${dest.longitude}&key=${GOOGLE_API_KEY}&mode=driving`,
-      );
-      const data = await res.json();
-      if (data.status === "OK" && data.routes.length > 0) {
-        const route = data.routes[0];
-        const leg = route.legs[0];
-        return {
-          coordinates: decodePolyline(route.overview_polyline.points),
-          distance: leg.distance.value / 1000,
-          duration: leg.duration.value,
-        };
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  };
-
-  const decodePolyline = (encoded) => {
-    const pts = [];
-    let i = 0,
-      lat = 0,
-      lng = 0;
-    while (i < encoded.length) {
-      let b,
-        s = 0,
-        r = 0;
-      do {
-        b = encoded.charCodeAt(i++) - 63;
-        r |= (b & 0x1f) << s;
-        s += 5;
-      } while (b >= 0x20);
-      lat += r & 1 ? ~(r >> 1) : r >> 1;
-      s = 0;
-      r = 0;
-      do {
-        b = encoded.charCodeAt(i++) - 63;
-        r |= (b & 0x1f) << s;
-        s += 5;
-      } while (b >= 0x20);
-      lng += r & 1 ? ~(r >> 1) : r >> 1;
-      pts.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
-    }
-    return pts;
-  };
-
-  const displayRoute = async (origin, dest) => {
-    if (!origin || !dest) return;
-    setLoading(true);
-    const routeData = await fetchGoogleRoute(origin, dest);
-    if (routeData) {
-      setRouteCoords(routeData.coordinates);
-      setRouteDistance(routeData.distance);
-      setRouteDuration(routeData.duration);
-      const ride = RIDE_TYPES.find((r) => r.id === selectedRideType);
-      setEstimatedFare(calcFareNaira(routeData.distance, ride.multiplier));
-      if (mapRef.current && isMapReady) {
-        mapRef.current.fitToCoordinates(routeData.coordinates, {
-          edgePadding: { top: 120, right: 60, bottom: 400, left: 60 },
-          animated: true,
-        });
-      }
-    }
-    setLoading(false);
-  };
-
-  // ── Pickup search ────────────────────────────────────────────────────────
+  // ── Pickup search ─────────────────────────────────────────────────────────
   const searchPickupLocation = async (text) => {
     setPickupSearchQuery(text);
     if (text.trim().length < 2) {
@@ -1150,7 +1072,10 @@ export default function PassengerHomeScreen() {
         setPickupAddress(data.result.formatted_address || item.description);
         setShowPickupSearch(false);
         mapRef.current?.animateToRegion(coords, 1000);
-        if (dropoffLocation) displayRoute(coords, dropoffLocation);
+        // Re-fetch fare estimate with updated pickup
+        if (dropoffLocation) {
+          fetchFareEstimate(coords, dropoffLocation);
+        }
       }
     } catch {
       Alert.alert("Error", "Failed to select location");
@@ -1159,16 +1084,12 @@ export default function PassengerHomeScreen() {
     }
   };
 
-  // ── Ride type ────────────────────────────────────────────────────────────
+  // ── Ride type selection ───────────────────────────────────────────────────
+  // Selecting a ride type simply switches which fare from faresByType is shown.
+  // No recalculation needed — all fares were fetched together.
   const selectRide = (rideId) => {
     setSelectedRideType(rideId);
     setShowRideModal(false);
-    if (routeDistance > 0) {
-      const ride = RIDE_TYPES.find((r) => r.id === rideId);
-      // BUG 3: Setting fare triggers the freeRideApplied useEffect which
-      // auto-reverts paymentMethod to "cash" if new fare exceeds the cap.
-      setEstimatedFare(calcFareNaira(routeDistance, ride.multiplier));
-    }
   };
 
   const cancelTrip = useCallback(() => {
@@ -1188,12 +1109,16 @@ export default function PassengerHomeScreen() {
     ]);
   }, [driverData, wsReady]);
 
+  // Called from SearchDestination screen via navigation params
   const goToSearchDestination = () => {
     navigation.navigate("SearchDestination", {
       onSelect: (coords, address) => {
         setDropoffLocation(coords);
         setDropoffAddress(address);
-        if (pickupLocation) displayRoute(pickupLocation, coords);
+        // ── KEY CHANGE: trigger backend fare estimate, not local calc ──────
+        if (pickupLocation) {
+          fetchFareEstimate(pickupLocation, coords);
+        }
       },
     });
   };
@@ -1210,7 +1135,6 @@ export default function PassengerHomeScreen() {
     outputRange: [60, 0],
   });
 
-  // How tall is the widget so the search card offsets correctly
   const loyaltyWidgetShowing = loyaltyReady && !tripStatus;
   const searchCardTop = loyaltyWidgetShowing
     ? Platform.OS === "ios"
@@ -1220,7 +1144,6 @@ export default function PassengerHomeScreen() {
       ? 114
       : 104;
 
-  // Payment method label for the request button
   const paymentLabel =
     paymentMethod === "free_ride"
       ? "Free Ride 🎁"
@@ -1228,7 +1151,7 @@ export default function PassengerHomeScreen() {
         ? "Wallet"
         : "Cash";
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <View style={s.container}>
       <StatusBar
@@ -1332,7 +1255,7 @@ export default function PassengerHomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ── LOYALTY MINI WIDGET ── */}
+      {/* LOYALTY MINI WIDGET */}
       {!tripStatus && (
         <LoyaltyMiniWidget
           loyalty={loyalty}
@@ -1417,7 +1340,7 @@ export default function PassengerHomeScreen() {
         </View>
       )}
 
-      {/* SEARCH CARD — offset down when loyalty widget is visible */}
+      {/* SEARCH CARD */}
       {!tripStatus && (
         <Animated.View
           style={[
@@ -1466,17 +1389,33 @@ export default function PassengerHomeScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color="#ccc" />
           </TouchableOpacity>
-          {loading && (
+
+          {/* Fare loading indicator inside the search card */}
+          {fareLoading && (
             <View style={s.routeLoadingRow}>
               <ActivityIndicator size="small" color="#1A1A1A" />
-              <Text style={s.routeLoadingText}>Finding best route…</Text>
+              <Text style={s.routeLoadingText}>Getting fare estimate…</Text>
             </View>
+          )}
+
+          {/* Fare error state */}
+          {fareError && !fareLoading && dropoffLocation && (
+            <TouchableOpacity
+              style={s.fareErrorRow}
+              onPress={() => fetchFareEstimate(pickupLocation, dropoffLocation)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="alert-circle-outline" size={14} color="#EF4444" />
+              <Text style={s.fareErrorText}>
+                Could not load fares. Tap to retry.
+              </Text>
+            </TouchableOpacity>
           )}
         </Animated.View>
       )}
 
       {/* BOTTOM SHEET */}
-      {!tripStatus && dropoffLocation && estimatedFare && (
+      {!tripStatus && dropoffLocation && hasFares && (
         <Animated.View
           style={[
             s.bottomSheet,
@@ -1485,9 +1424,6 @@ export default function PassengerHomeScreen() {
         >
           <View style={s.sheetHandle} />
 
-          {/* BUG 3: Two mutually exclusive banners.
-              Case A — fare ≤ ₦5,000: green "Free Ride Applied" banner.
-              Case B — fare > ₦5,000: amber "Blocked" banner (entitlement preserved). */}
           <FreeRideBottomBanner visible={freeRideApplied} />
           <FreeRideBlockedBanner
             visible={freeRideBlocked}
@@ -1516,18 +1452,21 @@ export default function PassengerHomeScreen() {
               </Text>
             </View>
             <View style={s.ridePickerRight}>
-              {/* BUG 3: FREE badge only shown when fare is within cap */}
-              {freeRideApplied ? (
+              {fareLoading ? (
+                <ActivityIndicator size="small" color="#1A1A1A" />
+              ) : freeRideApplied ? (
                 <View style={s.freeFareBadge}>
                   <Text style={s.freeFareOld}>
-                    ₦{estimatedFare.toLocaleString()}
+                    ₦{estimatedFare?.toLocaleString()}
                   </Text>
                   <Text style={s.freeFareNew}>FREE</Text>
                 </View>
-              ) : (
+              ) : estimatedFare !== null ? (
                 <Text style={s.ridePickerFare}>
                   ₦{estimatedFare.toLocaleString()}
                 </Text>
+              ) : (
+                <Text style={s.ridePickerFare}>—</Text>
               )}
               <View style={s.changeTag}>
                 <Text style={s.changeTagText}>Change</Text>
@@ -1535,7 +1474,7 @@ export default function PassengerHomeScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* Trip chips */}
+          {/* Trip info chips */}
           <View style={s.tripChipsRow}>
             <View style={s.tripChip}>
               <Ionicons name="navigate-outline" size={13} color="#666" />
@@ -1555,10 +1494,7 @@ export default function PassengerHomeScreen() {
             </View>
           </View>
 
-          {/* PAYMENT METHOD SELECTOR
-              BUG 3: Hidden ONLY when freeRideApplied (fare ≤ ₦5,000).
-              When fare > ₦5,000 this is ALWAYS shown — even if the passenger
-              has a free ride banked — because they must pay for this trip. */}
+          {/* Payment method — hidden when free ride applies */}
           {!freeRideApplied && (
             <View style={s.paymentSection}>
               <Text style={s.paymentLabel}>PAYMENT METHOD</Text>
@@ -1725,7 +1661,8 @@ export default function PassengerHomeScreen() {
             style={[
               s.requestBtn,
               freeRideApplied && s.requestBtnFree,
-              (!wsReady || !locationPermissionGranted) && s.requestBtnDisabled,
+              (!wsReady || !locationPermissionGranted || fareLoading) &&
+                s.requestBtnDisabled,
             ]}
             onPress={() => {
               if (!locationPermissionGranted) {
@@ -1742,23 +1679,31 @@ export default function PassengerHomeScreen() {
                 );
                 return;
               }
+              if (fareLoading || estimatedFare === null) {
+                Alert.alert(
+                  "Fare Not Ready",
+                  "Please wait for the fare estimate to load.",
+                );
+                return;
+              }
               navigation.navigate("DriverMatching", {
                 pickup: pickupLocation,
                 dropoff: dropoffLocation,
                 pickupAddress,
                 dropoffAddress,
                 serviceType: selectedRideType,
+                // ── CRITICAL: send the backend-authoritative fare, not a
+                // locally calculated value. The backend will re-verify this
+                // fare on /trips/request using its own pricing config.
                 estimatedFare,
                 distance: routeDistance,
                 duration: routeDuration,
-                // BUG 3: Only pass "free_ride" when fare is within the cap.
-                // If fare > ₦5,000, always passes cash/wallet — never free_ride.
                 paymentMethod: freeRideApplied ? "free_ride" : paymentMethod,
               });
             }}
             activeOpacity={0.88}
           >
-            {loading ? (
+            {fareLoading ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <>
@@ -1767,9 +1712,11 @@ export default function PassengerHomeScreen() {
                     ? "Location Required"
                     : !wsReady
                       ? "Reconnecting…"
-                      : freeRideApplied
-                        ? "🎁 Request Free Ride"
-                        : `Request Ride · ${paymentLabel}`}
+                      : fareLoading
+                        ? "Loading fare…"
+                        : freeRideApplied
+                          ? "🎁 Request Free Ride"
+                          : `Request Ride · ${paymentLabel}`}
                 </Text>
                 <Ionicons
                   name="arrow-forward"
@@ -1799,7 +1746,6 @@ export default function PassengerHomeScreen() {
           <View style={s.sheetHandle} />
           <View style={s.rideModalHeader}>
             <Text style={s.rideModalTitle}>Choose ride type</Text>
-            {/* BUG 3: Remind passenger of the cap when they have a free ride banked */}
             {loyaltyFreeRideBanked && (
               <Text style={s.rideModalCapHint}>
                 🎁 Free ride applies on trips ₦
@@ -1807,82 +1753,94 @@ export default function PassengerHomeScreen() {
               </Text>
             )}
           </View>
-          {RIDE_TYPES.map((ride) => {
-            const isSelected = selectedRideType === ride.id;
-            const rideFare =
-              routeDistance > 0
-                ? calcFareNaira(routeDistance, ride.multiplier)
-                : null;
 
-            // BUG 3: Per-ride eligibility — each option independently decides.
-            const rideQualifies =
-              loyaltyFreeRideBanked &&
-              rideFare !== null &&
-              rideFare <= FREE_RIDE_MAX_FARE_NAIRA;
-            const rideExceedsCap =
-              loyaltyFreeRideBanked &&
-              rideFare !== null &&
-              rideFare > FREE_RIDE_MAX_FARE_NAIRA;
+          {fareLoading ? (
+            <View style={s.modalLoadingWrap}>
+              <ActivityIndicator size="large" color="#1A1A1A" />
+              <Text style={s.modalLoadingText}>Loading fares…</Text>
+            </View>
+          ) : (
+            RIDE_TYPES.map((ride) => {
+              const isSelected = selectedRideType === ride.id;
+              // Fare comes from backend response, not local calculation
+              const rideFare = faresByType[ride.id] ?? null;
 
-            return (
-              <TouchableOpacity
-                key={ride.id}
-                style={[s.rideOption, isSelected && s.rideOptionSelected]}
-                onPress={() => selectRide(ride.id)}
-                activeOpacity={0.85}
-              >
-                <View style={[s.rideOptionIcon, { backgroundColor: ride.bg }]}>
-                  <Ionicons name={ride.icon} size={28} color={ride.color} />
-                </View>
-                <View style={s.rideOptionInfo}>
-                  <Text style={s.rideOptionName}>{ride.name}</Text>
-                  <Text style={s.rideOptionDesc}>
-                    {ride.eta} • {ride.desc}
-                  </Text>
-                </View>
-                <View style={s.rideOptionRight}>
-                  {rideFare &&
-                    (rideQualifies ? (
-                      // Fare ≤ ₦5,000 — show FREE
-                      <View style={{ alignItems: "flex-end" }}>
-                        <Text
-                          style={[
-                            s.rideOptionFare,
-                            {
-                              textDecorationLine: "line-through",
-                              color: "#aaa",
-                              fontSize: 13,
-                            },
-                          ]}
-                        >
-                          ₦{rideFare.toLocaleString()}
-                        </Text>
-                        <Text style={[s.rideOptionFare, { color: "#22C55E" }]}>
-                          FREE
-                        </Text>
-                      </View>
-                    ) : rideExceedsCap ? (
-                      // Fare > ₦5,000 — show normal fare + "pay normally" note
-                      <View style={{ alignItems: "flex-end" }}>
+              const rideQualifies =
+                loyaltyFreeRideBanked &&
+                rideFare !== null &&
+                rideFare <= FREE_RIDE_MAX_FARE_NAIRA;
+              const rideExceedsCap =
+                loyaltyFreeRideBanked &&
+                rideFare !== null &&
+                rideFare > FREE_RIDE_MAX_FARE_NAIRA;
+
+              return (
+                <TouchableOpacity
+                  key={ride.id}
+                  style={[s.rideOption, isSelected && s.rideOptionSelected]}
+                  onPress={() => selectRide(ride.id)}
+                  activeOpacity={0.85}
+                >
+                  <View
+                    style={[s.rideOptionIcon, { backgroundColor: ride.bg }]}
+                  >
+                    <Ionicons name={ride.icon} size={28} color={ride.color} />
+                  </View>
+                  <View style={s.rideOptionInfo}>
+                    <Text style={s.rideOptionName}>{ride.name}</Text>
+                    <Text style={s.rideOptionDesc}>
+                      {ride.eta} • {ride.desc}
+                    </Text>
+                  </View>
+                  <View style={s.rideOptionRight}>
+                    {rideFare !== null ? (
+                      rideQualifies ? (
+                        <View style={{ alignItems: "flex-end" }}>
+                          <Text
+                            style={[
+                              s.rideOptionFare,
+                              {
+                                textDecorationLine: "line-through",
+                                color: "#aaa",
+                                fontSize: 13,
+                              },
+                            ]}
+                          >
+                            ₦{rideFare.toLocaleString()}
+                          </Text>
+                          <Text
+                            style={[s.rideOptionFare, { color: "#22C55E" }]}
+                          >
+                            FREE
+                          </Text>
+                        </View>
+                      ) : rideExceedsCap ? (
+                        <View style={{ alignItems: "flex-end" }}>
+                          <Text style={s.rideOptionFare}>
+                            ₦{rideFare.toLocaleString()}
+                          </Text>
+                          <Text style={s.rideOptionCapNote}>Pay normally</Text>
+                        </View>
+                      ) : (
                         <Text style={s.rideOptionFare}>
                           ₦{rideFare.toLocaleString()}
                         </Text>
-                        <Text style={s.rideOptionCapNote}>Pay normally</Text>
-                      </View>
+                      )
                     ) : (
-                      <Text style={s.rideOptionFare}>
-                        ₦{rideFare.toLocaleString()}
+                      <Text style={[s.rideOptionFare, { color: "#ccc" }]}>
+                        —
                       </Text>
-                    ))}
-                  {isSelected && (
-                    <View style={s.rideOptionCheck}>
-                      <Ionicons name="checkmark" size={14} color="#fff" />
-                    </View>
-                  )}
-                </View>
-              </TouchableOpacity>
-            );
-          })}
+                    )}
+                    {isSelected && (
+                      <View style={s.rideOptionCheck}>
+                        <Ionicons name="checkmark" size={14} color="#fff" />
+                      </View>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          )}
           <View style={{ height: Platform.OS === "ios" ? 28 : 12 }} />
         </View>
       </Modal>
@@ -2207,6 +2165,16 @@ const s = StyleSheet.create({
     borderTopColor: "#F5F5F0",
   },
   routeLoadingText: { marginLeft: 10, fontSize: 13, color: "#888" },
+  fareErrorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F5F5F0",
+    gap: 6,
+  },
+  fareErrorText: { fontSize: 12, color: "#EF4444", fontWeight: "600" },
 
   bottomSheet: {
     position: "absolute",
@@ -2266,7 +2234,6 @@ const s = StyleSheet.create({
     marginBottom: 6,
   },
 
-  // Free fare display in ride picker
   freeFareBadge: { alignItems: "flex-end", marginBottom: 6 },
   freeFareOld: {
     fontSize: 12,
@@ -2400,9 +2367,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  requestBtnFree: {
-    backgroundColor: "#15803D",
-  },
+  requestBtnFree: { backgroundColor: "#15803D" },
   requestBtnDisabled: { backgroundColor: "#C0C0C0" },
   requestBtnText: {
     color: "#fff",
@@ -2437,12 +2402,21 @@ const s = StyleSheet.create({
     borderBottomColor: "#F0F0F0",
   },
   rideModalTitle: { fontSize: 18, fontWeight: "800", color: "#1A1A1A" },
-  // BUG 3: Cap hint shown under the modal title when a free ride is banked
   rideModalCapHint: {
     fontSize: 11,
     color: "#22C55E",
     fontWeight: "600",
     marginTop: 4,
+  },
+  modalLoadingWrap: {
+    paddingVertical: 40,
+    alignItems: "center",
+    gap: 12,
+  },
+  modalLoadingText: {
+    fontSize: 14,
+    color: "#888",
+    fontWeight: "500",
   },
   rideOption: {
     flexDirection: "row",
@@ -2479,7 +2453,6 @@ const s = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  // BUG 3: Amber note on ride options that exceed the ₦5,000 cap
   rideOptionCapNote: {
     fontSize: 9,
     color: "#D97706",
