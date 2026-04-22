@@ -46,7 +46,7 @@
 //     as naira. Do NOT pass kobo here or amounts will be 100x too large.
 // ────────────────────────────────────────────────────────────────────────────
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -68,7 +68,7 @@ import { useNavigation } from "@react-navigation/native";
 import * as WebBrowser from "expo-web-browser";
 import { getAuthToken } from "../../utils/auth";
 
-const BASE_URL = "https://wheels-backend-7ydc.onrender.com";
+import { BASE_URL } from '../../config';
 
 // ─── Transaction display map ─────────────────────────────────────────────────
 

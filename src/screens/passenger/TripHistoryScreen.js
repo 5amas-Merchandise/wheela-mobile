@@ -1,5 +1,5 @@
 // src/screens/passenger/TripHistoryScreen.js
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { getAuthToken } from "../../utils/auth";
 
-const API_BASE_URL = "https://wheels-backend-7ydc.onrender.com";
+import { BASE_URL as API_BASE_URL } from '../../config';
 const GOOGLE_API_KEY = "AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo";
 const LIMIT = 20;
 

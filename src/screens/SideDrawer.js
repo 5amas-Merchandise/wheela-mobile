@@ -1,5 +1,5 @@
 // src/screens/SideDrawer.js
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,7 @@ import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getAuthToken, logout, removeAuthToken } from "../utils/auth";
 
-const baseUrl = "https://wheels-backend-7ydc.onrender.com";
+import { BASE_URL as baseUrl } from '../config';
 const USER_PROFILE_CACHE_KEY = "USER_PROFILE_CACHE";
 const USER_PROFILE_TIMESTAMP_KEY = "USER_PROFILE_TIMESTAMP";
 const CACHE_DURATION = 5 * 60 * 1000;

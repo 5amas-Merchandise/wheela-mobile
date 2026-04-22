@@ -1,5 +1,5 @@
 // src/screens/driver/RideRequestScreen.js
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -23,10 +23,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { getAuthToken } from "../../utils/auth";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
+import { BASE_URL as baseUrl } from '../../config';
 
 const { width, height } = Dimensions.get("window");
 const ASPECT_RATIO = width / height;
-const baseUrl = "https://wheels-backend-7ydc.onrender.com";
 const GOOGLE_API_KEY = "AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo";
 
 const MAP_STYLE = [

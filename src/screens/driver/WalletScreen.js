@@ -1,5 +1,5 @@
 // src/screens/passenger/WalletScreen.js
-import React, { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,7 @@ import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { getAuthToken } from "../../utils/auth";
 
-const BASE_URL = "https://wheels-backend-7ydc.onrender.com";
+import { BASE_URL } from '../../config';
 
 // ── Transaction display helpers ───────────────────────────────────────────────
 const CATEGORY_META = {

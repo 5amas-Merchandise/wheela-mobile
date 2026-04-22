@@ -1,5 +1,5 @@
 // src/screens/passenger/HaulageLogisticsScreen.js
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,

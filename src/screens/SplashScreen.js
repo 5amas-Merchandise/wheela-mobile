@@ -1,5 +1,5 @@
 // src/screens/SplashScreen.js
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { View, Image, Text, StyleSheet, StatusBar, Animated } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { getAuthToken, getUserRole } from '../utils/auth'; // Import from your auth utils

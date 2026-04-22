@@ -1,5 +1,5 @@
 // src/screens/WelcomeScreen.js
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 import {
   View,
   Image,

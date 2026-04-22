@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,9 +15,9 @@ import axios from 'axios';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { getAuthToken, logout } from '../../utils/auth';
+import { getAuthToken, removeAuthToken } from '../../utils/auth';
 
-const baseUrl =  "https://wheels-backend.vercel.app";
+import { BASE_URL as baseUrl } from '../../config';
 
 export default function ProfileScreen() {
   const navigation = useNavigation();

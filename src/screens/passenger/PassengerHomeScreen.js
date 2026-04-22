@@ -1,5 +1,5 @@
 // src/screens/passenger/PassengerHomeScreen.js
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -28,13 +28,13 @@ import {
   isWebSocketConnected,
 } from "../../utils/socket";
 import { getAuthToken } from "../../utils/auth";
+import { BASE_URL } from '../../config';
 
 const { width, height } = Dimensions.get("window");
 const ASPECT_RATIO = width / height;
 const LATITUDE_DELTA = 0.012;
 const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
 const GOOGLE_API_KEY = "AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo";
-const BASE_URL = "https://wheels-backend-7ydc.onrender.com";
 const TRIPS_REQUIRED = 5;
 
 // ─────────────────────────────────────────────────────────────────────────────

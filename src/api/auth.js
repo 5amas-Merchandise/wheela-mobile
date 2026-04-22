@@ -1,15 +1,8 @@
 import axios from 'axios'
-import Constants from 'expo-constants'
-
-const baseUrl = (
-  (Constants.manifest && Constants.manifest.extra && Constants.manifest.extra.baseUrl) ||
-  (Constants.expoConfig && Constants.expoConfig.extra && Constants.expoConfig.extra.baseUrl) ||
-  process.env.BASE_URL ||
-  ''
-)
+import { BASE_URL } from '../config'
 
 const api = axios.create({
-  baseURL: baseUrl,
+  baseURL: BASE_URL,
   timeout: 15000,
   headers: { 'Content-Type': 'application/json' },
 })

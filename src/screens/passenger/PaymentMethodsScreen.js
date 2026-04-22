@@ -1,5 +1,5 @@
 // src/screens/passenger/PaymentMethodsScreen.js
-import React from 'react';
+
 import {
   View,
   Text,

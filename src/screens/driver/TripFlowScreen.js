@@ -1,5 +1,5 @@
 // src/screens/driver/TripFlowScreen.js
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { getAuthToken } from "../../utils/auth";
 
-const BASE_URL = "https://wheels-backend-7ydc.onrender.com";
+import { BASE_URL } from '../../config';
 const GOOGLE_API_KEY = "AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo";
 
 function decodePolyline(encoded) {

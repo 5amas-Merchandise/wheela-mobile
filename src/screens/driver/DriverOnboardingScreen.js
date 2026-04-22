@@ -1,10 +1,10 @@
-import React, { useState } from 'react'
+import { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, Alert } from 'react-native'
 import axios from 'axios'
 import Constants from 'expo-constants'
 import { useNavigation } from '@react-navigation/native'
 
-const baseUrl = 'https://wheels-backend-7ydc.onrender.com'
+import { BASE_URL as baseUrl } from '../../config';
 
 export default function DriverOnboardingScreen() {
   const navigation = useNavigation()

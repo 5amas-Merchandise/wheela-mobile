@@ -1,5 +1,5 @@
 // src/screens/passenger/SearchDestinationScreen.js
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,

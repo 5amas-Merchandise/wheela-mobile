@@ -1,5 +1,5 @@
 // src/screens/passenger/IntercityBookingsScreen.js
-import React, { useState, useCallback } from "react";
+import { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,7 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import axios from "axios";
 import * as Auth from "../../utils/auth";
 
-const API_URL = "https://wheels-backend-7ydc.onrender.com";
+import { BASE_URL as API_URL } from '../../config';
 
 const STATUS_CONFIG = {
   confirmed: {

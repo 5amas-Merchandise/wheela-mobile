@@ -1,5 +1,5 @@
 // src/screens/driver/DriverOnlineMapScreen.js
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -23,7 +23,6 @@ import MapView, {
 } from "react-native-maps";
 import * as Location from "expo-location";
 import { Audio } from "expo-av";
-import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { getAuthToken } from "../../utils/auth";
@@ -37,7 +36,7 @@ import {
 } from "../../utils/socket";
 import * as Notifications from "expo-notifications";
 
-const baseUrl = "https://wheels-backend-7ydc.onrender.com";
+import { BASE_URL as baseUrl } from '../../config';
 const { width, height } = Dimensions.get("window");
 const LATITUDE_DELTA = 0.008;
 const LONGITUDE_DELTA = LATITUDE_DELTA * (width / height);

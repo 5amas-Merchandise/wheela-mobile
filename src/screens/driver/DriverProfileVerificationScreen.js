@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -20,8 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 // Auth utility
 import { getAuthToken } from "../../utils/auth";
 
-// Backend URL
-const baseUrl = "https://wheels-backend-7ydc.onrender.com";
+import { BASE_URL as baseUrl } from '../../config';
 
 // Cloudinary Config
 const CLOUDINARY_CLOUD = "ddlee3b3s";

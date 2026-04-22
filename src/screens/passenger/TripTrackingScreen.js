@@ -1,5 +1,5 @@
 // src/screens/passenger/TripTrackingScreen.js
-import React, { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -21,9 +21,9 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { getAuthToken } from "../../utils/auth";
 import * as Location from "expo-location";
+import { BASE_URL as baseUrl } from '../../config';
 
 const { width, height } = Dimensions.get("window");
-const baseUrl = "https://wheels-backend-7ydc.onrender.com";
 const GOOGLE_MAPS_API_KEY = "AIzaSyAbOQwCqiWYfyKe-t1SmzUcfgNVFYaXTFo";
 
 const MAP_STYLE = [

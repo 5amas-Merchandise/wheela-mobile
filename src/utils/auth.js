@@ -66,6 +66,14 @@ export const logout = async () => {
   }
 };
 
+export const removeAuthToken = async () => {
+  try {
+    await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY, ROLE_KEY]);
+  } catch (e) {
+    console.error('Error removing auth token:', e);
+  }
+};
+
 export const isAuthenticated = async () => {
   const token = await getAuthToken();
   return !!token;

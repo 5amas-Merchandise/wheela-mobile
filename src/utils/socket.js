@@ -9,8 +9,7 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 8;
 const BASE_RECONNECT_DELAY = 1500; // ms
 
-// ⚠️ CRITICAL FIX: Use the SAME base URL as your REST API
-const BASE_WS_URL = 'wss://wheels-backend-7ydc.onrender.com'; // Changed from wheels-backend-7ydc.onrender.com
+import { BASE_WS_URL } from '../config';
 
 // Global event listeners (simple pub/sub style)
 const listeners = new Map(); // eventName → Set<callback>

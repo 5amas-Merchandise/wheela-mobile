@@ -1,5 +1,5 @@
 // src/screens/LoginScreen.js
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,23 +19,10 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
+import { BASE_URL } from '../../config';
 
 const WHEELA_LOGO = require('../../../assets/logo3.png');
 const { width, height } = Dimensions.get('window');
-const BASE_URL = 'https://wheels-backend-7ydc.onrender.com';
-
-export const TOKEN_KEY = 'WHEELA_TOKEN';
-export const USER_KEY  = 'WHEELA_USER';
-export const ROLE_KEY  = 'WHEELA_ROLE';
-
-export const getAuthToken = async () => {
-  try   { return await AsyncStorage.getItem(TOKEN_KEY); }
-  catch { return null; }
-};
-export const getStoredUser = async () => {
-  try   { const j = await AsyncStorage.getItem(USER_KEY); return j ? JSON.parse(j) : null; }
-  catch { return null; }
-};
 
 export default function LoginScreen({ navigation }) {
   const [identifier, setIdentifier] = useState('+234');

@@ -1,5 +1,5 @@
 // src/screens/passenger/IntercityBookingFormScreen.js
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,7 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import axios from "axios";
 import * as Auth from "../../utils/auth";
 
-const API_URL = "https://wheels-backend-7ydc.onrender.com";
+import { BASE_URL as API_URL } from '../../config';
 const axiosInstance = axios.create({ timeout: 30000 });
 
 export default function IntercityBookingFormScreen() {

@@ -1,5 +1,5 @@
 // src/screens/passenger/TripCompletedScreen.js
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,9 +16,9 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { getAuthToken } from "../../utils/auth";
+import { BASE_URL as baseUrl } from '../../config';
 
 const { width } = Dimensions.get("window");
-const baseUrl = "https://wheels-backend-7ydc.onrender.com";
 
 const SERVICE_LABELS = {
   CITY_RIDE: "City Ride",

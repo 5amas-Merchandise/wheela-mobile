@@ -1,5 +1,5 @@
 // src/screens/passenger/DriverMatchingScreen.js
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { getAuthToken, getStoredUser } from '../../utils/auth';
+import { getAuthToken } from '../../utils/auth';
 import {
   initWebSocket,
   sendWS,
@@ -22,9 +22,9 @@ import {
   removeListener,
   isWebSocketConnected,
 } from '../../utils/socket';
+import { BASE_URL as baseUrl } from '../../config';
 
 const { width, height } = Dimensions.get('window');
-const baseUrl = 'https://wheels-backend-7ydc.onrender.com';
 
 const SERVICE_META = {
   CITY_RIDE:     { label: 'City Ride', icon: 'car-sport', color: '#1A1A1A' },

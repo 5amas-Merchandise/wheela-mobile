@@ -1,5 +1,5 @@
 // src/screens/passenger/CityToCityScreen.js
-import React, { useState } from "react";
+import { useState } from 'react';
 import {
   View,
   Text,
@@ -20,7 +20,7 @@ import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import axios from "axios";
 
-const API_URL = "https://wheels-backend-7ydc.onrender.com";
+import { BASE_URL as API_URL } from '../../config';
 
 const NIGERIA_STATES = [
   "Abia",

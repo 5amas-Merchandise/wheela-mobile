@@ -1,5 +1,5 @@
 // src/screens/auth/SignupScreen.js
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,10 +19,10 @@ import {
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
+import { BASE_URL } from '../../config';
 
 const WHEELA_LOGO = require('../../../assets/logo3.png');
 const { width, height } = Dimensions.get('window');
-const BASE_URL = 'https://wheels-backend-7ydc.onrender.com';
 
 export default function SignupScreen() {
   const navigation = useNavigation();
